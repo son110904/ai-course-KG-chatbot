@@ -1,4 +1,4 @@
-# GraphRAG chatbot cho chương trình đào tạo (Neo4j Aura)
+# GraphRAG chatbot (Neo4j Aura)
 
 Pipeline hiện tại:
 1. **Load dữ liệu** từ MinIO (`docx`, `pdf`).
