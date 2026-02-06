@@ -1,4 +1,5 @@
 import io
+from dataclasses import dataclass, field
 from minio import Minio
 from docx import Document
 from pypdf import PdfReader
@@ -10,6 +11,12 @@ client = Minio(
     secret_key=MINIO_SECRET_KEY,
     secure=False
 )
+
+@dataclass
+class LoadedDocument:
+    content: str = ""
+    source: str = ""
+    metadata: dict = field(default_factory=dict)
 
 def read_docx(data: bytes) -> str:
     doc = Document(io.BytesIO(data))
@@ -44,9 +51,10 @@ def load_documents():
         else:
             text = read_pdf(data)
 
-        documents.append({
-            "content": text,
-            "source": obj.object_name
-        })
+        documents.append(LoadedDocument(
+            content=text,
+            source=obj.object_name,
+            metadata={"bucket": MINIO_BUCKET}
+        ))
 
     return documents
