@@ -1,4 +1,4 @@
-from minio_loader import load_documents
+from minio_loader import LoadedDocument
 from chunking import chunk_documents
 from graph_extractor import extract_graph
 from neo4j_store import save_graph
