@@ -4,7 +4,7 @@ from typing import Dict, List
 
 from langchain_openai import ChatOpenAI
 
-from config import OPENAI_MODEL, OPENAI_TEMPERATURE
+from config.config import OPENAI_MODEL, OPENAI_TEMPERATURE
 
 llm = ChatOpenAI(model=OPENAI_MODEL, temperature=OPENAI_TEMPERATURE)
 

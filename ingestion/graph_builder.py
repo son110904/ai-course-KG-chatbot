@@ -29,7 +29,7 @@ class GraphBuilder:
         self.llm = llm
         
         if llm:
-            from .prompts import DESCRIPTION_SUMMARIZATION_PROMPT
+            from ..retrieval.prompts import DESCRIPTION_SUMMARIZATION_PROMPT
             self.summarization_prompt = PromptTemplate.from_template(
                 DESCRIPTION_SUMMARIZATION_PROMPT
             )

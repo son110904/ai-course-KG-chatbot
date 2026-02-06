@@ -3,15 +3,15 @@ from typing import List
 
 from langchain_openai import ChatOpenAI
 
-from config import (
+from config.config import (
     GRAPH_RAG_MAX_FACTS,
     GRAPH_RAG_MAX_HITS,
     GRAPH_RAG_MAX_HOPS,
     OPENAI_MODEL,
     OPENAI_TEMPERATURE,
 )
-from neo4j_store import driver
-from config import NEO4J_DATABASE
+from storage.neo4j_store import driver
+from config.config import NEO4J_DATABASE
 
 llm = ChatOpenAI(model=OPENAI_MODEL, temperature=OPENAI_TEMPERATURE)
 

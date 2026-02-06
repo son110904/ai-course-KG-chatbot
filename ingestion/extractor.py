@@ -237,7 +237,7 @@ class EntityRelationshipExtractor:
         
         # Use default prompt if not provided
         if prompt_template is None:
-            from .prompts import DEFAULT_ENTITY_EXTRACTION_PROMPT
+            from ..retrieval.prompts import DEFAULT_ENTITY_EXTRACTION_PROMPT
             prompt_template = DEFAULT_ENTITY_EXTRACTION_PROMPT
         
         # Create prompt

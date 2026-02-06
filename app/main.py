@@ -1,9 +1,9 @@
 import logging
 from uuid import uuid4
 
-from chatbot import chatbot
-from chunking import chunk_documents
-from config import (
+from app.chatbot import chatbot
+from ingestion.chunking import chunk_documents
+from config.config import (
     MINIO_ACCESS_KEY,
     MINIO_BUCKET,
     MINIO_ENDPOINT,
@@ -11,9 +11,9 @@ from config import (
     MINIO_SECRET_KEY,
     MINIO_SECURE,
 )
-from graph_extractor import extract_graph
-from minio_loader import create_document_loader
-from neo4j_store import ensure_schema, save_graph
+from ingestion.graph_extractor import extract_graph
+from ingestion.minio_loader import create_document_loader
+from storage.neo4j_store import ensure_schema, save_graph
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

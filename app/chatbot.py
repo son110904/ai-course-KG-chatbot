@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 
-from config import OPENAI_MODEL, OPENAI_TEMPERATURE
-from retriever import graph_retrieve
+from config.config import OPENAI_MODEL, OPENAI_TEMPERATURE
+from retrieval.retriever import graph_retrieve
 
 llm = ChatOpenAI(model=OPENAI_MODEL, temperature=OPENAI_TEMPERATURE)
 
