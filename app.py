@@ -1,229 +1,235 @@
 from openai import OpenAI
-import networkx as nx
-from cdlib import algorithms
-import os
+from neo4j import GraphDatabase
 from dotenv import load_dotenv
-from docx_reader import read_docx_from_directory
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from docx_reader import read_docx_from_directory
+import os
 import time
 
-# =========================================================
+# ======================================================
 # ENV
-# =========================================================
+# ======================================================
 load_dotenv()
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# =========================================================
-# ULTRA FAST CONFIG
-# =========================================================
-MAX_WORKERS = 15
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+NEO4J_URI = os.getenv("NEO4J_URI")        # bolt://localhost:7687
+NEO4J_USER = os.getenv("NEO4J_USER")      # neo4j
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+driver = GraphDatabase.driver(
+    NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
+)
+
+# ======================================================
+# CONFIG
+# ======================================================
+MAX_WORKERS = 12
 CHUNK_SIZE = 2000
 OVERLAP_SIZE = 300
 USE_MINI_MODEL = True
 
-# =========================================================
-# BATCH LLM CALL
-# =========================================================
-def batch_api_call(items, system_prompt, user_template, max_tokens=300):
-    results = [None] * len(items)
 
-    def process_item(item_data):
-        index, item = item_data
-        try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini" if USE_MINI_MODEL else "gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_template.format(item=item[:1500])}
-                ],
-                max_tokens=max_tokens
-            )
-            return index, response.choices[0].message.content
-        except Exception as e:
-            print(f"[WARN] Chunk {index} failed: {e}")
-            return index, ""
-
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {
-            executor.submit(process_item, (i, item)): i
-            for i, item in enumerate(items)
-        }
-        for future in as_completed(futures):
-            idx, res = future.result()
-            results[idx] = res
-
-    return [r for r in results if r]
+# ======================================================
+# NEO4J HELPERS
+# ======================================================
+def save_entity(tx, name):
+    tx.run(
+        "MERGE (:Entity {name: $name})",
+        name=name
+    )
 
 
-# =========================================================
-# MAIN PIPELINE
-# =========================================================
-def ultra_fast_pipeline(documents, query):
-    start_time = time.time()
+def save_relation(tx, src, rel, tgt):
+    tx.run(
+        """
+        MERGE (a:Entity {name: $src})
+        MERGE (b:Entity {name: $tgt})
+        MERGE (a)-[:REL {type: $rel}]->(b)
+        """,
+        src=src, tgt=tgt, rel=rel
+    )
 
-    print("\n" + "=" * 80)
-    print("ULTRA-FAST GRAPH RAG PIPELINE (EDGE-AWARE)")
-    print("=" * 80)
 
-    # -----------------------------------------------------
-    # STEP 1: CHUNKING
-    # -----------------------------------------------------
-    print(f"\n[1/5] Chunking {len(documents)} documents...")
-    chunks = []
-    for doc in documents:
-        for i in range(0, len(doc), CHUNK_SIZE - OVERLAP_SIZE):
-            chunks.append(doc[i:i + CHUNK_SIZE])
-    print(f"  ✓ {len(chunks)} chunks created")
+# ======================================================
+# CLEAN CYPHER
+# ======================================================
+def clean_cypher(text: str) -> str:
+    text = text.strip()
 
-    # -----------------------------------------------------
-    # STEP 2: ENTITY + RELATION EXTRACTION
-    # -----------------------------------------------------
-    print(f"\n[2/5] Extracting entities & relations (parallel)...")
+    if text.startswith("```"):
+        lines = text.splitlines()
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        text = "\n".join(lines)
 
+    return text.strip().rstrip(";")
+
+
+# ======================================================
+# BATCH LLM EXTRACTION
+# ======================================================
+def batch_extract(chunks):
     system_prompt = """
 You are an information extraction system.
 
-Extract ENTITIES and RELATIONSHIPS from the text.
+Extract entities and relationships from the text.
 
-STRICT FORMAT (no explanation, no markdown):
+STRICT FORMAT ONLY:
 
 ENTITY: <entity name>
 RELATION: <entity_1> -> <relation> -> <entity_2>
 
 Rules:
-- Use '->' exactly for relations
-- Entity names: max 5 words
-- Use Vietnamese if the text is Vietnamese
-- Do NOT invent relations not present in text
-
-Example:
-ENTITY: Hệ điều hành
-ENTITY: Tiến trình
-RELATION: Hệ điều hành -> quản lý -> Tiến trình
+- Use Vietnamese if text is Vietnamese
+- Max 5 words per entity
+- Use '->' exactly
+- No explanations
 """
 
-    elements = batch_api_call(
-        chunks,
-        system_prompt=system_prompt,
-        user_template="{item}",
-        max_tokens=350
-    )
+    results = []
 
-    print(f"  ✓ {len(elements)} extraction results")
+    def process(chunk):
+        try:
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini" if USE_MINI_MODEL else "gpt-4o",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": chunk[:1500]}
+                ],
+                max_tokens=350
+            )
+            return resp.choices[0].message.content
+        except Exception as e:
+            print("[WARN] Extract failed:", e)
+            return ""
 
-    # -----------------------------------------------------
-    # STEP 3: BUILD GRAPH (EDGE-FIRST)
-    # -----------------------------------------------------
-    print(f"\n[3/5] Building graph...")
-    G = nx.Graph()
+    with ThreadPoolExecutor(MAX_WORKERS) as ex:
+        futures = [ex.submit(process, c) for c in chunks]
+        for f in as_completed(futures):
+            r = f.result()
+            if r:
+                results.append(r)
 
-    for elem in elements:
-        lines = [l.strip() for l in elem.split("\n") if l.strip()]
-        for line in lines:
-            if line.startswith("RELATION:"):
-                try:
-                    _, rel = line.split(":", 1)
-                    src, _, tgt = [p.strip() for p in rel.split("->")]
-                    if len(src) > 2 and len(tgt) > 2:
-                        G.add_edge(src, tgt)
-                except:
-                    pass
+    return results
 
-            elif line.startswith("ENTITY:"):
-                node = line.replace("ENTITY:", "").strip()
-                if len(node) > 2:
-                    G.add_node(node)
 
-    print(f"  ✓ Nodes: {G.number_of_nodes()}")
-    print(f"  ✓ Edges: {G.number_of_edges()}")
-    print(f"  ✓ Sample edges: {list(G.edges())[:5]}")
+# ======================================================
+# INGEST PIPELINE
+# ======================================================
+def ingest_documents(documents):
+    print("\n[1/3] Chunking documents...")
+    chunks = []
+    for doc in documents:
+        for i in range(0, len(doc), CHUNK_SIZE - OVERLAP_SIZE):
+            chunks.append(doc[i:i + CHUNK_SIZE])
+    print(f"  ✓ {len(chunks)} chunks")
 
-    # -----------------------------------------------------
-    # STEP 4: COMMUNITY DETECTION (LEIDEN)
-    # -----------------------------------------------------
-    print(f"\n[4/5] Detecting communities...")
+    print("\n[2/3] Extracting entities & relations...")
+    extracted = batch_extract(chunks)
+    print(f"  ✓ {len(extracted)} extraction results")
 
-    communities = []
+    print("\n[3/3] Saving to Neo4j...")
+    with driver.session() as session:
+        for block in extracted:
+            lines = [l.strip() for l in block.split("\n") if l.strip()]
+            for line in lines:
+                if line.startswith("ENTITY:"):
+                    name = line.replace("ENTITY:", "").strip()
+                    if len(name) > 2:
+                        session.execute_write(save_entity, name)
 
-    for component in nx.connected_components(G):
-        if len(component) > 2:
-            subgraph = G.subgraph(component)
-            try:
-                comms = algorithms.leiden(subgraph)
-                communities.extend([list(c) for c in comms.communities])
-            except:
-                communities.append(list(component))
-        else:
-            communities.append(list(component))
+                elif line.startswith("RELATION:"):
+                    try:
+                        _, body = line.split(":", 1)
+                        src, rel, tgt = [p.strip() for p in body.split("->")]
+                        if len(src) > 2 and len(tgt) > 2:
+                            session.execute_write(
+                                save_relation, src, rel, tgt
+                            )
+                    except:
+                        pass
 
-    large_communities = [c for c in communities if len(c) >= 3]
-    if not large_communities:
-        large_communities = communities
+    print("  ✓ Neo4j ingest complete")
 
-    print(f"  ✓ {len(large_communities)} communities")
 
-    # -----------------------------------------------------
-    # STEP 5: FINAL ANSWER GENERATION
-    # -----------------------------------------------------
-    print(f"\n[5/5] Generating answer...")
+# ======================================================
+# QUERY PIPELINE (GRAPH RAG)
+# ======================================================
+def answer_question(question):
+    cypher_prompt = f"""
+Convert the question into a Cypher query.
 
-    comm_desc = []
-    for i, comm in enumerate(large_communities[:12]):
-        comm_desc.append(f"Nhóm {i+1}: {', '.join(comm[:10])}")
+Graph schema:
+(:Entity)-[:REL {{type}}]->(:Entity)
 
-    response = client.chat.completions.create(
+RULES:
+- Output ONLY Cypher
+- NO markdown
+- NO ``` blocks
+- Start with MATCH or RETURN
+
+Question:
+{question}
+"""
+
+    raw_cypher = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": cypher_prompt}],
+        max_tokens=200
+    ).choices[0].message.content
+
+    cypher = clean_cypher(raw_cypher)
+
+    print("\n[Cypher generated]")
+    print(cypher)
+
+    with driver.session() as session:
+        records = session.run(cypher)
+        facts = []
+        for r in records:
+            facts.append(" - ".join(str(v) for v in r.values()))
+
+    context = "\n".join(facts[:30])
+
+    final_answer = client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {
                 "role": "system",
-                "content": "Dựa trên các nhóm khái niệm và quan hệ, hãy trả lời câu hỏi một cách chi tiết bằng tiếng Việt."
+                "content": "Dựa trên dữ liệu đồ thị, hãy trả lời chính xác bằng tiếng Việt."
             },
             {
                 "role": "user",
                 "content": f"""
-Câu hỏi: {query}
+Câu hỏi: {question}
 
-Các nhóm kiến thức chính:
-{chr(10).join(comm_desc)}
+Dữ liệu đồ thị:
+{context}
 """
             }
         ],
-        max_tokens=1000
+        max_tokens=800
     )
 
-    elapsed = time.time() - start_time
-    print("\n" + "=" * 80)
-    print(f"✓ HOÀN THÀNH – {elapsed:.1f}s")
-    print("=" * 80)
-
-    return response.choices[0].message.content
+    return final_answer.choices[0].message.content
 
 
-# =========================================================
+# ======================================================
 # ENTRY POINT
-# =========================================================
+# ======================================================
 if __name__ == "__main__":
     print("=" * 80)
-    print("GRAPH RAG – EDGE-AWARE ULTRA FAST")
+    print("NEO4J GRAPH RAG (NO EMBEDDING) – FIXED")
     print("=" * 80)
 
-    documents = read_docx_from_directory("example_docx")
+    docs = read_docx_from_directory("example_docx")
+    ingest_documents(docs)
 
-    if not documents:
-        print("❌ Không tìm thấy file .docx")
-        exit(1)
-
-    print(f"✓ Loaded {len(documents)} documents")
-    print(f"✓ Total characters: {sum(len(d) for d in documents):,}")
-
-    query = input("\nCâu hỏi: ").strip()
-    if not query:
-        query = "Tổng hợp nội dung chính của các tài liệu"
-
-    answer = ultra_fast_pipeline(documents, query)
-
-    print("\n" + "=" * 80)
-    print("ANSWER")
-    print("=" * 80)
-    print(answer)
-    print("=" * 80)
+    while True:
+        q = input("\nCâu hỏi (enter để thoát): ").strip()
+        if not q:
+            break
+        ans = answer_question(q)
+        print("\nANSWER")
+        print("-" * 80)
+        print(ans)
