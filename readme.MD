@@ -14,29 +14,21 @@ Pipeline hiện tại:
    - mở rộng neighborhood để lấy fact liên quan
    - trả context cho LLM trả lời.
 
-## Biến môi trường cần có
+## System prompt for LLM
+You are an information extraction system.
 
-```env
-MINIO_ENDPOINT=
-MINIO_ACCESS_KEY=
-MINIO_SECRET_KEY=
-MINIO_BUCKET=
-MINIO_PREFIX=
-MINIO_SECURE=false
+Extract entities and relationships from the text.
 
-NEO4J_URI=neo4j+s://<aura-id>.databases.neo4j.io
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=
-NEO4J_DATABASE=neo4j
+STRICT FORMAT ONLY:
 
-OPENAI_MODEL=gpt-4o-mini
-OPENAI_TEMPERATURE=0
+ENTITY: <entity name>
+RELATION: <entity_1> -> <relation> -> <entity_2>
 
-GRAPH_RAG_MAX_HITS=8
-GRAPH_RAG_MAX_HOPS=2
-GRAPH_RAG_MAX_FACTS=30
-```
-
+Rules:
+- Use Vietnamese if text is Vietnamese
+- Max 5 words per entity
+- Use '->' exactly
+- No explanations
 ## Chạy ingest + demo hỏi đáp
 
 ```bash
