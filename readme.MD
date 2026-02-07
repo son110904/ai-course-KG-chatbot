@@ -32,5 +32,5 @@ Rules:
 ## Chạy ingest + demo hỏi đáp
 
 ```bash
-python main.py
+python app.py
 ```
