@@ -1,235 +1,291 @@
 from openai import OpenAI
-from neo4j import GraphDatabase
 from dotenv import load_dotenv
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from docx_reader import read_docx_from_directory
 import os
 import time
 
-# ======================================================
-# ENV
-# ======================================================
+from document_processor import DocumentProcessor
+from graph_database import GraphDatabaseConnection
+from graph_manager import GraphManager
+from query_handler import QueryHandler
+from document_processor import read_docx_from_directory
+from logger import Logger
+
+# =========================================================
+# CONFIGURATION
+# =========================================================
 load_dotenv()
 
+# Environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-NEO4J_URI = os.getenv("NEO4J_URI")        # bolt://localhost:7687
-NEO4J_USER = os.getenv("NEO4J_USER")      # neo4j
-NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
+DB_URL = os.getenv("DB_URL")
+DB_USERNAME = os.getenv("DB_USERNAME", "neo4j")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
 
+# Validation
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY must be set in .env file")
+if not DB_URL or not DB_PASSWORD:
+    raise ValueError("Neo4j credentials (DB_URL, DB_PASSWORD) must be set in .env file")
+
+# Processing configuration
+MODEL = os.getenv("MODEL", "gpt-4o-mini")
+MAX_WORKERS = int(os.getenv("MAX_WORKERS", "10"))
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "2000"))
+OVERLAP_SIZE = int(os.getenv("OVERLAP_SIZE", "300"))
+DOCUMENT_DIR = os.getenv("DOCUMENT_DIR", "example_docx")
+
+# =========================================================
+# INITIALIZE COMPONENTS
+# =========================================================
+logger = Logger("MainApp").get_logger()
+
+logger.info("=" * 80)
+logger.info("GRAPHRAG CHATBOT - NEO4J ONLY MODE")
+logger.info("=" * 80)
+logger.info(f"Model: {MODEL}")
+logger.info(f"Neo4j URL: {DB_URL}")
+logger.info(f"Max Workers: {MAX_WORKERS}")
+logger.info(f"Chunk Size: {CHUNK_SIZE}")
+
+# Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
-driver = GraphDatabase.driver(
-    NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD)
+
+# Initialize document processor
+document_processor = DocumentProcessor(
+    client=client,
+    model=MODEL,
+    max_workers=MAX_WORKERS
 )
 
-# ======================================================
-# CONFIG
-# ======================================================
-MAX_WORKERS = 12
-CHUNK_SIZE = 2000
-OVERLAP_SIZE = 300
-USE_MINI_MODEL = True
-
-
-# ======================================================
-# NEO4J HELPERS
-# ======================================================
-def save_entity(tx, name):
-    tx.run(
-        "MERGE (:Entity {name: $name})",
-        name=name
+# Initialize database connection
+try:
+    db_connection = GraphDatabaseConnection(
+        uri=DB_URL,
+        user=DB_USERNAME,
+        password=DB_PASSWORD
     )
+    logger.info("✓ Neo4j connection established")
+except Exception as e:
+    logger.error(f"Failed to connect to Neo4j: {e}")
+    logger.error("Please ensure Neo4j is running and credentials are correct")
+    raise
 
+# Initialize graph manager (Neo4j only)
+graph_manager = GraphManager(db_connection=db_connection)
 
-def save_relation(tx, src, rel, tgt):
-    tx.run(
-        """
-        MERGE (a:Entity {name: $src})
-        MERGE (b:Entity {name: $tgt})
-        MERGE (a)-[:REL {type: $rel}]->(b)
-        """,
-        src=src, tgt=tgt, rel=rel
+# Initialize query handler
+query_handler = QueryHandler(
+    graph_manager=graph_manager,
+    client=client,
+    model="gpt-4o"  # Use better model for final answers
+)
+
+# =========================================================
+# PROCESSING PIPELINE
+# =========================================================
+
+def process_documents(documents, cache_prefix="default"):
+    """
+    Process documents through the full pipeline with caching.
+    
+    Args:
+        documents: List of document texts
+        cache_prefix: Prefix for cache files
+        
+    Returns:
+        Dict with processing results
+    """
+    start_time = time.time()
+    
+    logger.info("=" * 80)
+    logger.info("DOCUMENT PROCESSING PIPELINE")
+    logger.info("=" * 80)
+    
+    # Step 1: Chunking
+    logger.info(f"[1/3] Chunking {len(documents)} documents...")
+    chunks = document_processor.split_documents(
+        documents,
+        chunk_size=CHUNK_SIZE,
+        overlap_size=OVERLAP_SIZE
     )
-
-
-# ======================================================
-# CLEAN CYPHER
-# ======================================================
-def clean_cypher(text: str) -> str:
-    text = text.strip()
-
-    if text.startswith("```"):
-        lines = text.splitlines()
-        lines = [l for l in lines if not l.strip().startswith("```")]
-        text = "\n".join(lines)
-
-    return text.strip().rstrip(";")
-
-
-# ======================================================
-# BATCH LLM EXTRACTION
-# ======================================================
-def batch_extract(chunks):
-    system_prompt = """
-You are an information extraction system.
-
-Extract entities and relationships from the text.
-
-STRICT FORMAT ONLY:
-
-ENTITY: <entity name>
-RELATION: <entity_1> -> <relation> -> <entity_2>
-
-Rules:
-- Use Vietnamese if text is Vietnamese
-- Max 5 words per entity
-- Use '->' exactly
-- No explanations
-"""
-
-    results = []
-
-    def process(chunk):
-        try:
-            resp = client.chat.completions.create(
-                model="gpt-4o-mini" if USE_MINI_MODEL else "gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": chunk[:1500]}
-                ],
-                max_tokens=350
-            )
-            return resp.choices[0].message.content
-        except Exception as e:
-            print("[WARN] Extract failed:", e)
-            return ""
-
-    with ThreadPoolExecutor(MAX_WORKERS) as ex:
-        futures = [ex.submit(process, c) for c in chunks]
-        for f in as_completed(futures):
-            r = f.result()
-            if r:
-                results.append(r)
-
-    return results
-
-
-# ======================================================
-# INGEST PIPELINE
-# ======================================================
-def ingest_documents(documents):
-    print("\n[1/3] Chunking documents...")
-    chunks = []
-    for doc in documents:
-        for i in range(0, len(doc), CHUNK_SIZE - OVERLAP_SIZE):
-            chunks.append(doc[i:i + CHUNK_SIZE])
-    print(f"  ✓ {len(chunks)} chunks")
-
-    print("\n[2/3] Extracting entities & relations...")
-    extracted = batch_extract(chunks)
-    print(f"  ✓ {len(extracted)} extraction results")
-
-    print("\n[3/3] Saving to Neo4j...")
-    with driver.session() as session:
-        for block in extracted:
-            lines = [l.strip() for l in block.split("\n") if l.strip()]
-            for line in lines:
-                if line.startswith("ENTITY:"):
-                    name = line.replace("ENTITY:", "").strip()
-                    if len(name) > 2:
-                        session.execute_write(save_entity, name)
-
-                elif line.startswith("RELATION:"):
-                    try:
-                        _, body = line.split(":", 1)
-                        src, rel, tgt = [p.strip() for p in body.split("->")]
-                        if len(src) > 2 and len(tgt) > 2:
-                            session.execute_write(
-                                save_relation, src, rel, tgt
-                            )
-                    except:
-                        pass
-
-    print("  ✓ Neo4j ingest complete")
-
-
-# ======================================================
-# QUERY PIPELINE (GRAPH RAG)
-# ======================================================
-def answer_question(question):
-    cypher_prompt = f"""
-Convert the question into a Cypher query.
-
-Graph schema:
-(:Entity)-[:REL {{type}}]->(:Entity)
-
-RULES:
-- Output ONLY Cypher
-- NO markdown
-- NO ``` blocks
-- Start with MATCH or RETURN
-
-Question:
-{question}
-"""
-
-    raw_cypher = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": cypher_prompt}],
-        max_tokens=200
-    ).choices[0].message.content
-
-    cypher = clean_cypher(raw_cypher)
-
-    print("\n[Cypher generated]")
-    print(cypher)
-
-    with driver.session() as session:
-        records = session.run(cypher)
-        facts = []
-        for r in records:
-            facts.append(" - ".join(str(v) for v in r.values()))
-
-    context = "\n".join(facts[:30])
-
-    final_answer = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {
-                "role": "system",
-                "content": "Dựa trên dữ liệu đồ thị, hãy trả lời chính xác bằng tiếng Việt."
-            },
-            {
-                "role": "user",
-                "content": f"""
-Câu hỏi: {question}
-
-Dữ liệu đồ thị:
-{context}
-"""
-            }
-        ],
-        max_tokens=800
+    logger.info(f"  ✓ Created {len(chunks)} chunks")
+    
+    # Step 2: Entity & Relation Extraction (with caching)
+    logger.info(f"[2/3] Extracting entities & relations...")
+    elements = document_processor.load_or_process(
+        f"data/{cache_prefix}_elements.pkl",
+        document_processor.extract_elements,
+        chunks,
+        use_parallel=True
     )
+    logger.info(f"  ✓ Extracted {len(elements)} element sets")
+    
+    # Step 3: Build Graph in Neo4j
+    logger.info(f"[3/3] Building knowledge graph in Neo4j...")
+    graph_stats = graph_manager.build_graph_from_elements(elements)
+    logger.info(f"  ✓ Graph built: {graph_stats['nodes']} nodes, {graph_stats['edges']} edges")
+    
+    elapsed = time.time() - start_time
+    logger.info("=" * 80)
+    logger.info(f"✓ Processing complete in {elapsed:.1f}s")
+    logger.info("=" * 80)
+    
+    return {
+        'chunks': len(chunks),
+        'elements': len(elements),
+        'graph': graph_stats,
+        'time': elapsed
+    }
 
-    return final_answer.choices[0].message.content
 
-
-# ======================================================
-# ENTRY POINT
-# ======================================================
-if __name__ == "__main__":
-    print("=" * 80)
-    print("NEO4J GRAPH RAG (NO EMBEDDING) – FIXED")
-    print("=" * 80)
-
-    docs = read_docx_from_directory("example_docx")
-    ingest_documents(docs)
-
+def interactive_query_loop():
+    """
+    Run interactive query loop for user questions.
+    """
+    logger.info("\n" + "=" * 80)
+    logger.info("INTERACTIVE QUERY MODE")
+    logger.info("=" * 80)
+    print("\nAvailable commands:")
+    print("  - Type your question to get an answer")
+    print("  - 'stats' - Show graph statistics")
+    print("  - 'search <term>' - Search for entities")
+    print("  - 'neighbors <entity>' - Show entity neighbors")
+    print("  - 'method <communities|centrality>' - Change retrieval method")
+    print("  - 'exit' - Quit\n")
+    
+    current_method = 'communities'
+    
     while True:
-        q = input("\nCâu hỏi (enter để thoát): ").strip()
-        if not q:
+        try:
+            query = input("❓ Question: ").strip()
+            
+            if not query:
+                continue
+            
+            if query.lower() in ['exit', 'quit', 'q']:
+                logger.info("Exiting query mode")
+                break
+            
+            if query.lower() == 'stats':
+                stats = query_handler.get_graph_stats()
+                print("\n📊 Graph Statistics:")
+                print(f"  Nodes: {stats['nodes']}")
+                print(f"  Edges: {stats['edges']}")
+                print(f"  Communities: {stats['communities']}")
+                print(f"  Top 3 communities (by size):")
+                for i, comm in enumerate(stats['top_communities'][:3], 1):
+                    print(f"    {i}. {len(comm)} entities: {', '.join(comm[:5])}...")
+                print()
+                continue
+            
+            if query.lower().startswith('search '):
+                search_term = query[7:].strip()
+                results = graph_manager.search_entities(search_term, limit=20)
+                print(f"\n🔍 Found {len(results)} entities matching '{search_term}':")
+                for entity in results:
+                    print(f"  - {entity}")
+                print()
+                continue
+            
+            if query.lower().startswith('neighbors '):
+                entity_name = query[10:].strip()
+                neighbors = graph_manager.get_entity_neighbors(entity_name, max_depth=2)
+                print(f"\n🔗 Neighbors of '{entity_name}':")
+                if neighbors:
+                    for neighbor in neighbors[:20]:
+                        print(f"  - {neighbor}")
+                    if len(neighbors) > 20:
+                        print(f"  ... and {len(neighbors) - 20} more")
+                else:
+                    print("  No neighbors found")
+                print()
+                continue
+            
+            if query.lower().startswith('method '):
+                method = query[7:].strip().lower()
+                if method in ['communities', 'centrality']:
+                    current_method = method
+                    print(f"\n✓ Retrieval method changed to: {current_method}\n")
+                else:
+                    print(f"\n❌ Invalid method. Use 'communities' or 'centrality'\n")
+                continue
+            
+            logger.info(f"Processing query with method={current_method}: {query}")
+            answer = query_handler.ask_question(query, method=current_method)
+            
+            print("\n" + "=" * 80)
+            print("💡 ANSWER")
+            print("=" * 80)
+            print(answer)
+            print("=" * 80 + "\n")
+            
+        except KeyboardInterrupt:
+            logger.info("\nExiting query mode")
             break
-        ans = answer_question(q)
-        print("\nANSWER")
-        print("-" * 80)
-        print(ans)
+        except Exception as e:
+            logger.error(f"Error processing query: {e}")
+            print(f"\n❌ Error: {e}\n")
+
+
+# =========================================================
+# MAIN ENTRY POINT
+# =========================================================
+
+if __name__ == "__main__":
+    try:
+        # Load documents
+        logger.info(f"Loading documents from {DOCUMENT_DIR}...")
+        documents = read_docx_from_directory(DOCUMENT_DIR)
+        
+        if not documents:
+            logger.error(f"No documents found in {DOCUMENT_DIR}")
+            exit(1)
+        
+        total_chars = sum(len(d) for d in documents)
+        logger.info(f"✓ Loaded {len(documents)} documents ({total_chars:,} characters)")
+        
+        # Process documents
+        results = process_documents(documents, cache_prefix="neo4j")
+        
+        # Show processing summary
+        print("\n" + "=" * 80)
+        print("📈 PROCESSING SUMMARY")
+        print("=" * 80)
+        print(f"Documents: {len(documents)}")
+        print(f"Chunks: {results['chunks']}")
+        print(f"Extracted Elements: {results['elements']}")
+        print(f"Graph Nodes: {results['graph']['nodes']}")
+        print(f"Graph Edges: {results['graph']['edges']}")
+        print(f"Processing Time: {results['time']:.1f}s")
+        print("=" * 80)
+        
+        # Get database stats
+        db_stats = db_connection.get_database_stats()
+        print("\n📊 Neo4j Database:")
+        print(f"  Total Nodes: {db_stats['nodes']}")
+        print(f"  Total Relationships: {db_stats['relationships']}")
+        print(f"  Labels: {', '.join(db_stats['labels'])}")
+        
+        # Run example query
+        example_query = "Tổng hợp nội dung chính của các tài liệu"
+        logger.info(f"\nExample query: {example_query}")
+        answer = query_handler.ask_question(example_query, method='communities')
+        
+        print("\n" + "=" * 80)
+        print("💡 EXAMPLE ANSWER")
+        print("=" * 80)
+        print(answer)
+        print("=" * 80)
+        
+        # Enter interactive mode
+        interactive_query_loop()
+        
+    except Exception as e:
+        logger.error(f"Application error: {e}", exc_info=True)
+        raise
+    
+    finally:
+        # Clean up
+        if db_connection:
+            db_connection.close()
+        logger.info("Application shutdown complete")
