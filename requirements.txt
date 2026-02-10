@@ -5,4 +5,4 @@ cdlib
 python-igraph
 python-dotenv
 python-docx
-
+streamlit

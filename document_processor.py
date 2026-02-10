@@ -1,3 +1,4 @@
+# document_processor.py
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from logger import Logger
 import pickle
@@ -83,19 +84,43 @@ class DocumentProcessor:
     def extract_elements(self, chunks, use_parallel=True):
         self.logger.info(f"Extracting elements from {len(chunks)} chunks...")
 
-        system_prompt = """You are an information extraction system.
+        system_prompt = """You are an information extraction system for Vietnamese academic documents.
 
 Extract ENTITIES and RELATIONSHIPS from the text.
 
-STRICT FORMAT (no explanation, no markdown):
+**STRICT FORMAT** (no explanation, no markdown):
 
 ENTITY: <entity name>
+TYPE: <entity type>
+
 RELATION: <entity_1> -> <relation> -> <entity_2>
 
-Rules:
+**ENTITY TYPES:**
+- giảng_viên (instructor with title like TS., ThS.)
+- học_phần (main course like "An toàn và bảo mật thông tin", "An ninh không gian mạng")
+- tài_liệu (books, references)
+- khoa (faculty/department)
+
+**CRITICAL: GIẢNG_DẠY RELATIONSHIP RULES:**
+⚠️  ONLY use GIẢNG_DẠY when connecting instructor to MAIN COURSE
+- Main course = full course name (e.g., "An toàn và bảo mật thông tin")
+- ✅ CORRECT: "TS. Lưu Minh Tuấn" -> GIẢNG_DẠY -> "An toàn và bảo mật thông tin"
+- ❌ WRONG: "Giảng viên" -> GIẢNG_DẠY -> "Sinh viên"
+- ❌ WRONG: "Giảng viên" -> GIẢNG_DẠY -> "Chương 1"
+- ❌ WRONG: "Giảng viên" -> GIẢNG_DẠY -> "Bài tập"
+- ❌ WRONG: "Giảng viên" -> GIẢNG_DẠY -> "Hệ mã"
+
+**OTHER RELATIONSHIPS:**
+- (Học phần) -> THUỘC_VỀ -> (Khoa)
+- (Học phần) -> TIÊN_QUYẾT -> (Học phần khác)
+- (Tài liệu) -> THAM_KHẢO -> (Học phần)
+
+**Rules:**
 - Use '->' exactly
-- Entity names: max 5 words
-- Use Vietnamese if the text is Vietnamese
+- Entity names: max 8 words
+- Use Vietnamese with proper diacritics (dấu)
+- Extract instructor names with titles (TS., ThS.)
+- Be VERY SELECTIVE with GIẢNG_DẠY - only instructor to main course!
 - Do NOT invent relations not present in text
 """
 
@@ -241,7 +266,7 @@ def is_meaningful_table(headers):
 
     blacklist = [
         "bộ giáo dục",
-        "cộng hòa",
+        "cộng hòa xã hội chủ nghĩa việt nam",
         "hiệu trưởng",
         "trưởng khoa"
     ]

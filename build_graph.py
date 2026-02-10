@@ -1,19 +1,25 @@
+# build_graph.py
+"""
+Script để xây dựng knowledge graph từ documents.
+Chạy script này TRƯỚC KHI sử dụng Streamlit interface.
+"""
+
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
 import time
 
-from document_processor import DocumentProcessor
+from document_processor import DocumentProcessor, read_docx_from_directory
 from graph_database import GraphDatabaseConnection
 from graph_manager import GraphManager
-from query_handler import QueryHandler
-from document_processor import read_docx_from_directory
 from logger import Logger
 
 # =========================================================
 # CONFIGURATION
 # =========================================================
 load_dotenv()
+
+logger = Logger("BuildGraph").get_logger()
 
 # Environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -37,15 +43,13 @@ DOCUMENT_DIR = os.getenv("DOCUMENT_DIR", "example_docx")
 # =========================================================
 # INITIALIZE COMPONENTS
 # =========================================================
-logger = Logger("MainApp").get_logger()
-
 logger.info("=" * 80)
-logger.info("GRAPHRAG CHATBOT - NEO4J ONLY MODE")
+logger.info("KNOWLEDGE GRAPH BUILDER")
 logger.info("=" * 80)
 logger.info(f"Model: {MODEL}")
 logger.info(f"Neo4j URL: {DB_URL}")
-logger.info(f"Max Workers: {MAX_WORKERS}")
-logger.info(f"Chunk Size: {CHUNK_SIZE}")
+logger.info(f"Document Directory: {DOCUMENT_DIR}")
+logger.info(f"Chunk Size: {CHUNK_SIZE}, Overlap: {OVERLAP_SIZE}")
 
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -70,14 +74,17 @@ except Exception as e:
     logger.error("Please ensure Neo4j is running and credentials are correct")
     raise
 
-# Initialize graph manager (Neo4j only)
-graph_manager = GraphManager(db_connection=db_connection)
+# Initialize graph manager WITH auto_clear=True (will clear database)
+logger.warning("⚠️  This will CLEAR the existing database!")
+response = input("Continue? (yes/no): ")
+if response.lower() != 'yes':
+    logger.info("Aborted by user")
+    exit(0)
 
-# Initialize query handler
-query_handler = QueryHandler(
-    graph_manager=graph_manager,
-    client=client,
-    model="gpt-4o"  # Use better model for final answers
+graph_manager = GraphManager(
+    db_connection=db_connection,
+    auto_clear=True,
+    openai_client=client  # Pass OpenAI client for embeddings
 )
 
 # =========================================================
@@ -138,95 +145,6 @@ def process_documents(documents, cache_prefix="default"):
     }
 
 
-def interactive_query_loop():
-    """
-    Run interactive query loop for user questions.
-    """
-    logger.info("\n" + "=" * 80)
-    logger.info("INTERACTIVE QUERY MODE")
-    logger.info("=" * 80)
-    print("\nAvailable commands:")
-    print("  - Type your question to get an answer")
-    print("  - 'stats' - Show graph statistics")
-    print("  - 'search <term>' - Search for entities")
-    print("  - 'neighbors <entity>' - Show entity neighbors")
-    print("  - 'method <communities|centrality>' - Change retrieval method")
-    print("  - 'exit' - Quit\n")
-    
-    current_method = 'communities'
-    
-    while True:
-        try:
-            query = input("❓ Question: ").strip()
-            
-            if not query:
-                continue
-            
-            if query.lower() in ['exit', 'quit', 'q']:
-                logger.info("Exiting query mode")
-                break
-            
-            if query.lower() == 'stats':
-                stats = query_handler.get_graph_stats()
-                print("\n📊 Graph Statistics:")
-                print(f"  Nodes: {stats['nodes']}")
-                print(f"  Edges: {stats['edges']}")
-                print(f"  Communities: {stats['communities']}")
-                print(f"  Top 3 communities (by size):")
-                for i, comm in enumerate(stats['top_communities'][:3], 1):
-                    print(f"    {i}. {len(comm)} entities: {', '.join(comm[:5])}...")
-                print()
-                continue
-            
-            if query.lower().startswith('search '):
-                search_term = query[7:].strip()
-                results = graph_manager.search_entities(search_term, limit=20)
-                print(f"\n🔍 Found {len(results)} entities matching '{search_term}':")
-                for entity in results:
-                    print(f"  - {entity}")
-                print()
-                continue
-            
-            if query.lower().startswith('neighbors '):
-                entity_name = query[10:].strip()
-                neighbors = graph_manager.get_entity_neighbors(entity_name, max_depth=2)
-                print(f"\n🔗 Neighbors of '{entity_name}':")
-                if neighbors:
-                    for neighbor in neighbors[:20]:
-                        print(f"  - {neighbor}")
-                    if len(neighbors) > 20:
-                        print(f"  ... and {len(neighbors) - 20} more")
-                else:
-                    print("  No neighbors found")
-                print()
-                continue
-            
-            if query.lower().startswith('method '):
-                method = query[7:].strip().lower()
-                if method in ['communities', 'centrality']:
-                    current_method = method
-                    print(f"\n✓ Retrieval method changed to: {current_method}\n")
-                else:
-                    print(f"\n❌ Invalid method. Use 'communities' or 'centrality'\n")
-                continue
-            
-            logger.info(f"Processing query with method={current_method}: {query}")
-            answer = query_handler.ask_question(query, method=current_method)
-            
-            print("\n" + "=" * 80)
-            print("💡 ANSWER")
-            print("=" * 80)
-            print(answer)
-            print("=" * 80 + "\n")
-            
-        except KeyboardInterrupt:
-            logger.info("\nExiting query mode")
-            break
-        except Exception as e:
-            logger.error(f"Error processing query: {e}")
-            print(f"\n❌ Error: {e}\n")
-
-
 # =========================================================
 # MAIN ENTRY POINT
 # =========================================================
@@ -239,13 +157,14 @@ if __name__ == "__main__":
         
         if not documents:
             logger.error(f"No documents found in {DOCUMENT_DIR}")
+            logger.info("Please add .docx files to the directory and try again")
             exit(1)
         
         total_chars = sum(len(d) for d in documents)
         logger.info(f"✓ Loaded {len(documents)} documents ({total_chars:,} characters)")
         
         # Process documents
-        results = process_documents(documents, cache_prefix="neo4j")
+        results = process_documents(documents, cache_prefix="neo4j_khop")
         
         # Show processing summary
         print("\n" + "=" * 80)
@@ -265,20 +184,13 @@ if __name__ == "__main__":
         print(f"  Total Nodes: {db_stats['nodes']}")
         print(f"  Total Relationships: {db_stats['relationships']}")
         print(f"  Labels: {', '.join(db_stats['labels'])}")
-        
-        # Run example query
-        example_query = "Tổng hợp nội dung chính của các tài liệu"
-        logger.info(f"\nExample query: {example_query}")
-        answer = query_handler.ask_question(example_query, method='communities')
-        
         print("\n" + "=" * 80)
-        print("💡 EXAMPLE ANSWER")
+        print("✅ Knowledge graph successfully built!")
         print("=" * 80)
-        print(answer)
-        print("=" * 80)
-        
-        # Enter interactive mode
-        interactive_query_loop()
+        print("\n🚀 Next step: Run Streamlit interface")
+        print("   streamlit run streamlit_app.py")
+        print("   or: python -m streamlit run streamlit_app.py")
+        print()
         
     except Exception as e:
         logger.error(f"Application error: {e}", exc_info=True)
@@ -288,4 +200,4 @@ if __name__ == "__main__":
         # Clean up
         if db_connection:
             db_connection.close()
-        logger.info("Application shutdown complete")
+        logger.info("Script completed")
