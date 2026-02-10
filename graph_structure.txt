@@ -1,0 +1,66 @@
+================================================================================
+GRAPH STRUCTURE IN NEO4J
+================================================================================
+
+
+============================================================
+ALL NODES (grouped by type)
+============================================================
+
+
+[học_phần] - 7 nodes:
+  - an ninh không gian mạng
+  - mạng máy tính và truyền số liệu
+  - an ninh mạng
+  - chuẩn đầu ra học phần
+  - đánh giá học phần
+  - kế hoạch dạy học
+  - quy định của học phần
+
+[khoa] - 1 nodes:
+  - viện công nghệ thông tin & kinh tế số
+
+[tài_liệu] - 2 nodes:
+  - william stallings (2017), cryptography and network security: principles and practice, seventh edition, pearson
+  - nguyễn thị thanh vân, huỳnh nguyên chính (2023), giáo trình an ninh mạng, nhà xuất bản đại học quốc gia thành phố hồ chí minh
+
+============================================================
+ALL RELATIONSHIPS
+============================================================
+
+
+[THAM_KHẢO] - 2 relationships:
+  - (an ninh mạng) --[THAM_KHẢO]--> (william stallings (2017), cryptography and network security: principles and practice, seventh edition, pearson)
+    Types: học_phần --> tài_liệu
+  - (an ninh mạng) --[THAM_KHẢO]--> (nguyễn thị thanh vân, huỳnh nguyên chính (2023), giáo trình an ninh mạng, nhà xuất bản đại học quốc gia thành phố hồ chí minh)
+    Types: học_phần --> tài_liệu
+
+[THUỘC_VỀ] - 5 relationships:
+  - (an ninh không gian mạng) --[THUỘC_VỀ]--> (viện công nghệ thông tin & kinh tế số)
+    Types: học_phần --> khoa
+  - (chuẩn đầu ra học phần) --[THUỘC_VỀ]--> (quy định của học phần)
+    Types: học_phần --> học_phần
+  - (kế hoạch dạy học) --[THUỘC_VỀ]--> (quy định của học phần)
+    Types: học_phần --> học_phần
+  - (quy định của học phần) --[THUỘC_VỀ]--> (quy định của học phần)
+    Types: học_phần --> học_phần
+  - (đánh giá học phần) --[THUỘC_VỀ]--> (quy định của học phần)
+    Types: học_phần --> học_phần
+
+[TIÊN_QUYẾT] - 1 relationships:
+  - (an ninh không gian mạng) --[TIÊN_QUYẾT]--> (mạng máy tính và truyền số liệu)
+    Types: học_phần --> học_phần
+
+============================================================
+STATISTICS
+============================================================
+
+Nodes by type:
+  - học_phần: 7
+  - tài_liệu: 2
+  - khoa: 1
+
+Relationships by type:
+  - THUỘC_VỀ: 5
+  - THAM_KHẢO: 2
+  - TIÊN_QUYẾT: 1

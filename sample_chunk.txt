@@ -1,0 +1,22 @@
+SAMPLE CHUNK (first one):
+================================================================================
+ĐỀ CƯƠNG HỌC PHẦN CHI TIẾT
+(Detailed Course Syllabus)
+(Ban hành kèm theo Quyết định số… QĐ/ĐHKTQD ngày 28 tháng 6 năm 2024)
+1. THÔNG TIN TỔNG QUÁT (General Information)
+Tên học phần (tiếng Việt): 	An ninh không gian mạng
+Tên học phần (tiếng Anh):	Cybersecurity
+Trình độ đào tạo 		Đại học
+Mã học phần: 			CNTT1197
+Số tín chỉ: 			03
+Số giờ trên lớp:	45
+Số giờ tự học:		105
+(01 tín chỉ bằng 50 giờ định mức, 01 giờ định mức bằng 50 phút)
+Các học phần tiên quyết:
+Mạng máy tính và truyền số liệu
+2. KHOA/VIỆN QUẢN LÝ VÀ GIẢNG VIÊN GIẢNG DẠY (Management Faculty and Teachers)
+Khoa/Viện quản lý học phần: Viện Công nghệ thông tin & Kinh tế số
+Địa chỉ: P.1308 - P.1312, Tòa nhà A1, Trường Đại học KTQD, 207 Giải Phóng, Hai Bà Trưng, Hà Nội
+Giảng viên giảng dạy học phần:
+3. MÔ TẢ HỌC PHẦN (Course Descriptions)
+Học phần An ninh không gian mạng cung cấp cho sinh viên những kiến thức cơ bản trong việc bảo vệ hệ thống thông tin và hệ thống mạng. Học phần giới thiệu các khái niệm và ý nghĩa của an ninh mạng, nhấn mạnh vào việc bảo vệ thông tin quan trọng và ngăn chặn các mối đe dọa từ bên trong và bên ngoài mạng; Tập trung vào các kỹ thuật nền tảng như mã hóa, mật mã khóa công khai, xác thực và chữ ký số. Những kiến thức này là cơ bản để hiểu về cách thông tin được bảo vệ và truyền tải an toàn trên mạng. Các kỹ thuật đánh giá an toàn mạng cũng được giới thiệu để sinh viên có thể đánh giá và xác định các lỗ hổng trong hệ thống mạng. Điều này bao gồm phân tích và kiểm tra tính an toàn của mạng từ các góc độ khác nhau. Bên cạnh đó, sinh viên cũng sẽ tìm hiểu về các hình thức tấn công mạng phổ biến như tấn công mật khẩu, tấn công giả mạo địa chỉ IP, chiếm quyền máy chủ, tấn công từ chối dịch vụ và tấn công cổng sau. Việc hiểu biết về các loại tấn công này giúp sinh viên nhận biết và phòng tránh hiệu quả.Ngoài ra, học phần cung cấp một số giải pháp an toàn mạng như chính sách an ninh IP, hệ thống tường lửa, hệ thống IDS/IPS và bảo mật mạng không dây. Những giải pháp này giúp tăng cường khả năn
