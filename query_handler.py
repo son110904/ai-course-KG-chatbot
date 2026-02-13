@@ -1,5 +1,5 @@
 # query_handler.py
-from graph_manager import GraphManager
+from graph_manager import GraphManagerV2
 from logger import Logger
 from typing import List, Dict
 import re
@@ -17,7 +17,7 @@ class QueryHandler:
 
     logger = Logger("QueryHandler").get_logger()
 
-    def __init__(self, graph_manager: GraphManager, client, model: str):
+    def __init__(self, graph_manager: GraphManagerV2, client, model: str):
         self.graph_manager = graph_manager
         self.client = client
         self.model = model

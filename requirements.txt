@@ -6,3 +6,5 @@ python-igraph
 python-dotenv
 python-docx
 streamlit
+neo4j
+minio

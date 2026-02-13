@@ -1,27 +1,32 @@
-# graph_manager.py
+# graph_manager_v2.py
+"""
+ENHANCED VERSION: Better entity property handling and metadata extraction
+Key improvements:
+1. Parse METADATA from LLM extraction
+2. Better entity property management
+3. Enhanced relationship properties
+4. Improved entity deduplication with properties
+"""
+
 from logger import Logger
 import re
 import unicodedata
 
 
-class GraphManager:
+class GraphManagerV2:
     """
-    Manages graph construction and analysis using Neo4j only.
-    IMPROVED:
-    - Vietnamese Unicode normalization
-    - Better relationship name handling
-    - Enhanced entity extraction from tables
+    Enhanced graph manager with better property handling.
     """
     
-    logger = Logger('GraphManager').get_logger()
+    logger = Logger('GraphManagerV2').get_logger()
 
-    def __init__(self, db_connection, auto_clear=True, openai_client=None):
+    def __init__(self, db_connection, auto_clear=False, openai_client=None):
         """
         Initialize graph manager with Neo4j connection.
         
         Args:
             db_connection: GraphDatabaseConnection instance (required)
-            auto_clear: Whether to clear database on initialization (default: True)
+            auto_clear: Whether to clear database on initialization (default: False)
             openai_client: OpenAI client for embeddings (optional)
         """
         if not db_connection:
@@ -29,21 +34,142 @@ class GraphManager:
         
         self.db_connection = db_connection
         self.openai_client = openai_client
-        self.logger.info("GraphManager initialized with Neo4j backend")
+        self.logger.info("GraphManagerV2 initialized with Neo4j backend")
         
-        if auto_clear:
-            self.logger.warning("Auto-clearing database...")
-            self.db_connection.clear_database()
+        # Check if database has data
+        stats = self.db_connection.get_database_stats()
+        has_data = stats['nodes'] > 0 or stats['relationships'] > 0
+        
+        if has_data:
+            self.logger.warning(f"Database contains {stats['nodes']} nodes and {stats['relationships']} relationships")
+            
+            if auto_clear:
+                self.logger.warning("Auto-clearing database...")
+                self.db_connection.clear_database()
+            else:
+                self.logger.info("Database will NOT be cleared (auto_clear=False)")
         else:
-            self.logger.info("Database will NOT be cleared (auto_clear=False)")
+            self.logger.info("Database is empty, ready for new data")
+
+    # =========================================================
+    # ENHANCED ENTITY EXTRACTION WITH METADATA
+    # =========================================================
+
+    def parse_entity_block(self, lines: list, start_idx: int) -> dict:
+        """
+        Parse entity block with TYPE and METADATA support.
+        
+        Returns:
+        {
+            'name': str,
+            'type': str,
+            'properties': dict,
+            'next_idx': int
+        }
+        """
+        entity_info = {
+            'name': None,
+            'type': 'unknown',
+            'properties': {},
+            'next_idx': start_idx + 1
+        }
+        
+        i = start_idx
+        while i < len(lines):
+            line = lines[i].strip()
+            
+            if line.startswith("ENTITY:"):
+                entity_info['name'] = line.replace("ENTITY:", "").strip()
+                i += 1
+                continue
+            
+            elif line.startswith("TYPE:"):
+                entity_info['type'] = line.replace("TYPE:", "").strip()
+                i += 1
+                continue
+            
+            elif line.startswith("METADATA:"):
+                # Parse metadata: "key1=value1, key2=value2"
+                metadata_str = line.replace("METADATA:", "").strip()
+                props = self._parse_metadata_string(metadata_str)
+                entity_info['properties'].update(props)
+                i += 1
+                continue
+            
+            elif line.startswith("PROPERTIES:"):
+                # Alternative format
+                props_str = line.replace("PROPERTIES:", "").strip()
+                props = self._parse_metadata_string(props_str)
+                entity_info['properties'].update(props)
+                i += 1
+                continue
+            
+            elif line.startswith("ENTITY:") or line.startswith("RELATION:") or not line:
+                # Next entity or relation or empty line
+                entity_info['next_idx'] = i
+                break
+            
+            else:
+                # Unknown line, skip
+                i += 1
+                continue
+        
+        return entity_info
+
+    def _parse_metadata_string(self, metadata_str: str) -> dict:
+        """
+        Parse metadata string into dict.
+        
+        Examples:
+        "email=lampx@neu.edu.vn, chức_danh=TS" -> {'email': 'lampx@neu.edu.vn', 'chức_danh': 'TS'}
+        "số_tín_chỉ=3, mã_học_phần=CNTT1153" -> {'số_tín_chỉ': '3', 'mã_học_phần': 'CNTT1153'}
+        """
+        properties = {}
+        
+        # Split by comma
+        parts = metadata_str.split(',')
+        
+        for part in parts:
+            part = part.strip()
+            if '=' in part:
+                key, value = part.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                # Sanitize key for Neo4j
+                safe_key = self._sanitize_property_key(key)
+                if safe_key:
+                    properties[safe_key] = value
+        
+        return properties
+
+    def _sanitize_property_key(self, key: str) -> str:
+        """
+        Sanitize property key for Neo4j.
+        Neo4j property keys can't have spaces or special chars.
+        """
+        # Replace spaces and dashes with underscore
+        key = re.sub(r'[\s\-]+', '_', key)
+        
+        # Remove invalid characters
+        key = re.sub(r'[^a-zA-Z0-9_àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', '', key, flags=re.UNICODE)
+        
+        # Ensure it doesn't start with a number
+        if key and key[0].isdigit():
+            key = '_' + key
+        
+        return key.lower()
+
+    # =========================================================
+    # BUILD GRAPH WITH ENHANCED PARSING
+    # =========================================================
 
     def build_graph_from_elements(self, elements):
         """
-        Build graph from extracted elements directly in Neo4j.
-        IMPROVED: Better handling of Vietnamese text and entity properties.
+        Build graph from extracted elements with enhanced metadata support.
         
         Args:
-            elements: List of extraction results with ENTITY and RELATION lines
+            elements: List of extraction results
             
         Returns:
             Dict with graph statistics
@@ -57,47 +183,39 @@ class GraphManager:
             for elem_idx, elem in enumerate(elements):
                 lines = [l.strip() for l in elem.split("\n") if l.strip()]
                 
-                current_entity = None
-                current_type = None
-                current_props = {}
-                
-                for line in lines:
+                i = 0
+                while i < len(lines):
+                    line = lines[i]
+                    
                     # Normalize Unicode
                     line = unicodedata.normalize('NFC', line)
                     
                     if line.startswith("ENTITY:"):
-                        # Save previous entity if exists
-                        if current_entity:
-                            self._create_entity_with_properties(
-                                session, current_entity, current_type, current_props
+                        # Parse entity block
+                        entity_info = self.parse_entity_block(lines, i)
+                        
+                        if entity_info['name'] and len(entity_info['name']) > 2:
+                            normalized_name = self._normalize_entity_name(entity_info['name'])
+                            
+                            # Create entity with properties
+                            self._create_entity_with_type_and_properties(
+                                session,
+                                normalized_name,
+                                entity_info['type'],
+                                entity_info['properties']
                             )
                             entity_count += 1
                         
-                        # Start new entity
-                        entity = line.replace("ENTITY:", "").strip()
-                        if len(entity) > 2:
-                            current_entity = self._normalize_entity_name(entity)
-                            current_type = None
-                            current_props = {}
-                    
-                    elif line.startswith("TYPE:") and current_entity:
-                        entity_type = line.replace("TYPE:", "").strip()
-                        current_type = entity_type
-                    
-                    elif line.startswith("PROPERTIES:") and current_entity:
-                        props_text = line.replace("PROPERTIES:", "").strip()
-                        # Simple parsing: "key1: value1, key2: value2"
-                        for prop in props_text.split(','):
-                            if ':' in prop:
-                                key, val = prop.split(':', 1)
-                                current_props[key.strip()] = val.strip()
+                        i = entity_info['next_idx']
                     
                     elif line.startswith("RELATION:"):
                         try:
                             _, rel = line.split(":", 1)
                             parts = [p.strip() for p in rel.split("->")]
+                            
                             if len(parts) == 3:
                                 src, rel_type, tgt = parts
+                                
                                 if len(src) > 2 and len(tgt) > 2:
                                     src_norm = self._normalize_entity_name(src)
                                     tgt_norm = self._normalize_entity_name(tgt)
@@ -114,13 +232,11 @@ class GraphManager:
                                         relation_count += 1
                         except Exception as e:
                             self.logger.debug(f"Failed to parse relation: {line} - {e}")
-                
-                # Don't forget last entity
-                if current_entity:
-                    self._create_entity_with_properties(
-                        session, current_entity, current_type, current_props
-                    )
-                    entity_count += 1
+                        
+                        i += 1
+                    
+                    else:
+                        i += 1
                 
                 if (elem_idx + 1) % 10 == 0:
                     self.logger.debug(f"Processed {elem_idx + 1}/{len(elements)} element sets")
@@ -140,38 +256,73 @@ class GraphManager:
             'edges': stats['relationships']
         }
 
-    def _create_entity_with_properties(self, session, entity_name, entity_type, properties):
+    def _create_entity_with_type_and_properties(
+        self,
+        session,
+        entity_name: str,
+        entity_type: str,
+        properties: dict
+    ):
         """
         Create or merge an entity with type and properties.
         
-        Args:
-            session: Neo4j session
-            entity_name: Normalized entity name
-            entity_type: Entity type (giảng_viên, học_phần, etc.)
-            properties: Dict of additional properties
+        Improvements:
+        1. Set entity type as both property AND label
+        2. Handle Vietnamese property names
+        3. Better property type handling
         """
-        # Build Cypher query
-        query = "MERGE (e:Entity {name: $name}) SET e.type = $type"
+        # Build label from entity type
+        type_label = self._type_to_label(entity_type)
+        
+        # Build Cypher query with multiple labels
+        query = f"MERGE (e:Entity:{type_label} {{name: $name}}) SET e.type = $type"
         params = {
             'name': entity_name,
-            'type': entity_type if entity_type else 'unknown'
+            'type': entity_type
         }
         
         # Add properties
         for key, value in properties.items():
-            # Sanitize property key
-            safe_key = re.sub(r'[^a-zA-Z0-9_]', '_', key).lower()
+            safe_key = self._sanitize_property_key(key)
             if safe_key and not safe_key[0].isdigit():
                 query += f", e.{safe_key} = ${safe_key}"
                 params[safe_key] = value
         
-        session.run(query, params)
+        try:
+            session.run(query, params)
+        except Exception as e:
+            self.logger.warning(f"Error creating entity {entity_name}: {e}")
+            # Fallback: create without custom label
+            query_fallback = "MERGE (e:Entity {name: $name}) SET e.type = $type"
+            session.run(query_fallback, params)
+
+    def _type_to_label(self, entity_type: str) -> str:
+        """
+        Convert entity type to Neo4j label.
+        
+        Examples:
+        "học_phần" -> "HocPhan"
+        "giảng_viên" -> "GiangVien"
+        "tài_liệu" -> "TaiLieu"
+        """
+        if not entity_type or entity_type == 'unknown':
+            return 'Unknown'
+        
+        # Remove underscores and capitalize words
+        words = entity_type.split('_')
+        label = ''.join(word.capitalize() for word in words)
+        
+        # Remove any remaining invalid characters
+        label = re.sub(r'[^a-zA-Z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]', '', label, flags=re.UNICODE)
+        
+        return label if label else 'Unknown'
+
+    # =========================================================
+    # EMBEDDINGS
+    # =========================================================
 
     def add_embeddings_to_entities(self):
-        """
-        Add vector embeddings to all entities in the graph.
-        Uses OpenAI's text-embedding-3-small model.
-        """
+        """Add vector embeddings to all entities in the graph."""
         if not self.openai_client:
             self.logger.warning("No OpenAI client available for embeddings")
             return
@@ -188,9 +339,9 @@ class GraphManager:
                 self.logger.info("All entities already have embeddings")
                 return
             
-            self.logger.info(f"Creating embeddings for {len(entities)} entities...")
+            self.logger.info(f"Adding embeddings to {len(entities)} entities...")
             
-            # Batch process embeddings
+            # Batch processing
             batch_size = 100
             for i in range(0, len(entities), batch_size):
                 batch = entities[i:i + batch_size]
@@ -205,327 +356,179 @@ class GraphManager:
                     
                     # Update entities with embeddings
                     for j, embedding_obj in enumerate(response.data):
-                        entity_name = names[j]
                         embedding = embedding_obj.embedding
+                        name = names[j]
                         
                         session.run("""
                             MATCH (e:Entity {name: $name})
                             SET e.embedding = $embedding
-                        """, name=entity_name, embedding=embedding)
+                        """, name=name, embedding=embedding)
                     
-                    self.logger.debug(f"Added embeddings for batch {i//batch_size + 1}")
+                    self.logger.info(f"Processed {min(i + batch_size, len(entities))}/{len(entities)} entities")
                     
                 except Exception as e:
-                    self.logger.error(f"Failed to create embeddings for batch {i//batch_size + 1}: {e}")
-            
-            self.logger.info("✓ Embeddings added to all entities")
+                    self.logger.error(f"Error adding embeddings: {e}")
 
-    def _get_query_embedding(self, query_text):
-        """Get embedding vector for query text."""
-        if not self.openai_client:
-            return None
+    # =========================================================
+    # SEARCH & RETRIEVAL
+    # =========================================================
+
+    def find_relevant_entities(self, query_terms: list, top_k: int = 5, use_embeddings: bool = True):
+        """Find relevant entities based on query terms."""
+        if use_embeddings and self.openai_client:
+            return self._find_entities_by_embedding(query_terms, top_k)
+        else:
+            return self._find_entities_by_keyword(query_terms, top_k)
+
+    def _find_entities_by_embedding(self, query_terms: list, top_k: int):
+        """Find entities using vector similarity."""
+        query_text = " ".join(query_terms)
         
         try:
+            # Get query embedding
             response = self.openai_client.embeddings.create(
                 model="text-embedding-3-small",
                 input=[query_text]
             )
-            return response.data[0].embedding
-        except Exception as e:
-            self.logger.error(f"Failed to create query embedding: {e}")
-            return None
-
-    # =========================================================
-    # K-HOP RETRIEVAL METHODS
-    # =========================================================
-    
-    def find_relevant_entities(self, query_terms, top_k=10, use_embeddings=True):
-        """
-        Find entities relevant to query using hybrid search.
-        IMPROVED: Better Vietnamese text matching.
-        """
-        self.logger.info(f"Finding entities matching: {query_terms}")
-        
-        entities = set()
-        
-        # Normalize query terms
-        normalized_terms = [unicodedata.normalize('NFC', term.lower()) for term in query_terms]
-        
-        with self.db_connection.get_session() as session:
-            # Semantic search with embeddings
-            if use_embeddings and self.openai_client:
-                query_text = " ".join(query_terms)
-                query_embedding = self._get_query_embedding(query_text)
-                
-                if query_embedding:
-                    try:
-                        # Vector similarity search
-                        result = session.run("""
-                            MATCH (e:Entity)
-                            WHERE e.embedding IS NOT NULL
-                            WITH e, 
-                                 reduce(dot = 0.0, i IN range(0, size(e.embedding)-1) | 
-                                   dot + e.embedding[i] * $query_embedding[i]) as similarity
-                            RETURN e.name as entity, similarity
-                            ORDER BY similarity DESC
-                            LIMIT $top_k
-                        """, query_embedding=query_embedding, top_k=top_k).data()
-                        
-                        for record in result:
-                            entities.add(record['entity'])
-                        
-                        self.logger.info(f"Found {len(entities)} entities via embeddings")
-                    except Exception as e:
-                        self.logger.warning(f"Embedding search failed: {e}")
+            query_embedding = response.data[0].embedding
             
-            # Lexical search (fuzzy matching for Vietnamese)
-            for term in normalized_terms:
+            # Find similar entities
+            with self.db_connection.get_session() as session:
                 result = session.run("""
                     MATCH (e:Entity)
-                    WHERE toLower(e.name) CONTAINS $term
-                       OR toLower(e.type) CONTAINS $term
-                    RETURN DISTINCT e.name as entity
+                    WHERE e.embedding IS NOT NULL
+                    WITH e, gds.similarity.cosine(e.embedding, $query_embedding) AS similarity
+                    WHERE similarity > 0.5
+                    RETURN e.name AS name, similarity
+                    ORDER BY similarity DESC
                     LIMIT $top_k
-                """, term=term, top_k=top_k).data()
+                """, query_embedding=query_embedding, top_k=top_k).data()
                 
-                for record in result:
-                    entities.add(record['entity'])
+                entities = [r['name'] for r in result]
+                
+                if entities:
+                    self.logger.info(f"Found {len(entities)} entities by embedding")
+                    return entities
+                
+        except Exception as e:
+            self.logger.warning(f"Embedding search failed: {e}")
         
-        entities_list = list(entities)[:top_k]
-        self.logger.info(f"Total relevant entities found: {len(entities_list)}")
-        
-        return entities_list
+        # Fallback to keyword search
+        return self._find_entities_by_keyword(query_terms, top_k)
 
-    def get_k_hop_subgraph(self, seed_entities, k=2, max_nodes=80):
-        """
-        Get k-hop subgraph starting from seed entities.
-        """
-        if not seed_entities:
-            self.logger.warning("No seed entities provided")
-            return {'nodes': [], 'edges': []}
-        
-        self.logger.info(f"Getting {k}-hop subgraph from {len(seed_entities)} seeds")
+    def _find_entities_by_keyword(self, query_terms: list, top_k: int):
+        """Find entities using keyword matching."""
+        entities = set()
         
         with self.db_connection.get_session() as session:
-            # Use APOC if available, otherwise standard Cypher
-            try:
-                result = session.run(f"""
-                    MATCH (seed:Entity)
-                    WHERE seed.name IN $seeds
-                    CALL apoc.path.subgraphAll(seed, {{
-                        maxLevel: $k,
-                        limit: $max_nodes
-                    }})
-                    YIELD nodes, relationships
-                    RETURN nodes, relationships
-                """, seeds=seed_entities, k=k, max_nodes=max_nodes).single()
+            for term in query_terms:
+                term = unicodedata.normalize('NFC', term)
                 
-                if result:
-                    nodes = [{'name': n['name'], 'type': n.get('type', 'unknown')} 
-                            for n in result['nodes']]
-                    edges = [{'source': r.start_node['name'], 
-                             'target': r.end_node['name'],
-                             'type': r.type} 
-                            for r in result['relationships']]
-                    
-                    self.logger.info(f"Subgraph: {len(nodes)} nodes, {len(edges)} edges")
-                    return {'nodes': nodes, 'edges': edges}
+                result = session.run("""
+                    MATCH (e:Entity)
+                    WHERE toLower(e.name) CONTAINS toLower($term)
+                    RETURN e.name AS name
+                    LIMIT $limit
+                """, term=term, limit=top_k).data()
+                
+                entities.update([r['name'] for r in result])
+        
+        entities = list(entities)[:top_k]
+        self.logger.info(f"Found {len(entities)} entities by keyword")
+        return entities
+
+    # =========================================================
+    # K-HOP SUBGRAPH
+    # =========================================================
+
+    def get_k_hop_subgraph(self, seed_entities: list, k: int = 2, max_nodes: int = 100):
+        """
+        Get k-hop subgraph around seed entities.
+        
+        Returns:
+        {
+            'nodes': [{'name': str, 'type': str, 'properties': dict}],
+            'edges': [{'source': str, 'target': str, 'type': str}]
+        }
+        """
+        with self.db_connection.get_session() as session:
+            # Build seed entity filter
+            seed_filter = " OR ".join([f"start.name = '{e}'" for e in seed_entities])
             
-            except Exception as e:
-                self.logger.warning(f"APOC not available, using standard Cypher: {e}")
-            
-            # Fallback: standard Cypher
+            # Get subgraph
             result = session.run(f"""
-                MATCH (seed:Entity)
-                WHERE seed.name IN $seeds
-                MATCH path = (seed)-[*0..{k}]-(connected:Entity)
-                WITH collect(DISTINCT connected) as nodes, collect(DISTINCT relationships(path)) as rels
-                UNWIND rels as relList
-                UNWIND relList as rel
-                WITH nodes, collect(DISTINCT rel) as edges
-                RETURN nodes[0..{max_nodes}] as nodes, edges
-            """, seeds=seed_entities).single()
+                MATCH (start:Entity)
+                WHERE {seed_filter}
+                CALL {{
+                    WITH start
+                    MATCH path = (start)-[*1..{k}]-(neighbor:Entity)
+                    RETURN path
+                    LIMIT {max_nodes}
+                }}
+                WITH collect(path) AS paths
+                UNWIND paths AS path
+                UNWIND nodes(path) AS node
+                WITH collect(DISTINCT node) AS nodes
+                UNWIND nodes AS n
+                OPTIONAL MATCH (n)-[r]-(m)
+                WHERE m IN nodes
+                RETURN 
+                    collect(DISTINCT {{
+                        name: n.name,
+                        type: n.type,
+                        properties: properties(n)
+                    }}) AS nodes,
+                    collect(DISTINCT {{
+                        source: startNode(r).name,
+                        target: endNode(r).name,
+                        type: type(r)
+                    }}) AS edges
+            """).single()
             
             if result:
-                nodes = [{'name': n['name'], 'type': n.get('type', 'unknown')} 
-                        for n in result['nodes']]
-                edges = [{'source': r.start_node['name'],
-                         'target': r.end_node['name'],
-                         'type': r.type}
-                        for r in result['edges']]
-                
-                self.logger.info(f"Subgraph: {len(nodes)} nodes, {len(edges)} edges")
-                return {'nodes': nodes, 'edges': edges}
+                return {
+                    'nodes': result['nodes'],
+                    'edges': [e for e in result['edges'] if e['source'] and e['target']]
+                }
             
             return {'nodes': [], 'edges': []}
 
-    def format_subgraph_for_context(self, subgraph):
-        """Format subgraph as context for LLM."""
-        if not subgraph or not subgraph.get('nodes'):
-            return "No relevant data found."
+    def format_subgraph_for_context(self, subgraph: dict) -> str:
+        """Format subgraph as text context for LLM."""
+        lines = []
         
-        context_lines = []
+        # Nodes
+        lines.append("ENTITIES:")
+        for node in subgraph.get('nodes', []):
+            name = node.get('name', 'unknown')
+            node_type = node.get('type', 'unknown')
+            props = node.get('properties', {})
+            
+            line = f"- {name} (type: {node_type})"
+            
+            # Add important properties
+            for key, value in props.items():
+                if key not in ['name', 'type', 'embedding']:
+                    line += f", {key}: {value}"
+            
+            lines.append(line)
         
-        # Entities
-        context_lines.append("=== ENTITIES ===")
-        for node in subgraph['nodes']:
-            entity_type = node.get('type', 'unknown')
-            context_lines.append(f"- {node['name']} (type: {entity_type})")
+        lines.append("\nRELATIONSHIPS:")
+        for edge in subgraph.get('edges', []):
+            source = edge.get('source', '?')
+            target = edge.get('target', '?')
+            rel_type = edge.get('type', 'RELATED_TO')
+            
+            lines.append(f"- {source} --[{rel_type}]--> {target}")
         
-        # Relationships
-        if subgraph.get('edges'):
-            context_lines.append("\n=== RELATIONSHIPS ===")
-            for edge in subgraph['edges']:
-                context_lines.append(
-                    f"- {edge['source']} --[{edge['type']}]--> {edge['target']}"
-                )
-        
-        return "\n".join(context_lines)
+        return "\n".join(lines)
 
     # =========================================================
     # UTILITY METHODS
     # =========================================================
-    
-    def calculate_centrality_measures(self):
-        """Calculate centrality measures using GDS if available."""
-        try:
-            return self._calculate_centrality_with_gds()
-        except Exception as e:
-            self.logger.warning(f"GDS not available: {e}")
-            return self._calculate_centrality_fallback()
-    
-    def _calculate_centrality_with_gds(self):
-        """Calculate centrality with Neo4j GDS plugin."""
-        graph_name = 'temp_centrality_graph'
-        
-        with self.db_connection.get_session() as session:
-            # Drop existing projection if exists
-            self._drop_projection_if_exists(graph_name)
-            
-            # Create graph projection
-            session.run(f"""
-                CALL gds.graph.project(
-                    '{graph_name}',
-                    'Entity',
-                    {{
-                        ALL: {{
-                            type: '*',
-                            orientation: 'UNDIRECTED'
-                        }}
-                    }}
-                )
-            """)
-            
-            # Degree centrality
-            degree_result = session.run(f"""
-                CALL gds.degree.stream('{graph_name}')
-                YIELD nodeId, score
-                RETURN gds.util.asNode(nodeId).name AS entityName, score
-                ORDER BY score DESC
-                LIMIT 10
-            """).data()
-            
-            # Betweenness centrality
-            betweenness_result = session.run(f"""
-                CALL gds.betweenness.stream('{graph_name}')
-                YIELD nodeId, score
-                RETURN gds.util.asNode(nodeId).name AS entityName, score
-                ORDER BY score DESC
-                LIMIT 10
-            """).data()
-            
-            # PageRank
-            pagerank_result = session.run(f"""
-                CALL gds.pageRank.stream('{graph_name}')
-                YIELD nodeId, score
-                RETURN gds.util.asNode(nodeId).name AS entityName, score
-                ORDER BY score DESC
-                LIMIT 10
-            """).data()
-            
-            # Clean up
-            session.run(f"CALL gds.graph.drop('{graph_name}')")
-            
-            return {
-                'degree': degree_result,
-                'betweenness': betweenness_result,
-                'pagerank': pagerank_result
-            }
-    
-    def _calculate_centrality_fallback(self):
-        """Calculate basic degree centrality without GDS."""
-        with self.db_connection.get_session() as session:
-            degree_result = session.run("""
-                MATCH (e:Entity)
-                OPTIONAL MATCH (e)-[r]-()
-                WITH e, count(r) as degree
-                WHERE degree > 0
-                RETURN e.name AS entityName, toFloat(degree) AS score
-                ORDER BY degree DESC
-                LIMIT 10
-            """).data()
-            
-            return {
-                'degree': degree_result,
-                'betweenness': [],
-                'pagerank': []
-            }
 
-    def summarize_centrality_measures(self, centrality_data):
-        """Create a text summary of centrality measures."""
-        summary = "### Centrality Measures Summary:\n\n"
-        
-        if centrality_data.get("degree"):
-            summary += "#### Top Degree Centrality Nodes (most connected):\n"
-            for record in centrality_data.get("degree", []):
-                summary += f" - {record['entityName']} with score {record['score']:.4f}\n"
-        else:
-            summary += "#### Degree Centrality: No data available\n"
-        
-        if centrality_data.get("betweenness"):
-            summary += "\n#### Top Betweenness Centrality Nodes (influential intermediaries):\n"
-            for record in centrality_data.get("betweenness", []):
-                summary += f" - {record['entityName']} with score {record['score']:.4f}\n"
-        else:
-            summary += "\n#### Betweenness Centrality: Requires Neo4j GDS plugin\n"
-        
-        if centrality_data.get("pagerank"):
-            summary += "\n#### Top PageRank Nodes (most important):\n"
-            for record in centrality_data.get("pagerank", []):
-                summary += f" - {record['entityName']} with score {record['score']:.4f}\n"
-        else:
-            summary += "\n#### PageRank: Requires Neo4j GDS plugin\n"
-        
-        return summary
-
-    def get_graph_summary(self):
-        """Get comprehensive summary of the graph."""
-        stats = self.db_connection.get_database_stats()
-        centrality = self.calculate_centrality_measures()
-        
-        return {
-            'nodes': stats['nodes'],
-            'edges': stats['relationships'],
-            'centrality': centrality
-        }
-
-    def get_entity_neighbors(self, entity_name, max_depth=2):
-        """Get neighboring entities using Cypher."""
-        normalized = self._normalize_entity_name(entity_name)
-        
-        with self.db_connection.get_session() as session:
-            result = session.run(f"""
-                MATCH (start:Entity {{name: $name}})
-                MATCH path = (start)-[*1..{max_depth}]-(neighbor:Entity)
-                RETURN DISTINCT neighbor.name AS neighborName
-                LIMIT 50
-            """, name=normalized).data()
-            
-            return [r['neighborName'] for r in result]
-
-    def search_entities(self, search_term, limit=10):
+    def search_entities(self, search_term: str, limit: int = 10):
         """Search for entities by name (case-insensitive)."""
-        # Normalize search term
         search_term = unicodedata.normalize('NFC', search_term)
         
         with self.db_connection.get_session() as session:
@@ -538,45 +541,17 @@ class GraphManager:
             
             return [r['entityName'] for r in result]
 
-    def _drop_projection_if_exists(self, graph_name):
-        """Drop graph projection if it exists."""
-        with self.db_connection.get_session() as session:
-            try:
-                exists = session.run(
-                    "CALL gds.graph.exists($name) YIELD exists RETURN exists",
-                    name=graph_name
-                ).single()["exists"]
-                
-                if exists:
-                    session.run(
-                        "CALL gds.graph.drop($name)",
-                        name=graph_name
-                    )
-                    self.logger.debug(f"Dropped existing projection: {graph_name}")
-            except Exception:
-                pass
-
-    def _normalize_entity_name(self, name):
-        """
-        Normalize entity name for consistency.
-        IMPROVED: Preserve Vietnamese diacritics.
-        """
-        # Normalize Unicode to NFC form (important for Vietnamese)
+    def _normalize_entity_name(self, name: str) -> str:
+        """Normalize entity name for consistency."""
         name = unicodedata.normalize('NFC', name)
-        # Strip and lowercase
         name = name.strip().lower()
         return name
 
-    def _sanitize_relationship_name(self, name):
-        """
-        Sanitize relationship name for Neo4j.
-        IMPROVED: Better handling of Vietnamese text.
-        """
-        # Normalize Unicode first
+    def _sanitize_relationship_name(self, name: str) -> str:
+        """Sanitize relationship name for Neo4j."""
         name = unicodedata.normalize('NFC', name)
         name = name.strip()
         
-        # For Vietnamese relationships, keep the diacritics
         # Replace spaces and special chars with underscore
         sanitized = re.sub(r'[\s\-\.,;:!?(){}[\]]+', '_', name)
         
@@ -594,5 +569,4 @@ class GraphManager:
         if sanitized[0].isdigit():
             sanitized = "REL_" + sanitized
         
-        # Convert to uppercase
         return sanitized.upper()
