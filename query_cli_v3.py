@@ -1,7 +1,7 @@
-# query_cli.py
+# query_cli_v3.py
 """
-CLI Tool for GraphRAG Query
-Simple command-line interface to query the knowledge graph without Streamlit
+Enhanced CLI Tool for GraphRAG Query V3
+Optimized for Vietnamese educational content queries
 """
 
 from openai import OpenAI
@@ -10,8 +10,8 @@ import os
 import sys
 
 from graph_database import GraphDatabaseConnection
-from graph_manager import GraphManagerV2
-from query_handler import QueryHandler
+from graph_manager_v3 import GraphManagerV3
+from query_handler_v3 import QueryHandlerV3
 from logger import Logger
 
 # =========================================================
@@ -19,7 +19,7 @@ from logger import Logger
 # =========================================================
 
 load_dotenv()
-logger = Logger("QueryCLI").get_logger()
+logger = Logger("QueryCLI_V3").get_logger()
 
 # Configuration from .env
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -54,27 +54,41 @@ def initialize_query_system():
         
         if stats['nodes'] == 0:
             print("❌ Database is empty!")
-            print("Please run 'python build_graph_v2.py' first to build the knowledge graph")
+            print("Please run 'python build_graph_v3.py' first to build the knowledge graph")
             db_connection.close()
             return None, None, None
         
         print(f"✅ Connected to knowledge graph")
         print(f"   Nodes: {stats['nodes']}")
         print(f"   Relationships: {stats['relationships']}")
+        
+        # Get entity type distribution
+        with db_connection.get_session() as session:
+            type_stats = session.run("""
+                MATCH (e:Entity)
+                RETURN e.type as type, count(*) as count
+                ORDER BY count DESC
+                LIMIT 5
+            """).data()
+            
+            print(f"   Top entity types:")
+            for stat in type_stats:
+                print(f"     - {stat['type']}: {stat['count']}")
+        
         print()
         
         # Initialize OpenAI client
         client = OpenAI(api_key=OPENAI_API_KEY)
         
         # Initialize graph manager
-        graph_manager = GraphManagerV2(
+        graph_manager = GraphManagerV3(
             db_connection=db_connection,
             auto_clear=False,
             openai_client=client
         )
         
         # Initialize query handler
-        query_handler = QueryHandler(
+        query_handler = QueryHandlerV3(
             graph_manager=graph_manager,
             client=client,
             model=MODEL
@@ -84,20 +98,30 @@ def initialize_query_system():
         
     except Exception as e:
         print(f"❌ Error connecting to graph: {e}")
+        logger.error(f"Connection error: {e}", exc_info=True)
         return None, None, None
 
 # =========================================================
 # QUERY INTERFACE
 # =========================================================
 
-def ask_question(query_handler, question, k=2, top_k_seeds=5, max_nodes=80, use_embeddings=True):
+def ask_question(
+    query_handler, 
+    question, 
+    k=2, 
+    top_k_seeds=5, 
+    max_nodes=80, 
+    use_embeddings=True,
+    verbose=False
+):
     """Ask a question and get answer."""
     try:
-        print(f"\n🔍 Searching knowledge graph...")
+        if verbose:
+            print(f"\n🔍 Processing query...")
+            print(f"   Settings: k={k}, seeds={top_k_seeds}, max_nodes={max_nodes}")
         
         answer = query_handler.ask_question(
             query=question,
-            method="khop",
             k=k,
             top_k_seeds=top_k_seeds,
             max_nodes=max_nodes,
@@ -124,12 +148,13 @@ def interactive_mode(query_handler):
     """Interactive query mode - ask multiple questions."""
     
     print("\n" + "=" * 80)
-    print("🤖 GRAPHRAG INTERACTIVE QUERY MODE")
+    print("🤖 GRAPHRAG INTERACTIVE QUERY MODE V3")
     print("=" * 80)
     print("\nCommands:")
     print("  - Type your question to search")
     print("  - 'examples' - Show example questions")
     print("  - 'settings' - Adjust query settings")
+    print("  - 'help' - Show help")
     print("  - 'quit' or 'exit' - Exit program")
     print()
     
@@ -138,7 +163,8 @@ def interactive_mode(query_handler):
         'k': 2,
         'top_k_seeds': 5,
         'max_nodes': 80,
-        'use_embeddings': True
+        'use_embeddings': True,
+        'verbose': False
     }
     
     while True:
@@ -166,6 +192,10 @@ def interactive_mode(query_handler):
                 show_help()
                 continue
             
+            elif question.lower() == 'stats':
+                show_quick_stats(query_handler.graph_manager.db)
+                continue
+            
             # Ask question
             ask_question(
                 query_handler,
@@ -173,7 +203,8 @@ def interactive_mode(query_handler):
                 k=settings['k'],
                 top_k_seeds=settings['top_k_seeds'],
                 max_nodes=settings['max_nodes'],
-                use_embeddings=settings['use_embeddings']
+                use_embeddings=settings['use_embeddings'],
+                verbose=settings['verbose']
             )
             
         except KeyboardInterrupt:
@@ -187,32 +218,42 @@ def interactive_mode(query_handler):
 # =========================================================
 
 def show_examples():
-    """Show example questions."""
+    """Show example questions organized by category."""
     print("\n" + "=" * 80)
-    print("📝 EXAMPLE QUESTIONS")
+    print("📚 EXAMPLE QUESTIONS")
     print("=" * 80)
     
     examples = {
-        "Về Giảng viên": [
-            "Giảng viên nào giảng dạy môn Lập trình Java?",
-            "Email của giảng viên Phạm Xuân Lâm là gì?",
-            "Danh sách tất cả giảng viên có chức danh Tiến sĩ"
+        "Về Học phần (Course Information)": [
+            "Môn Phân tích và thiết kế hệ thống có bao nhiêu tín chỉ?",
+            "Mã học phần của môn Phân tích và thiết kế hệ thống là gì?",
+            "Mô tả về môn Phân tích và thiết kế hệ thống?",
+            "Số giờ trên lớp của môn Phân tích và thiết kế hệ thống?"
         ],
-        "Về Học phần": [
-            "Môn Lập trình Java có bao nhiêu tín chỉ?",
-            "Mã học phần của Lập trình Java là gì?",
-            "Các học phần tiên quyết của môn Lập trình Java?",
-            "Số giờ trên lớp của môn Lập trình Java?"
+        "Về Giảng viên (Instructors)": [
+            "Giảng viên nào giảng dạy môn Phân tích và thiết kế hệ thống?",
+            "Email của giảng viên Trần Thị Mỹ Diệp là gì?",
+            "Danh sách giảng viên khoa Công nghệ thông tin"
         ],
-        "Về Tài liệu": [
-            "Tài liệu tham khảo cho môn Lập trình Java?",
+        "Về Học phần tiên quyết (Prerequisites)": [
+            "Các học phần tiên quyết của môn Phân tích và thiết kế hệ thống?",
+            "Môn nào cần học trước khi học Phân tích và thiết kế hệ thống?",
+            "Điều kiện tiên quyết để học môn này?"
+        ],
+        "Về Tài liệu (Materials)": [
+            "Tài liệu tham khảo cho môn Phân tích và thiết kế hệ thống?",
             "Sách giáo trình nào được sử dụng?",
-            "Phần mềm nào được dùng trong môn Lập trình Java?"
+            "Phần mềm nào được dùng trong môn này?"
         ],
-        "Về Mục tiêu": [
-            "Mục tiêu của học phần Lập trình Java là gì?",
-            "Chuẩn đầu ra của môn Lập trình Java?",
+        "Về Mục tiêu & Chuẩn đầu ra (Objectives & Outcomes)": [
+            "Mục tiêu của học phần Phân tích và thiết kế hệ thống?",
+            "Chuẩn đầu ra của môn này?",
             "Sinh viên học môn này sẽ đạt được kỹ năng gì?"
+        ],
+        "Về Đánh giá (Assessment)": [
+            "Cách thức đánh giá môn Phân tích và thiết kế hệ thống?",
+            "Cơ cấu điểm của môn này?",
+            "Tỷ lệ điểm chuyên cần là bao nhiêu?"
         ]
     }
     
@@ -221,10 +262,11 @@ def show_examples():
         for i, q in enumerate(questions, 1):
             print(f"  {i}. {q}")
     
+    print("\n💡 Tip: Copy and paste these questions to test the system!")
     print()
 
 def adjust_settings(current_settings):
-    """Adjust query settings."""
+    """Adjust query settings interactively."""
     print("\n" + "=" * 80)
     print("⚙️  QUERY SETTINGS")
     print("=" * 80)
@@ -233,28 +275,34 @@ def adjust_settings(current_settings):
     print(f"  2. Top K seeds: {current_settings['top_k_seeds']}")
     print(f"  3. Max nodes: {current_settings['max_nodes']}")
     print(f"  4. Use embeddings: {current_settings['use_embeddings']}")
+    print(f"  5. Verbose mode: {current_settings['verbose']}")
     print("\nEnter new values (or press Enter to keep current):")
     
     try:
         # K-hop
         k_input = input(f"K-hop depth (1-3) [{current_settings['k']}]: ").strip()
         if k_input:
-            current_settings['k'] = int(k_input)
+            current_settings['k'] = max(1, min(3, int(k_input)))
         
         # Top K seeds
         seeds_input = input(f"Top K seeds (3-10) [{current_settings['top_k_seeds']}]: ").strip()
         if seeds_input:
-            current_settings['top_k_seeds'] = int(seeds_input)
+            current_settings['top_k_seeds'] = max(3, min(10, int(seeds_input)))
         
         # Max nodes
         nodes_input = input(f"Max nodes (50-200) [{current_settings['max_nodes']}]: ").strip()
         if nodes_input:
-            current_settings['max_nodes'] = int(nodes_input)
+            current_settings['max_nodes'] = max(50, min(200, int(nodes_input)))
         
         # Embeddings
         embed_input = input(f"Use embeddings (yes/no) [{'yes' if current_settings['use_embeddings'] else 'no'}]: ").strip()
         if embed_input:
             current_settings['use_embeddings'] = embed_input.lower() in ['yes', 'y', 'true', '1']
+        
+        # Verbose
+        verbose_input = input(f"Verbose mode (yes/no) [{'yes' if current_settings['verbose'] else 'no'}]: ").strip()
+        if verbose_input:
+            current_settings['verbose'] = verbose_input.lower() in ['yes', 'y', 'true', '1']
         
         print("\n✅ Settings updated!")
         
@@ -269,37 +317,99 @@ def show_help():
     print("📖 HELP")
     print("=" * 80)
     print("""
-Commands:
-  - Type any question to search the knowledge graph
-  - 'examples' - Show example questions
+COMMANDS:
+  - Type any question in Vietnamese to search the knowledge graph
+  - 'examples' - Show example questions by category
   - 'settings' - Adjust query parameters
+  - 'stats' - Show quick database statistics
   - 'help' - Show this help message
   - 'quit' or 'exit' - Exit the program
 
-Query Parameters:
-  - K-hop depth: How deep to traverse the graph (1-3)
-  - Top K seeds: Number of starting entities (3-10)
-  - Max nodes: Maximum nodes in subgraph (50-200)
-  - Use embeddings: Vector similarity search (yes/no)
+QUERY PARAMETERS:
+  - K-hop depth (1-3): How deep to traverse the graph
+    * k=1: Direct connections only
+    * k=2: Friends of friends (recommended)
+    * k=3: Wider network (may be slower)
+  
+  - Top K seeds (3-10): Number of starting entities
+    * Lower: More focused results
+    * Higher: More comprehensive but may include noise
+  
+  - Max nodes (50-200): Maximum nodes in subgraph
+    * Lower: Faster, more focused
+    * Higher: More complete but slower
+  
+  - Use embeddings (yes/no): Semantic search vs keyword search
+    * yes: Better semantic matching (recommended)
+    * no: Exact keyword matching only
 
-Tips:
+TIPS:
   - Be specific in your questions
-  - Use exact names when possible
-  - Adjust settings for complex queries
+  - Use full names when possible (e.g., "Phân tích và thiết kế hệ thống")
+  - For complex queries, increase k-hop depth and max_nodes
+  - If results seem incomplete, try different seed counts
+  - Use embeddings for better semantic understanding
     """)
+
+def show_quick_stats(db):
+    """Show quick database statistics."""
+    print("\n" + "=" * 80)
+    print("📊 QUICK STATISTICS")
+    print("=" * 80)
+    
+    with db.get_session() as session:
+        # Entity types
+        types = session.run("""
+            MATCH (e:Entity)
+            RETURN e.type as type, count(*) as count
+            ORDER BY count DESC
+            LIMIT 5
+        """).data()
+        
+        print("\nTop Entity Types:")
+        for t in types:
+            print(f"  • {t['type']}: {t['count']}")
+        
+        # Relationship types
+        rels = session.run("""
+            MATCH ()-[r]->()
+            RETURN type(r) as type, count(*) as count
+            ORDER BY count DESC
+            LIMIT 5
+        """).data()
+        
+        print("\nTop Relationship Types:")
+        for r in rels:
+            print(f"  • {r['type']}: {r['count']}")
+    
+    print()
 
 # =========================================================
 # SINGLE QUERY MODE
 # =========================================================
 
-def single_query_mode(query_handler, question):
+def single_query_mode(query_handler, question, settings=None):
     """Process a single question and exit."""
-    print("\n" + "=" * 80)
-    print("🤖 GRAPHRAG SINGLE QUERY")
-    print("=" * 80)
-    print(f"\n❓ Question: {question}")
     
-    ask_question(query_handler, question)
+    if settings is None:
+        settings = {
+            'k': 2,
+            'top_k_seeds': 5,
+            'max_nodes': 80,
+            'use_embeddings': True,
+            'verbose': True
+        }
+    
+    print("\n" + "=" * 80)
+    print("🤖 GRAPHRAG SINGLE QUERY V3")
+    print("=" * 80)
+    print(f"\n❓ Question: {question}\n")
+    
+    ask_question(
+        query_handler,
+        question,
+        **settings
+    )
 
 # =========================================================
 # MAIN

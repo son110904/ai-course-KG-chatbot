@@ -40,5 +40,10 @@ GRAPH_RAG_MAX_FACTS=30
 ## Chạy ingest + demo hỏi đáp
 
 ```bash
-python main.py
+python build_graph_v3.py
+```
+
+
+```bash
+python query_cli_v3.py
 ```
