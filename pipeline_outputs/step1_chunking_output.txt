@@ -1,0 +1,1418 @@
+================================================================================
+STEP 1: CHUNKING - DETAILED OUTPUT
+================================================================================
+
+📊 THỐNG KÊ:
+   - Số documents gốc: 2
+   - Số chunks tạo ra: 27
+   - Kích thước chunk: 2000 ký tự
+   - Overlap: 300 ký tự
+   - Độ dài TB mỗi chunk: 1928 ký tự
+
+================================================================================
+📝 TẤT CẢ CHUNKS:
+================================================================================
+
+--- CHUNK 1/27 (độ dài: 2000 ký tự) ---
+[TABLE]
+BỘ GIÁO DỤC VÀ ĐÀO TẠO
+TRƯỜNG ĐH KINH TẾ QUỐC DÂN
+_______________________ | CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+Độc lập – Tự do – Hạnh phúc
+_______________________
+---
+[/TABLE]
+
+ĐỀ CƯƠNG HỌC PHẦN CHI TIẾT
+
+(Detailed Course Syllabus)
+
+(Ban hành kèm theo Quyết định số… QĐ/ĐHKTQD ngày 28 tháng 6 năm 2024)
+
+1. THÔNG TIN TỔNG QUÁT (General Information)
+
+Tên học phần (tiếng Việt): 	An ninh không gian mạng
+
+Tên học phần (tiếng Anh):	Cybersecurity
+
+Trình độ đào tạo 		Đại học
+
+Mã học phần: 			CNTT1197
+
+Số tín chỉ: 			03
+
+Số giờ trên lớp:	45
+
+Số giờ tự học:		105
+
+(01 tín chỉ bằng 50 giờ định mức, 01 giờ định mức bằng 50 phút)
+
+Các học phần tiên quyết:
+
+Mạng máy tính và truyền số liệu
+
+2. KHOA/VIỆN QUẢN LÝ VÀ GIẢNG VIÊN GIẢNG DẠY (Management Faculty and Teachers)
+
+Khoa/Viện quản lý học phần: Viện Công nghệ thông tin & Kinh tế số
+
+Địa chỉ: P.1308 - P.1312, Tòa nhà A1, Trường Đại học KTQD, 207 Giải Phóng, Hai Bà Trưng, Hà Nội
+
+Giảng viên giảng dạy học phần:
+
+[TABLE]
+STT | Họ và tên | Email
+---
+1 | TS. Nguyễn Thanh Hương | huongnt_cntt@neu.edu.vn
+2 | TS. Tống Thị Hảo Tâm | tamtth@neu.edu.vn
+[/TABLE]
+
+3. MÔ TẢ HỌC PHẦN (Course Descriptions)
+
+Học phần An ninh không gian mạng cung cấp cho sinh viên những kiến thức cơ bản trong việc bảo vệ hệ thống thông tin và hệ thống mạng. Học phần giới thiệu các khái niệm và ý nghĩa của an ninh mạng, nhấn mạnh vào việc bảo vệ thông tin quan trọng và ngăn chặn các mối đe dọa từ bên trong và bên ngoài mạng; Tập trung vào các kỹ thuật nền tảng như mã hóa, mật mã khóa công khai, xác thực và chữ ký số. Những kiến thức này là cơ bản để hiểu về cách thông tin được bảo vệ và truyền tải an toàn trên mạng. Các kỹ thuật đánh giá an toàn mạng cũng được giới thiệu để sinh viên có thể đánh giá và xác định các lỗ hổng trong hệ thống mạng. Điều này bao gồm phân tích và kiểm tra tính an toàn của mạng từ các góc độ khác nhau. Bên cạnh đó, sinh viên cũng sẽ tìm hiểu về các hình thức tấn công mạng phổ biến như tấn công mật khẩu, tấn công giả mạo địa chỉ IP, c
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 2/27 (độ dài: 2000 ký tự) ---
+ thiệu để sinh viên có thể đánh giá và xác định các lỗ hổng trong hệ thống mạng. Điều này bao gồm phân tích và kiểm tra tính an toàn của mạng từ các góc độ khác nhau. Bên cạnh đó, sinh viên cũng sẽ tìm hiểu về các hình thức tấn công mạng phổ biến như tấn công mật khẩu, tấn công giả mạo địa chỉ IP, chiếm quyền máy chủ, tấn công từ chối dịch vụ và tấn công cổng sau. Việc hiểu biết về các loại tấn công này giúp sinh viên nhận biết và phòng tránh hiệu quả.Ngoài ra, học phần cung cấp một số giải pháp an toàn mạng như chính sách an ninh IP, hệ thống tường lửa, hệ thống IDS/IPS và bảo mật mạng không dây. Những giải pháp này giúp tăng cường khả năng phòng thủ của hệ thống mạng trước các mối đe dọa từ bên ngoài và bên trong.
+
+Học phần rèn luyện kỹ năng tư duy, kỹ năng sử dụng các công cụ để nhận biết, phân tích, giải quyết các vấn đề liên quan đến an toàn, bảo mật thông tin mạng. Đồng thời học phần cũng phát triển kỹ năng làm việc độc lập, làm việc nhóm và khả năng tự nghiên cứu của sinh viên.
+
+Nội dung chính:
+
+Học phần cung cấp cho sinh viên những kiến thức sau đây:
+
+Giới thiệu chung về an ninh mạng;
+
+Các kỹ thuật bảo mật: mã hóa, mật mã khóa công khai, xác thực, chữ ký số
+
+Các kỹ thuật đánh giá an toàn mạng
+
+Một số hình thức tấn công mạng: tấn công mật khẩu, tấn công giả mạo địa chỉ IP, chiếm quyền máy chủ, tấn công từ chối dịch vụ, tấn công cổng sau
+
+Một số giải pháp an ninh mạng: chính sách an ninh IP, hệ thống tường lửa, hệ thống IDS/IPS, bảo mật mạng không dây
+
+4. TÀI LIỆU HỌC TẬP (Learning resources: Course Books, Reference Books, and Softwares)
+
+4.1. Giáo trình
+
+[1] William Stallings (2017), Cryptography and Network Security: Principles and Practice, Seventh
+Edition, Pearson.
+
+[2] Nguyễn Thị Thanh Vân, Huỳnh Nguyên Chính (2023), Giáo trình an ninh mạng, Nhà xuất bản Đại học Quốc gia Thành phố Hồ Chí Minh.
+
+4.2. Tài liệu tham khảo
+
+[3] EC-Council (2022), “Certified Ethical Hacker”, version 12, Study Slides, EC-Council.
+
+4.3. Phần mềm
+
+[4] Phần mềm phân tích mạng Wires
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 3/27 (độ dài: 2000 ký tự) ---
+on.
+
+[2] Nguyễn Thị Thanh Vân, Huỳnh Nguyên Chính (2023), Giáo trình an ninh mạng, Nhà xuất bản Đại học Quốc gia Thành phố Hồ Chí Minh.
+
+4.2. Tài liệu tham khảo
+
+[3] EC-Council (2022), “Certified Ethical Hacker”, version 12, Study Slides, EC-Council.
+
+4.3. Phần mềm
+
+[4] Phần mềm phân tích mạng Wireshark
+
+5. MỤC TIÊU HỌC PHẦN (Course Goals)
+
+Bảng 1. Mục tiêu học phần
+
+[TABLE]
+Mã / Code | Mô tả mục tiêu học phần (CG) | CĐR/PLO của CTĐT
+---
+[1] | [2] | [3]
+CG1 | Kiến thức cơ bản về kiến trúc, mô hình an ninh mạng; Các kỹ thuật bảo mật thông tin; Phân tích, phát hiện, đánh giá các điểm yếu và nguy cơ của hệ thống mạng; Phân tích, phát hiện các hiểm họa tấn công mạng; Các giải pháp đảm bảo an ninh hệ thống mạng trong thực tế. | PLO1.3
+PLO1.4
+PLO1.5
+CG2 | Khả năng phát hiện, phân tích, đánh giá, giải quyết các vấn đề liên quan đến các nguy cơ và hiểm họa tấn công mạng. Khả năng thiết kế, cài đặt và triển khai các giải pháp đảm bảo an ninh hệ thống mạng. | PLO2.1
+PLO2.2
+PLO2.3
+CG3 | Năng lực làm việc cá nhân và làm việc nhóm. Năng lực thể hiện quan điểm và bảo vệ quan điểm cá nhân, hiểu và thực hiện đúng đắn trách nhiệm thực thi công việc và đạo đức nghề nghiệp. | PLO3.1
+PLO3.2
+PLO3.3
+PLO3.4
+[/TABLE]
+
+6. CHUẨN ĐẦU RA HỌC PHẦN (Course Learning Outcomes)
+
+Bảng 2. Chuẩn đầu ra học phần (CLO)
+
+[TABLE]
+Mục tiêu | CLOij | Mô tả CLO | Mức độ đạt được
+---
+[1] | [2] | [3] | [4]
+CG1 
+Kiến thức | CLO 1.1 | Hiểu và thảo luận những vấn đề chính liên quan đến mô hình an ninh mạng | 3
+CG1 
+Kiến thức | CLO 1.2 | Hiểu và vận dụng được các phương pháp mật mã học trong lĩnh vực an ninh mạng | 4
+CG1 
+Kiến thức | CLO 1.3 | Phát hiện, phân tích, đánh giá được các điểm yếu của hệ thống mạng | 4
+CG1 
+Kiến thức | CLO 1.4 | Phát hiện, phân tích được các hiểm họa tấn công mạng | 4
+CG1 
+Kiến thức | CLO 1.5 | Vận dụng được các kiến thức về an ninh mạng, xây dựng được các giải pháp đảm bảo an ninh hệ thống mạng trong thực tế. | 4
+CG2 
+Kỹ năng | CLO 2.1 | Kỹ năng đọc hiểu tài liệu tiếng Anh chuyên ngành
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 4/27 (độ dài: 2000 ký tự) ---
+iến thức | CLO 1.4 | Phát hiện, phân tích được các hiểm họa tấn công mạng | 4
+CG1 
+Kiến thức | CLO 1.5 | Vận dụng được các kiến thức về an ninh mạng, xây dựng được các giải pháp đảm bảo an ninh hệ thống mạng trong thực tế. | 4
+CG2 
+Kỹ năng | CLO 2.1 | Kỹ năng đọc hiểu tài liệu tiếng Anh chuyên ngành, kỹ năng tự học và nghiên cứu | 4
+CG2 
+Kỹ năng | CLO 2.2 | Kỹ năng phát hiện, đánh giá rủi ro hệ thống mạng; phát hiện, phân tích tấn công mạng | 4
+CG2 
+Kỹ năng | CLO 2.3 | Kỹ năng giải quyết vấn đề chuyên sâu, thiết kế, cài đặt và triển khai các giải pháp đảm bảo an ninh hệ thống mạng trong thực tế. | 4
+CG3 
+Năng lực tự chủ, trách nhiệm | CLO 3.1 | Có năng lực làm việc cá nhân và làm việc nhóm | 5
+CG3 
+Năng lực tự chủ, trách nhiệm | CLO 3.2 | Có năng lực thể hiện quan điểm và bảo vệ quan điểm cá nhân, hiểu và thực hiện đúng đắn trách nhiệm thực thi công việc và đạo đức nghề nghiệp. | 4
+[/TABLE]
+
+7. ĐÁNH GIÁ HỌC PHẦN (Course Assessment)
+
+7.1. Cơ cấu điểm thành phần
+
+Bảng 3. Đánh giá học phần
+
+[TABLE]
+Hình thức đánh giá | Nội dung /
+Bài đánh giá | Thời điểm | CLOs | Công cụ và 
+tiêu chí đánh giá | Tỷ lệ 
+(%) | CĐR/PLO của CTĐT
+---
+[1] | [2] | [3] | [4] | [5] | [6] | [7]
+Chuyên cần | - Ý thức, thái độ tham gia học tập của người học trong việc chuẩn bị bài, tham gia thảo luận, xây dựng bài ở trên lớp
+- Ý thức của người học trong việc chấp hành các nội quy, quy chế, quy định của trường, của lớp học | Tuần 1-15 | CLO 1.1
+CLO 1.2
+CLO 1.3
+CLO 1.4
+CLO 2.1
+CLO 2.2
+CLO 3.1
+CLO 3.2 | - Điểm danh
+- Trả lời câu hỏi, thảo luận trên lớp
+Xem Phụ lục 2, rubrics 1 | 10% | 
+Đánh giá quá trình | Bài tập nhóm
+Nhóm 4-6 sinh viên
+- Kết quả là một bản báo cáo, không bắt buộc thuyết trình | Nộp bản cuối: tuần 14
+Các thời điểm do giảng viên quyết định:
+- Đề xuất chủ đề
+- Đề xuất mô hình 
+- Nộp bản nháp | CLO 1.3
+CLO 1.4
+CLO 1.5
+CLO 2.1
+CLO 2.2
+CLO 2.3
+CLO 3.1
+CLO 3.2 | - Xem Phụ lục 2, rubrics 2 | 40% | 
+Đánh giá quá trình | Bài kiểm tra | Tuần 10 | CLO 1.1
+CLO 1.2
+CLO 1.3
+CLO 1.4
+CLO 2.1
+CLO 2.2
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 5/27 (độ dài: 2000 ký tự) ---
+ối: tuần 14
+Các thời điểm do giảng viên quyết định:
+- Đề xuất chủ đề
+- Đề xuất mô hình 
+- Nộp bản nháp | CLO 1.3
+CLO 1.4
+CLO 1.5
+CLO 2.1
+CLO 2.2
+CLO 2.3
+CLO 3.1
+CLO 3.2 | - Xem Phụ lục 2, rubrics 2 | 40% | 
+Đánh giá quá trình | Bài kiểm tra | Tuần 10 | CLO 1.1
+CLO 1.2
+CLO 1.3
+CLO 1.4
+CLO 2.1
+CLO 2.2
+CLO 3.1
+CLO 3.2 | - Xem Phụ lục 2, rubrics 3 | 40% | 
+Đánh giá cuối kỳ | Toàn bộ nội dung học | Theo lịch của Trường |  | - Trắc nghiệm/Tự luận 
+- Xem Phụ lục 1: ma trận đề thi | 50% | 
+[/TABLE]
+
+7.2. Ma trận đề thi (phụ lục 1)
+
+7.3. Các rubrics (phụ lục 2)
+
+8. KẾ HOẠCH DẠY HỌC (Lesson Plan)
+
+Bảng 4. Kế hoạch và nội dung dạy học
+
+[TABLE]
+Tuần | Nội dung | Tài liệu đọc | Hoạt động dạy và học | Đánh giá | CLOs
+---
+[1] | [2] | [3] | [4] | [5] | [6]
+1 | - Giới thiệu Đề cương chi tiết môn học
+- Chương 1: Giới thiệu về an ninh mạng
+1.1. Các khái niệm cơ bản
+1.2. Các nguy cơ về an toàn thông tin
+1.3. Kiến trúc an ninh OSI
+1.4. Mô hình an ninh mạng
+1.5. Mật mã | [1] Chapter 1
+[2] Chương 1
+[3] Module 1 | Giảng viên
+- Giới thiệu đề cương, giáo trình, tài liệu tham khảo, phần mềm, slide
+- Giảng lý thuyết theo nội dung slide
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình, tài liệu tham khảo
+- Yêu cầu sinh viên xem lại kiến thức các môn tiên quyết
+Sinh viên
+- Xem trước đề cương
+- Đọc các tài liệu 
+- Xem lại các kiến thức của học phần tiên quyết | - Mức độ tham gia
+- Mức độ tương tác
+- Chất lượng câu trả lời
+- Chất lượng thảo luận | CLO 1.1
+CLO 2.1
+CLO 2.2
+CLO 3.1
+2-5 | Chương 2: Các kỹ thuật bảo mật
+2.1. Mã hóa đối xứng
+2.2. Các số ngẫu nhiên và giả ngẫu nhiên
+2.3. Xác thực thông báo
+2.4. Hàm băm và giải thuật SHA
+2.5. Mật mã khóa công khai
+2.6. Chữ ký số | [1] Chapter 3,4,6,7,8,9,10,11,13 | Giảng viên
+- Giảng viên giảng lý thuyết và giải thích các nội dung của bài học
+- Đưa ra bài toán vận dụng của nội dung bài học
+- Phát vấn
+- Trả lời các câu hỏi của sinh viên
+- Giao bài tập của nội dung bài học
+Sinh viên
+- Làm bài tập được giao trước khi tới lớp
+- Chuẩn bị bài mới
+- Ngh
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 6/27 (độ dài: 2000 ký tự) ---
+,9,10,11,13 | Giảng viên
+- Giảng viên giảng lý thuyết và giải thích các nội dung của bài học
+- Đưa ra bài toán vận dụng của nội dung bài học
+- Phát vấn
+- Trả lời các câu hỏi của sinh viên
+- Giao bài tập của nội dung bài học
+Sinh viên
+- Làm bài tập được giao trước khi tới lớp
+- Chuẩn bị bài mới
+- Nghe giảng, đọc và nghiên cứu tài liệu học tập
+- Đưa ra các câu hỏi, chủ đề thảo luận của bài học
+- Làm các bài tập vận dụng, trả lời các câu hỏi/thảo luận các tình huống thực tế | - Mức độ tham gia
+- Mức độ tương tác
+- Chất lượng câu trả lời
+- Chất lượng thảo luận | CLO 1.2
+CLO 2.1
+CLO 2.2
+CLO 3.1
+CLO 3.2
+6-7 | Chương 3: Đánh giá an toàn mạng
+3.1. Sự cần thiết của đánh giá an toàn mạng
+3.2. Các phương pháp đánh giá
+3.3. Các công cụ quét và liệt kê thông tin mạng
+3.4. Kiểm tra xâm nhập
+3.5. Đánh giá nguy cơ hệ thống | [2] Chương 2
+[3] Module 2,3,4,5 | Giảng viên
+- Giảng viên giảng lý thuyết và giải thích các nội dung của bài học
+- Đưa ra bài toán vận dụng của nội dung bài học
+- Hướng dẫn cài đặt và sử dụng các công cụ quét và liệt kê thông tin mạng.
+- Trả lời các câu hỏi của sinh viên
+- Giao bài tập của nội dung bài học
+Sinh viên
+- Làm bài tập được giao trước khi tới lớp
+- Chuẩn bị bài mới
+- Nghe giảng, đọc và nghiên cứu tài liệu học tập
+- Đưa ra các câu hỏi, chủ đề thảo luận của bài học
+- Làm các bài tập vận dụng, trả lời các câu hỏi/thảo luận các tình huống thực tế
+- Thực hành theo hướng dẫn của giảng viên | - Mức độ tham gia
+- Mức độ tương tác
+- Mức độ thực hành
+- Chất lượng câu trả lời
+- Chất lượng thảo luận | CLO 1.3
+CLO 2.1
+CLO 2.2
+CLO 3.1
+CLO 3.2
+8-10 | - Chương 4: Một số hình thức tấn công mạng
+4.1. Tấn công mật khẩu
+4.2. Tấn công giả mạo địa chỉ IP
+4.3. Tấn công chiếm quyền máy chủ
+4.4. Tấn công từ chối dịch vụ - DoS
+4.5. Tấn công từ chối dịch vụ phân tán - DDoS
+4.6. Tấn công cổng sau
+4.7. Mã độc tấn công mạng
+4.8. Tấn công mạng không dây | [2] Chương 3,6
+[3] Module 6,8,10,11,13,16 | Giảng viên
+- Giảng viên giảng lý thuyết và giải thích các nội dung của bài học
+- Đư
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 7/27 (độ dài: 2000 ký tự) ---
+ền máy chủ
+4.4. Tấn công từ chối dịch vụ - DoS
+4.5. Tấn công từ chối dịch vụ phân tán - DDoS
+4.6. Tấn công cổng sau
+4.7. Mã độc tấn công mạng
+4.8. Tấn công mạng không dây | [2] Chương 3,6
+[3] Module 6,8,10,11,13,16 | Giảng viên
+- Giảng viên giảng lý thuyết và giải thích các nội dung của bài học
+- Đưa ra bài toán vận dụng của nội dung bài học
+- Phát vấn
+- Trả lời các câu hỏi của sinh viên
+- Giao bài tập của nội dung bài học
+Sinh viên
+- Làm bài tập được giao trước khi tới lớp
+- Chuẩn bị bài mới
+- Nghe giảng, đọc và nghiên cứu tài liệu học tập
+- Đưa ra các câu hỏi, chủ đề thảo luận của bài học
+- Làm các bài tập vận dụng, trả lời các câu hỏi/thảo luận các tình huống thực tế | - Mức độ tham gia
+- Mức độ tương tác
+- Chất lượng câu trả lời
+- Chất lượng thảo luận | CLO 1.4
+CLO 2.1
+CLO 2.2
+CLO 3.1
+CLO 3.2
+8-10 | - Kiểm tra 20% Các Chương 1,2,3,4 (Tuần 10) |  | - Giảng viên giao đề kiểm tra, giám sát sinh viên làm bài kiểm tra
+- Sinh viên làm bài kiểm tra | - Xem Phụ lục 2, rubrics 3 | CLO 1.1
+CLO 1.2
+CLO 1.3
+CLO 1.4
+CLO 2.1
+CLO 2.2
+CLO 3.1
+CLO 3.2
+11-14 | Chương 5: Một số giải pháp an ninh mạng
+5.1. Chính sách an ninh IP
+5.2. Hệ thống tường lửa
+5.3. Hệ thống phát hiện xâm nhập - IDS
+5.4. Hệ thống ngăn ngừa xâm nhập mạng - IPS
+5.5. Bảo mật mạng không dây | [1] Chapter 18,20
+[2] Chương 6,7
+[3] Module 12 | Giảng viên
+- Giảng viên giảng lý thuyết và giải thích các nội dung của bài học
+- Đưa ra bài toán vận dụng của nội dung bài học
+- Phát vấn
+- Trả lời các câu hỏi của sinh viên
+- Giao bài tập của nội dung bài học
+- Hướng dẫn cài đặt và triển khai các giải pháp an ninh mạng.
+Sinh viên
+- Làm bài tập được giao trước khi tới lớp
+- Chuẩn bị bài mới
+- Nghe giảng, đọc và nghiên cứu tài liệu học tập
+- Đưa ra các câu hỏi, chủ đề thảo luận của bài học
+- Làm các bài tập vận dụng, trả lời các câu hỏi/thảo luận các tình huống thực tế
+- Thực hành theo hướng dẫn của giảng viên | - Mức độ tham gia
+- Mức độ tương tác
+- Mức độ thực hành
+- Chất lượng câu trả lời
+- Chất lượng thảo luận | CLO 1.5
+CL
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 8/27 (độ dài: 2000 ký tự) ---
+học tập
+- Đưa ra các câu hỏi, chủ đề thảo luận của bài học
+- Làm các bài tập vận dụng, trả lời các câu hỏi/thảo luận các tình huống thực tế
+- Thực hành theo hướng dẫn của giảng viên | - Mức độ tham gia
+- Mức độ tương tác
+- Mức độ thực hành
+- Chất lượng câu trả lời
+- Chất lượng thảo luận | CLO 1.5
+CLO 2.1
+CLO 2.2
+CLO 2.3
+CLO 3.1
+CLO 3.2
+11-14 | - Nộp bài tập nhóm (Tuần 14) |  | - Các nhóm sinh viên nộp báo cáo bài tập nhóm
+- Giảng viên đánh giá
+- Giảng viên giải đáp các câu hỏi của sinh viên | - Xem Phụ lục 2, rubrics 2 | CLO 1.3
+CLO 1.4
+CLO 1.5
+CLO 2.1
+CLO 2.2
+CLO 2.3
+CLO 3.1
+CLO 3.2
+15 |  |  | Giảng viên
+- Tổng hợp, hệ thống lại các kiến thức trong các bài giảng
+- Thông báo điểm chuyên cần 10%
+- Thông báo điểm quá trình 40%
+- Giải đáp thắc mắc
+Sinh viên
+- Có mặt đầy đủ để nhận thông tin về điểm thành phần
+- Xem lại toàn bộ nội dung học phần | - Điểm danh
+- Sau buổi học, không giải quyết các thắc mắc về điểm thành phần | 
+Lịch thi | Thi cuối kỳ |  |  | Xem Phụ lục 1: ma trận đề thi | Xem Bảng 3
+[/TABLE]
+
+9. ĐÁNH GIÁ CHUẨN ĐẦU RA HỌC PHẦN (Course Learning Outcome Assessement)
+
+Hệ thống quản lý đào tạo tự động đánh giá mức độ đạt được CLO theo thuật toán chung của Trường. Chuẩn đầu ra của học phần được sinh viên và trường đánh giá sau thi kết thúc học phần.
+
+10. QUY ĐỊNH CỦA HỌC PHẦN (Course Requirements and Expectation)
+
+10.1. Quy định về điều kiện thi kết thúc học phần
+
+Điểm chuyên cần đạt từ 5 trở lên (theo quy định chung của Trường)
+
+Cách đánh giá điểm chuyên cần: xem Phụ lục 2, rubrics 1.
+
+10.2. Quy định về tham dự lớp học
+
+Học viên có trách nhiệm tham dự đầy đủ các buổi học.
+
+Trong trường hợp nghỉ học do lý do bất khả kháng thì cần chủ động tìm hiểu kiến thức thông qua tài liệu được giảng viên cung cấp và các tài liệu khác được yêu cầu đọc.
+
+10.3. Quy định về hành vi trong lớp học
+
+Học phần được thực hiện trên nguyên tắc tôn trọng người học và người giảng;
+
+Ghi chép đầy đủ, tham gia trả lời câu hỏi;
+
+Đọc trước tài liệu được yêu cầu;
+
+Làm các bài tập về nhà;
+
+Khô
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 9/27 (độ dài: 809 ký tự) ---
+a tài liệu được giảng viên cung cấp và các tài liệu khác được yêu cầu đọc.
+
+10.3. Quy định về hành vi trong lớp học
+
+Học phần được thực hiện trên nguyên tắc tôn trọng người học và người giảng;
+
+Ghi chép đầy đủ, tham gia trả lời câu hỏi;
+
+Đọc trước tài liệu được yêu cầu;
+
+Làm các bài tập về nhà;
+
+Không làm ồn, gây ảnh hưởng đến người khác, không ăn trong quá trình học;
+
+Laptop, máy tính bảng, điện thoại di động chỉ được sử dụng cho mục đích ghi chép bài giảng, tính toán phục vụ học tập, tuyệt đối không dùng vào mục đích khác.
+
+10.4. Quy định về nộp bài tập lớn
+
+Người học không nộp bài cá nhân / nhóm theo yêu cầu sẽ nhận điểm 0 (không).
+
+Sau thời hạn cuối theo quy định, bài nộp muộn mỗi ngày sẽ trừ một điểm.
+
+[TABLE]
+PHỤ TRÁCH KHOA | HIỆU TRƯỞNG
+---
+TS. Phạm Xuân Lâm | GS.TS Phạm Hồng Chương
+[/TABLE]
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 10/27 (độ dài: 2000 ký tự) ---
+[TABLE]
+BỘ GIÁO DỤC VÀ ĐÀO TẠO
+TRƯỜNG ĐẠI HỌC KINH TẾ QUỐC DÂN | CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+Độc lập – Tự do – Hạnh phúc
+---
+ | 
+ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN
+(Detailed Course Syllabus) | ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN
+(Detailed Course Syllabus)
+(Ban hành kèm theo Quyết định số 628 QĐ/ĐHKTQD ngày 18 tháng 6 năm 2024) | (Ban hành kèm theo Quyết định số 628 QĐ/ĐHKTQD ngày 18 tháng 6 năm 2024)
+[/TABLE]
+
+THÔNG TIN TỔNG QUÁT (GENERAL INFORMATION)
+
+[TABLE]
+- Tên học phần (Tiếng Việt) | Báo chí hiện đại
+---
+- Tên học phần (Tiếng Anh) | Modern journalism
+- Trình độ đào tạo | Đại học
+- Mã số học phần | MKTT1147
+- Số tín chỉ | 03
++ Số giờ trên lớp | 45
++ Số giờ tự học | 90
+[/TABLE]
+
+Các học phần tiên quyết: không
+
+2. KHOA/VIỆN QUẢN LÝ VÀ GIẢNG VIÊN GIẢNG DẠY (Management Faculty and Teachers)
+
+Khoa quản lý học phần: Khoa Marketing
+
+Địa chỉ: Phòng 1306, Nhà A1, Trường ĐH Kinh tế Quốc dân
+
+Giảng viên giảng dạy học phần:
+
+[TABLE]
+STT | Họ và tên | Email NEU
+---
+ | TS. Hoàng Ngọc Vinh Hạnh | hanh.hoang@neu.edu.vn
+ | ThS. Hoàng Tuấn Dũng | htdung@neu.edu.vn
+[/TABLE]
+
+3. MÔ TẢ HỌC PHẦN (COURSE DESCRIPTIONS)
+
+Học phần nhằm cung cấp cho sinh viên những kiến thức cơ bản về các loại hình báo chí hiện đại trong xu hướng phát triển và cạnh tranh của các loại hình báo chí – truyền thông hiện nay. Trong đó học phần tập trung vào việc cung cấp cho sinh viên kiến thức và kỹ năng cơ bản về báo chí hiện đại và các loại hình báo chí hiện đại, từ đó giúp sinh viên có thể ra quyết định cho việc tổ chức và thực hiện tin bài PR cho tổ chức và doanh nghiệp trên các loại hình báo chí khác nhau; phân tích công chúng, thiết lập mục tiêu, lên ý tưởng và lựa chọn thông điệp cho các bài viết, sản phẩm báo chí phục vụ cho hoạt động Quan hệ công chúng phù hợp với từng loại hình báo chí và xu thế phát triển của báo chí hiện đại. Đặc biệt, học phần cung cấp cho sinh viên các kỹ năng cơ bản và cần thiết khi làm việc với nhóm công chúng báo chí, chủ động thực hiện viết tin bài và đánh giá chất lượng tin bài đăng
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 11/27 (độ dài: 2000 ký tự) ---
+ục vụ cho hoạt động Quan hệ công chúng phù hợp với từng loại hình báo chí và xu thế phát triển của báo chí hiện đại. Đặc biệt, học phần cung cấp cho sinh viên các kỹ năng cơ bản và cần thiết khi làm việc với nhóm công chúng báo chí, chủ động thực hiện viết tin bài và đánh giá chất lượng tin bài đăng tải trên các loại hình báo chí phù hợp với mục tiêu hoạt động Quan hệ công chúng của tổ chức, doanh nghiệp.
+
+Nội dung chính:
+
+Bản chất, vai trò và chức năng của quan hệ công chúng;
+
+Tổ chức hoạt động quan hệ công chúng trong các tổ chức;
+
+Quy trình quản trị quan hệ công chúng;
+
+Quan hệ công chúng với một số công chúng điển hình;
+
+Một số hoạt động quan hệ công chúng: Tổ chức sự kiện, Quản trị khủng hoảng, Quản trị tài trợ;
+
+Quan hệ công chúng trong một số lĩnh vực đặc thù, kỹ năng viết và thuyết trình.
+
+4. TÀI LIỆU THAM KHẢO
+
+4.1 Giáo trình:
+
+[1] PGS.TS Nguyễn Thị Trường Giang (2017). Báo chí và truyền thông đa phương tiện. NXB ĐHQG HN
+
+4.2 Tài liệu tham khảo:
+
+[2] Claudia Mast (2003). Truyền thông đại chúng – Những kiến thức cơ bản. NXB Thông tin, Hà Nội.
+
+[3] Bill Kovach, Tom Rosenstiel (2001). The elements of Journalism: what newspeople should know and the Public should expect. Crown publisher
+
+[4] Hoàng Đình Cúc, Nguyễn Đức Dũng (2007). Những vấn đề của báo chí hiện đại. NXB Lý luận chính trị.
+
+[5] Nguyễn Văn Dững (2005). Cơ sở lý luận báo chí. NXB Lao động.
+
+[6] Nguyễn Văn Dững (2005). Báo chí truyền thông hiện đại. NXB ĐHQG HN.
+
+5. MỤC TIÊU HỌC PHẦN (COURSE GOALS)
+
+Bảng 5.1. Mục tiêu học phần
+
+[TABLE]
+Mã / Code | Mô tả mục tiêu học phần (CG) | CĐR/PLO của CTĐT
+---
+[1] | [2] | [3]
+G1 | Hiểu về khái niệm các loại hình báo chí hiện đại. Am hiểu về các chức năng cơ bản của tổ chức, hiểu được yêu cầu phối hợp giữa chức năng quan hệ công chúng với các bộ phận khác, đặc biệt là vai trò của việc quan hệ với nhóm công chúng báo chí trong việc đạt được các mục tiêu chung của doanh nghiệp. | PLO1.2
+G2 | Hiểu biết về môi trường ngành quan hệ công chúng và báo chí, những tác độn
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 12/27 (độ dài: 2000 ký tự) ---
+ chức, hiểu được yêu cầu phối hợp giữa chức năng quan hệ công chúng với các bộ phận khác, đặc biệt là vai trò của việc quan hệ với nhóm công chúng báo chí trong việc đạt được các mục tiêu chung của doanh nghiệp. | PLO1.2
+G2 | Hiểu biết về môi trường ngành quan hệ công chúng và báo chí, những tác động ảnh hưởng từ các yếu tố của môi trường ngành quan hệ công chúng, báo chí và cách thức phối hợp các loại hình báo chí trong hoạt động quan hệ công chúng | PLO1.4
+G3 | Nắm vững được bản chất của từng loại hình báo chí và phân biệt được các loại hình báo chí hiện đại. Có thể sử dụng các loại hình báo chí như một công cụ quan trọng và hữu hiệu trong các kế hoạch Quan hệ công chúng của tổ chức, doanh nghiệp | 
+G4 | Sinh viên có khả năng phân tích các hiện tượng, phát hiện vấn đề hay cơ hội thuộc về quan hệ công chúng trong lĩnh vực báo chí, từ đó ứng dụng được các kiến thức đã học để đề xuất được các sản phẩm báo chí xây dựng hình ảnh tích cực cho tổ chức, doanh nghiệp trong nhận thức của công chúng. | PLO2.3
+G5 | Có khả năng ứng dụng kiến thức, kỹ năng và vận dụng thực hành nghề nghiệp một cách chuyên nghiệp sau khi tốt nghiệp đại học | PLO2.4
+[/TABLE]
+
+6. CHUẨN ĐẦU RA HỌC PHẦN (COURSE LEARNING OUTCOMES)
+
+Bảng 2. Chuẩn đầu ra học phần (CLO)
+
+[TABLE]
+Mục tiêu | CLO | Mô tả CLO | Mức độ đạt được
+---
+[1] | [2] | [3] | [4]
+CG1 | CLO1.1 | Mô tả các thuật ngữ liên quan đến báo chí và các loại hình báo chí | I
+CG1 | CLO1.2 | Tóm tắt các tài liệu có liên quan đến bài giảng báo chí hiện đại | II
+CG1 | CLO1.3 | Hiểu được những khái niệm căn bản của báo chí và các loại hình báo chí hiện đại | II
+CG1 | CLO1.4 | Tổng hợp những kiến thức nền tảng về tổ chức vận hành hoạt động quan hệ công chúng ở một doanh nghiệp | 
+CG2 | CLO2.1 | Có khả năng phân tích nắm bắt được môi trường quan hệ công chúng và báo chí | II
+CG2 | CLO2.2 | Hiểu được ảnh hưởng của các yếu tố từ môi trường liên quan đến các hoạt động báo chí và quan hệ công chúng | II
+CG2 | CLO2.3 | Sử dụng thông tin và chuyển đổi kiến t
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 13/27 (độ dài: 2000 ký tự) ---
+g ở một doanh nghiệp | 
+CG2 | CLO2.1 | Có khả năng phân tích nắm bắt được môi trường quan hệ công chúng và báo chí | II
+CG2 | CLO2.2 | Hiểu được ảnh hưởng của các yếu tố từ môi trường liên quan đến các hoạt động báo chí và quan hệ công chúng | II
+CG2 | CLO2.3 | Sử dụng thông tin và chuyển đổi kiến thức báo chí hiện đại đưa ra các định hướng về hoạt động quan hệ công chúng, sử dụng báo chí như một công cụ hiệu quả | II
+CG3 | CLO3.1 | Tổng hợp thông tin để đưa ra cho các quyết định cụ thể trong việc sử dụng báo chí như một công cụ hiệu quả cho hoạt động quan hệ công chúng, qua đó xây dựng giá trị, đặc tính, định vị và hình ảnh thương hiệu cho một doanh nghiệp. | III
+CG3 | CLO3.2 | Phân tích, đánh giá tình huống để đưa ra các quyết định về sử dụng các loại hình báo chí hiện đại phù hợp. | III
+CG4 | CLO4.1 | Phân tích các hiện tượng, phát hiện vấn đề hay cơ hội thuộc về quan hệ công chúng trong lĩnh vực báo chí | III
+CG4 | CLO4.2 | Ứng dụng được các kiến thức đã học để đề xuất được các sản phẩm báo chí xây dựng hình ảnh tích cực cho tổ chức, doanh nghiệp trong nhận thức của công chúng. | III
+CG5 | CLO5.1 | Ứng dụng kiến thức, kỹ năng và vận dụng thực hành nghề nghiệp một cách chuyên nghiệp sau khi tốt nghiệp đại học trong những tình huống cụ thể. | 
+[/TABLE]
+
+7. ĐÁNH GIÁ HỌC PHẦN (COURSE ASSESSMENT)
+
+7.1. Cơ cấu điểm thành phần
+
+Bảng 3. Đánh giá học phần
+
+[TABLE]
+Hình thức đánh giá | Nội dung /
+Bài đánh giá | Thời điểm | CLOs | Công cụ và tiêu chí đánh giá | Tỷ lệ
+(%) | CĐR/ PLO của CTĐT
+---
+[1] | [2] | [3] | [4] | [5] | [6] | [7]
+Chuyên cần | Tham gia lớp seminar
+Tham gia thảo luận các buổi seminar | Tất cả các buổi seminar | 4.1
+4.2
+4.3 | - Điểm danh
+- Trả lời câu hỏi, thảo luận trên lớp
+Xem Phụ lục 2, rubrics 1 | 10% | 
+Đánh giá quá trình | Bài tập cá nhân 
+Nộp sản phẩm: Lưạ chọn loại hình báo chí và thực hành sáng tạo tác phẩm báo chí phục vụ một chiến dịch QHCC cụ thể | Tuần 9 | 3.1
+4.2
+4.3 | Kết cấu và nội dung
+Hình thức trình bày
+Xem phụ lục 2, Rubrics 3 | 40% | 
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 14/27 (độ dài: 2000 ký tự) ---
+ luận trên lớp
+Xem Phụ lục 2, rubrics 1 | 10% | 
+Đánh giá quá trình | Bài tập cá nhân 
+Nộp sản phẩm: Lưạ chọn loại hình báo chí và thực hành sáng tạo tác phẩm báo chí phục vụ một chiến dịch QHCC cụ thể | Tuần 9 | 3.1
+4.2
+4.3 | Kết cấu và nội dung
+Hình thức trình bày
+Xem phụ lục 2, Rubrics 3 | 40% | 
+Đánh giá quá trình | Bài tập nhóm
+Nhóm 5-7 sinh viên
+Trình bày nhóm: 
++ Đánh giá thực trạng sử dụng công cụ báo chí trong các chương trình quan hệ công chúng ở các doanh nghiệp
++ Đề xuất xây dựng hệ thống tin bài báo chí theo chiến dịch quan hệ công chúng | Nộp bản cuối: tuần 14
+Các thời điểm do giảng viên seminar quyết định:
+- Đề xuất chủ đề
+- Nộp bản word
+- Nộp bản powerpoint | 3.2
+4.1
+4.2
+4.3 | - Xem Phụ lục 2, rubrics 2
+- Hướng dẫn chi tiết về định dạng bài tập: tại website Khoa Marketing | 40% | 
+Đánh giá cuối kỳ | Toàn bộ nội dung học | Theo lịch của nhà trường | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 3.1, 3.2 | Câu hỏi lý thuyết, bài tập tình huống | 50% | 
+[/TABLE]
+
+7.2. Ma trận đề thi (phụ lục 1)
+
+7.3. Các rubrics (phụ lục 2)
+
+8. KẾ HOẠCH GIẢNG DẠY (LESSON PLAN)
+
+Bảng 4. Kế hoạch và nội dung dạy học
+
+[TABLE]
+Tuần | Nội dung | Tài liệu học | Hoạt động dạy và học | Bài đánh giá | CLOs
+---
+[1] | [2] |  | [5] | [6] | [4]
+ | Lecture 1: Truyền thông và báo chí hiện đại 
+1.1 Cơ sở lí luận về báo chí hiện địa
+Cơ sở lí luận báo chí hiện đại:
+Giới thiệu về báo chí hiện đại
+Chức năng của báo chí hiện đại
+Đặc điểm cơ bản của thông tin báo chí hiện đại
+Điều kiện chi phối sự ra đời và phát triển của báo chí
+
+1.2 Quá trình truyền thông của báo chí hiện đại
+Khái quát về truyền thông
+Các yếu tố cơ bản trong quá trình truyền thông báo chí
+Môi trường của quá trình truyền thông
+Phân loại truyền thông | [1] Chương 1
+[2] Slide bài lecture 1 | Giảng viên
+- Giới thiệu đề cương, giáo trình, tài liệu tham khảo, slide
+- Giảng lý thuyết theo nội dung slide
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình, tài liệu tham khảo
+- Yêu cầu sinh viên xem trước ví dụ, câu hỏi, bài tập dành cho sem
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 15/27 (độ dài: 2000 ký tự) ---
+hông | [1] Chương 1
+[2] Slide bài lecture 1 | Giảng viên
+- Giới thiệu đề cương, giáo trình, tài liệu tham khảo, slide
+- Giảng lý thuyết theo nội dung slide
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình, tài liệu tham khảo
+- Yêu cầu sinh viên xem trước ví dụ, câu hỏi, bài tập dành cho seminar 1
+Sinh viên
+- Xem trước đề cương
+- Đọc các tài liệu |  | 1.1
+ | Seminar 1
+- Thảo luận về lịch sử, sự phát triển và vai trò của báo chí tại Việt Nam
+- Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 1
+- Thảo luận về chủ đề bài viết cá nhân và bài tập nhóm khi có nhóm đề xuất | [1] Chương 1
+[2] Slide bài seminar 1 | Giảng viên
+- Hướng dẫn Thảo luận về lịch sử, sự phát triển và vai trò của báo chí tại Việt Nam
+- Hướng dẫn trả lời câu hỏi, làm bài tập seminar 1
+- Hướng dẫn làm bài tập trong giáo trình, chương 1
+- Hướng dẫn tìm chủ đề cho bài viết cá nhân và bài tập nhóm
+- Bình luận về chủ đề của nhóm đã đề xuất
+Sinh viên
+- Đọc tài liệu trước
+- Theo dõi các thảo luận
+- Tham gia chữa bài
+- Đề xuất chủ đề bài viết cá nhân và bài tập nhóm
+- Tham gia thảo luận về chủ đề bài viết cá nhân và bài tập của nhóm mình hoặc nhóm khác | - Điểm danh
+- Trả lời câu hỏi trong slide seminar 1
+- Trả lời câu hỏi về các thảo luận
+- Trả lời các bài tập trong giáo trình, chương 1
+- Trình bày về chủ đề viết cá nhân và tập nhóm
+- Thảo luận về chủ đề bài viết cá nhân và tập nhóm | 1.1
+3.1
+3.2
+ | Lecture 2: Tổng quan các loại hình báo chí hiện đại
+2.1. Các nguyên tắc cơ bản của hoạt động báo chí hiện đại
+2.1.1 Quan niệm chung về nguyên tắc
+2.1.2 Các nguyên tắc cơ bản của hoạt động báo chí hiện đại
+
+2.2 Các loại hình báo chí hiện đại
+Báo in
+Báo phát thanh
+Truyền hình
+Báo điện tử | [1] Chương 2
+[2] Slide bài lecture 2 | Giảng viên
+- Giảng lý thuyết theo nội dung slide 
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình, tài liệu tham khảo
+- Yêu cầu sinh viên xem trước ví dụ, câu hỏi, bài tập dành cho seminar 2
+Sinh viên
+- Đọc trước các tài liệu 
+- Xem trước các ví dụ, làm bài tập được yêu
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 16/27 (độ dài: 2000 ký tự) ---
+ide bài lecture 2 | Giảng viên
+- Giảng lý thuyết theo nội dung slide 
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình, tài liệu tham khảo
+- Yêu cầu sinh viên xem trước ví dụ, câu hỏi, bài tập dành cho seminar 2
+Sinh viên
+- Đọc trước các tài liệu 
+- Xem trước các ví dụ, làm bài tập được yêu cầu |  | 1.2
+ | Seminar 2
+Thảo luận về các loại hình báo chí hiện đại
+Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 2
+Thảo luận về chủ đề bài viết cá nhân và bài tập nhóm khi có nhóm đề xuất | [1] Chương 2
+[2] Slide bài lecture 2 và seminar 2
+[3] Bài viết mẫu | Giảng viên
+Hướng dẫn thảo luận về các loại hình báo chí hiện đại
+Hướng dẫn trả lời câu hỏi trong slide seminar 2, bài tập trong giáo trình chương 2
+Hướng dẫn khai thác dữ liệu cho bài viết cá nhân và bài tập nhóm
+Thảo luận về chủ đề của nhóm đã đề xuất
+Sinh viên
+- Đọc tài liệu trước
+- Theo dõi các nội dung thảo luận
+- Tham gia chữa bài
+- Đề xuất chủ đề bài viết các nhân và bài tập nhóm
+- Tham gia thảo luận về chủ đề, nguồn thông tin bài viết cá nhân và bài tập của nhóm mình hoặc nhóm khác | - Điểm danh
+- Trả lời câu hỏi trong slide seminar 2
+- Trả lời các bài tập trong giáo trình, chương 2
+- Trình bày về chủ đề và nguồn thông tin của mình và của nhóm
+- Thảo luận về chủ đề và nguồn thông tin | 1.2
+3.1
+3.2
+ | Lecture 3: Báo in
+3.1 Báo in trong hệ thống loại hình báo chí hiện đại
+3.2 Hoạt động sáng tạo tác phẩm báo in
+3.3 Công chúng của báo in | [1] Chương 3
+[2] Slide bài lecture 3 | Giảng viên
+- Giảng lý thuyết theo nội dung slide bài 3
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình, tài liệu tham khảo
+- Yêu cầu sinh viên xem trước ví dụ, câu hỏi, bài tập dành cho seminar 3
+Sinh viên
+- Đọc trước các tài liệu 
+- Xem trước các ví dụ, làm bài tập được yêu cầu
+- Chuẩn bị trước chủ đề cho bài viết cá nhân |  | 1.3
+ | Seminar 3
+- Thực hành phân tích và sản xuất ấn phẩm báo in 
+- Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 3
+- Thảo luận về chủ đề bài  tập nhóm khi có nhóm đề xuất
+- Thảo luận về n
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 17/27 (độ dài: 2000 ký tự) ---
+liệu 
+- Xem trước các ví dụ, làm bài tập được yêu cầu
+- Chuẩn bị trước chủ đề cho bài viết cá nhân |  | 1.3
+ | Seminar 3
+- Thực hành phân tích và sản xuất ấn phẩm báo in 
+- Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 3
+- Thảo luận về chủ đề bài  tập nhóm khi có nhóm đề xuất
+- Thảo luận về nguồn thông tin của các nhóm | [1] Chương 3
+[2] Slide bài lecture 3 và seminar 3
+[3] Bài tập tình huống 3 | Giảng viên
+- Hướng dẫn thực hành phân tích và sản xuất 1 ấn phẩm báo in
+- Hướng dẫn trả lời câu hỏi trong slide seminar 3, bài tập trong giáo trình chương 3
+- Hướng dẫn viết bài cá nhân
+- Hướng dẫn khai thác nguồn thông tin cho bài tập nhóm
+- Thảo luận về chủ đề của nhóm đã đề xuất
+- Thảo luận về nguồn thông tin của các nhóm đã nộp
+Sinh viên
+- Đọc tài liệu trước
+- Tham gia chữa bài
+- Đề xuất chủ đề bài tập nhóm 
+- Trình bày thông tin đã thu thập
+- Tham gia thảo luận về chủ đề, thông tin cho bài tập của nhóm mình hoặc nhóm khác | - Điểm danh
+- Trả lời câu hỏi trong slide seminar 3
+- Trả lời các bài tập trong giáo trình, chương 2
+- Trình bày về chủ đề và nguồn thông tin nhóm
+- Thảo luận về chủ đề và nguồn thông tin | 1.3
+3.1
+3.2
+ | Lecture 4: Báo phát thanh
+4.1 Báo phát thanh trong hệ thống các loại hình báo chí hiện đại
+4.2 Hoạt động sáng tạo tác phẩm báo phát thanh
+4.3 Công chúng của báo phát thanh | [1] Chương 4
+[2] Slide bài lecture 4 | Giảng viên
+- Giảng lý thuyết theo nội dung slide lecture 4
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình chương 4, tài liệu tham khảo
+- Yêu cầu sinh viên xem trước ví dụ, câu hỏi, bài tập dành cho seminar 4
+Sinh viên
+- Đọc trước các tài liệu 
+- Xem trước các ví dụ, làm bài tập được yêu cầu
+- Chuẩn bị trước chủ đề, dữ liệu cho bài tập lớn |  | 2.1
+ | Seminar 4
+- Thực hành phân tích và sản xuất ấn phẩm báo phát thanh
+- Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 4
+- Thảo luận về nội dung bài  tập nhóm 
+- Thảo luận về thông tin của các nhóm | [1] Chương 4
+[2] Slide bài lecture 4 và seminar 4
+[3] Bài thực hành 4 | G
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 18/27 (độ dài: 2000 ký tự) ---
+bài tập lớn |  | 2.1
+ | Seminar 4
+- Thực hành phân tích và sản xuất ấn phẩm báo phát thanh
+- Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 4
+- Thảo luận về nội dung bài  tập nhóm 
+- Thảo luận về thông tin của các nhóm | [1] Chương 4
+[2] Slide bài lecture 4 và seminar 4
+[3] Bài thực hành 4 | Giảng viên
+- Hướng dẫn thực hành phân tích và sản xuất ấn phẩm báo in
+- Trả lời câu hỏi, hướng dẫn làm bài tập trong seminar 4
+- Thảo luận về thông tin của các nhóm đã nộp
+- Thảo luận về các tình huống của các nhóm đã nộp sơ bộ lần đầu.
+Sinh viên
+- Đọc tài liệu trước
+- Theo dõi thực hành
+- Tham gia chữa bài
+- Thảo luận về thông tin đã thu thập và tình huống đã lựa chọn của nhóm mình
+- Tham gia thảo luận về sản phẩm của nhóm khác | - Điểm danh
+- Trả lời câu hỏi trong slide seminar 4
+- Trả lời các bài tập trong giáo trình, chương 4
+- Trình bày sản phẩm của nhóm
+- Thảo luận sản phẩm của nhóm khác | 2.1
+3.1
+3.2
+ | Lecture 5: Truyền hình
+5.1 Truyền hình trong hệ thống các loại hình báo chí hiện đại
+5.2 Hoạt động sáng tạo tác phẩm truyền hình
+5.3 Công chúng của truyền hình | [1] Chương 5
+[2] Slide bài lecture 5 | Giảng viên
+- Giảng lý thuyết theo nội dung slide lecture 5
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình chương 5, tài liệu tham khảo
+- Yêu cầu sinh viên xem trước ví dụ, câu hỏi, bài tập dành cho seminar 5
+Sinh viên
+- Đọc trước các tài liệu 
+- Xem trước các ví dụ, làm bài tập được yêu cầu
+- Chuẩn bị thảo luận cho việc lựa chọn tình huống với bài tập nhóm |  | 2.2
+ | Seminar 5
+- Thảo luận về các hình thức sử dụng truyền hình trong báo chí hiện đại
+- Thảo luận về hoạt động sáng tạo trong truyền hình
+- Thảo luận các bài tập trong giáo trình, chương 5 | [1] Chương 5
+[2] Slide bài lecture 5 và seminar 5
+[3] Bài thực hành 5 | Giảng viên
+- Hướng dẫn thảo luận về các hình thức sử dụng truyền hình trong báo chí hiện đại 
+- Trả lời câu hỏi, hướng dẫn làm bài tập trong seminar 5
+- Hướng dẫn giải bài tập trong giáo trình chương 5
+- Hướng dẫn đánh giá sản phẩm bài tập c
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 19/27 (độ dài: 2000 ký tự) ---
+[2] Slide bài lecture 5 và seminar 5
+[3] Bài thực hành 5 | Giảng viên
+- Hướng dẫn thảo luận về các hình thức sử dụng truyền hình trong báo chí hiện đại 
+- Trả lời câu hỏi, hướng dẫn làm bài tập trong seminar 5
+- Hướng dẫn giải bài tập trong giáo trình chương 5
+- Hướng dẫn đánh giá sản phẩm bài tập của các nhóm đề xuất 
+- Bình luận về bài cá nhân
+- Bình luận về hướng triển khai của các nhóm đã nộp
+Sinh viên
+- Đọc tài liệu trước
+- Theo dõi thảo luận
+- Tham gia chữa bài
+- Đề xuất hướng bài tập nhóm
+- Trình bày dữ liệu đã thu thập
+- Tham gia thảo luận về chủ đề cho bài tập của nhóm mình hoặc nhóm khác | - Điểm danh
+- Trả lời câu hỏi trong slide seminar 5
+- Trả lời các bài tập trong giáo trình, chương 4
+- Trình bày hướng bài tập nhóm
+- Trình bày về chủ đề cho nhóm mình
+Tham gia thảo luận chủ đề của nhóm khác
+- Nộp bài viết PR | 2.2
+3.1
+3.2
+ | Lecture 6: Báo điện tử 
+7.1 Báo điện tử trong hệ thống các loại hình báo chí hiện đại
+7.2 Hoạt động sáng tạo tác phẩm báo điện tử
+7.3 Phân biệt báo điện tử với các phương thức truyền thông trên internet
+7.4 Công chúng của báo điện tử | [1] Chương 6
+[2] Chương 7
+[3] Slide bài lecture 6 | Giảng viên
+- Giảng lý thuyết theo nội dung slide lecture 6
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình chương 6, 7, các tài liệu tham khảo
+- Yêu cầu sinh viên xem trước ví dụ, câu hỏi, bài tập dành cho seminar 6
+Sinh viên
+- Đọc trước các tài liệu 
+- Xem trước các ví dụ, làm bài tập được yêu cầu
+- Chuẩn bị thảo luận cho việc đánh giá kết quả bài tập nhóm |  | 2.2
+ | Seminar 6
+- Thực hành quản trị sự kiện và quản trị tài trợ 
+- Thực hành tổ chức sự kiện cho một doanh nghiệp/tổ chức cụ thể
+- Thực hành tài trợ cho một doanh nghiệp/tổ chức
+- Thảo luận các bài tập trong giáo trình, chương 6&7 | [1] Chương 6, chương 7
+[2] Slide bài lecture 6 và seminar 6
+[3] Bài thực hành 6,7 | Giảng viên
+- Hướng dẫn tổ chức sự kiện và quản trị tài trợ
+- Thảo luận về tổ chức sự kiện và quản trị tài trợ của một doanh nghiệp/tổ chức cụ thể.
+- Thảo luận về các ví
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 20/27 (độ dài: 2000 ký tự) ---
+luận các bài tập trong giáo trình, chương 6&7 | [1] Chương 6, chương 7
+[2] Slide bài lecture 6 và seminar 6
+[3] Bài thực hành 6,7 | Giảng viên
+- Hướng dẫn tổ chức sự kiện và quản trị tài trợ
+- Thảo luận về tổ chức sự kiện và quản trị tài trợ của một doanh nghiệp/tổ chức cụ thể.
+- Thảo luận về các ví dụ, bài tập trong slide seminar 6
+- Thảo luận các bài tập trong giáo trình, chương 6, 7
+- Thảo luận về các đề xuất của sinh viên trong bài tập nhóm
+Sinh viên
+- Theo dõi hướng dẫn thực hành và thực hiện thực hành
+- Thảo luận về các bài tập, ví dụ trong slide và giáo trình
+- Tham gia chữa bài tập | - Điểm danh
+- Trả lời câu hỏi trong slide seminar 6
+- Trả lời các bài tập trong giáo trình, chương 6, 7
+- Trình bày về bài tập nhóm của mình
+- Thảo luận về bài tập nhóm của các nhóm khác | 2.2
+3.1
+3.2
+ | Lecture 7: Công chúng của báo chí hiện đại 
+8.1 Khái niệm công chúng và công chúng báo chí
+8.2 Phân loại công chúng của báo chí hiện đại
+8.3 Cơ chế tác động của báo chí tới công chúng
+8.4 Hiệu quả tác động của báo chí tới công chúng
+8.5 Vai trò của báo chí hiện đại trong định hướng dư luận xã hội | [1] Chương 8
+[2] Chương 9
+[3] Slide bài lecture 6 | Giảng viên
+- Giảng lý thuyết theo nội dung slide lecture 7
+- Giới thiệu ví dụ trong slide
+- Hướng dẫn đọc giáo trình chương 8, 9, tài liệu tham khảo
+- Yêu cầu sinh viên xem trước ví dụ, câu hỏi, bài tập dành cho seminar 7
+Sinh viên
+- Đọc trước các tài liệu 
+- Xem trước các ví dụ, làm bài tập được yêu cầu
+- Tham gia trình bày bài tập nhóm của mình
+- Tham gia thảo luận bài tập nhóm của các nhóm khác |  | 2.3
+ | Seminar 7
+- Thực hành về quan hệ công chúng trong một số lĩnh vực đặc thù
+- Thực hành về kỹ năng viết trong PR
+- Thực hành thuyết trình trong PR
+- Thảo luận các bài tập trong giáo trình, chương 6&7
+- Thảo luận bài tập nhóm của các nhóm trong lớp | [1] Chương 8, 9
+[2] Slide bài lecture 7 và seminar 7.
+[3] Bài thực hành 8 | Giảng viên
+- Thực hành về quan hệ công chúng trong một số lĩnh vực đặc thù
+- Thực hành về kỹ năng viết trong
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 21/27 (độ dài: 2000 ký tự) ---
+ình trong PR
+- Thảo luận các bài tập trong giáo trình, chương 6&7
+- Thảo luận bài tập nhóm của các nhóm trong lớp | [1] Chương 8, 9
+[2] Slide bài lecture 7 và seminar 7.
+[3] Bài thực hành 8 | Giảng viên
+- Thực hành về quan hệ công chúng trong một số lĩnh vực đặc thù
+- Thực hành về kỹ năng viết trong PR
+- Thực hành kỹ năng thuyết trình trong PR
+- Thảo luận về các ví dụ, bài tập trong slide seminar 7
+- Thảo luận các bài tập trong giáo trình, chương 8, 9
+- Thảo luận về bài tập nhóm của các nhóm trình bày
+Sinh viên
+- Theo dõi hướng dẫn thực hành và thực hiện thực hành
+- Thảo luận về các bài tập, ví dụ trong slide và giáo trình
+- Tham gia chữa bài tập
+- Tham gia trình bày bài tập nhóm của mình
+- Tham gia thảo luận bài tập nhóm của các nhóm khác | - Điểm danh
+- Trả lời câu hỏi trong slide seminar 7
+- Trả lời các bài tập trong giáo trình, chương 8, 9
+- Trình bày về bài tập nhóm của mình
+- Thảo luận về bài tập nhóm của các nhóm khác
+- Nộp bài tập nhóm | 2.3
+3.2
+ | Seminar 8
+- Hệ thống lại học phần
+- Thông báo kết quả đánh giá thành phần
+- Hướng dẫn thi và trả lời câu hỏi | [2] Slide bài seminar 8 | Giảng viên
+- Tổng hợp, hệ thống lại các kiến thức trong các bài giảng
+- Hệ thống các dạng câu hỏi bài thi cuối kì
+- Thông báo điểm chuyên cần 10%
+- Thông báo điểm bài viết PR và trả lời các thắc mắc
+- Thông báo điểm bài tập nhóm và giải đáp thắc mắc
+- Thông báo điểm 40%
+- Chữa một số câu trong câu hỏi thi tham khảo
+Sinh viên
+- Có mặt đầy đủ để nhận thông tin về điểm thành phần
+- Xem lại toàn bộ nội dung học phần, các câu hỏi tham khảo | - Điểm danh
+- Sau buổi học, không giải quyết các thắc mắc về điểm thành phần | 
+Lịch thi | Thi cuối kỳ | [1] Chương 1 đến 7, [2]: Bài 1 đến 7 | Câu hỏi lý thuyết, bài tập tình huống | Xem Phụ lục 1: ma trận đề thi | Xem Bảng 3
+[/TABLE]
+
+9. ĐÁNH GIÁ CHUẨN ĐẦU RA HỌC PHẦN (Course Learning Outcome Assessement)
+
+Hệ thống quản lý đào tạo tự động đánh giá mức độ đạt được CLO theo thuật toán chung của Trường. Chuẩn đầu ra của học phần được sinh viên và t
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 22/27 (độ dài: 2000 ký tự) ---
+ lý thuyết, bài tập tình huống | Xem Phụ lục 1: ma trận đề thi | Xem Bảng 3
+[/TABLE]
+
+9. ĐÁNH GIÁ CHUẨN ĐẦU RA HỌC PHẦN (Course Learning Outcome Assessement)
+
+Hệ thống quản lý đào tạo tự động đánh giá mức độ đạt được CLO theo thuật toán chung của Trường. Chuẩn đầu ra của học phần được sinh viên và trường đánh giá sau thi kết thúc học phần.
+
+10. QUY ĐỊNH CỦA HỌC PHẦN (Course Requirements and Expectation)
+
+10.1. Quy định về điều kiện thi kết thúc học phần
+
+Điểm chuyên cần đạt từ 5 trở lên (theo quy định chung của Trường)
+
+Cách đánh giá điểm chuyên cần: xem Phụ lục 2, rubrics 1.
+
+10.2. Quy định về tham dự lớp học
+
+Học viên có trách nhiệm tham dự đầy đủ các buổi học.
+
+Trong trường hợp nghỉ học do lý do bất khả kháng thì cần chủ động tìm hiểu kiến thức thông qua tài liệu được giảng viên cung cấp và các tài liệu khác được yêu cầu đọc.
+
+10.3. Quy định về hành vi trong lớp học
+
+Học phần được thực hiện trên nguyên tắc tôn trọng người học và người giảng;
+
+Ghi chép đầy đủ, tham gia trả lời câu hỏi;
+
+Đọc trước tài liệu được yêu cầu;
+
+Làm các bài tập về nhà;
+
+Không làm ồn, gây ảnh hưởng đến người khác, không ăn trong quá trình học;
+
+Laptop, máy tính bảng, điện thoại di động chỉ được sử dụng cho mục đích ghi chép bài giảng, tính toán phục vụ học tập, tuyệt đối không dùng vào mục đích khác.
+
+10.4. Quy định về nộp bài tập lớn
+
+Người học không nộp bài cá nhân / nhóm theo yêu cầu sẽ nhận điểm 0 (không).
+
+Sau thời hạn cuối theo quy định, bài nộp muộn mỗi ngày sẽ trừ một điểm.
+
+11. THỜI ĐIỂM HIỆU CHỈNH ĐỀ CƯƠNG (Syllabus Adjustment Time)
+
+Tháng 6 năm 2024.
+
+[TABLE]
+TRƯỞNG KHOA
+
+
+
+PGS.TS Vũ Huy Thông |  | HIỆU TRƯỞNG
+
+
+
+GS.TS Phạm Hồng Chương
+---
+[/TABLE]
+
+PHỤ LỤC
+
+Phụ lục 1. MA TRẬN ĐỀ THI
+
+Trọng số trong điểm học phần: 50%
+
+Hình thức: Tự luận
+
+Thời gian: 90 phút
+
+Số câu hỏi: 4 câu. Câu 1 = 2,0đ; Câu 2 = 2,5đ; Câu 3 = 2,5đ; Câu 4 = 3đ
+
+[TABLE]
+Bài | CLO | Nhớ | Nhớ | Hiểu | Hiểu | Vận dụng | Vận dụng | Phân tích | Phân tích | Tổng
+---
+Lecture 1 – Lecture 7 | 1.1, 1.2, 1.3, 2.1, 2.2, 2.
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 23/27 (độ dài: 2000 ký tự) ---
+Trọng số trong điểm học phần: 50%
+
+Hình thức: Tự luận
+
+Thời gian: 90 phút
+
+Số câu hỏi: 4 câu. Câu 1 = 2,0đ; Câu 2 = 2,5đ; Câu 3 = 2,5đ; Câu 4 = 3đ
+
+[TABLE]
+Bài | CLO | Nhớ | Nhớ | Hiểu | Hiểu | Vận dụng | Vận dụng | Phân tích | Phân tích | Tổng
+---
+Lecture 1 – Lecture 7 | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3 | 1 | 1 |  |  |  |  |  |  | 1
+Lecture 1 – Lecture 7 | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3 |  |  | 1 | 1 |  |  |  |  | 1
+Lecture 1 – Lecture 7 | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3 |  |  |  |  | 1 | 1 |  |  | 1
+Lecture 1 – Lecture 7 | 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 3.2 |  |  |  |  |  |  | 1 | 1 | 1
+Tổng số câu | Tổng số câu | 1 | 1 | 1 | 1 | 1 | 1 | 1 | 4 | 4
+Tỷ lrọng | Tỷ lrọng | 25% | 25% | 25% | 25% | 25% | 25% | 25% | 100% | 100%
+[/TABLE]
+
+Phụ lục 2. CÁC RUBRICS
+
+Rubrics 1. Đánh giá điểm chuyên cần
+
+Trọng số trong điểm học phần: 10%
+
+Đánh giá qua 8 buổi seminar.
+
+[TABLE]
+Số buổi vắng (điểm danh) | Tham gia thảo luận (GV seminar đánh giá) | Tham gia thảo luận (GV seminar đánh giá) | Tham gia thảo luận (GV seminar đánh giá) | Tham gia thảo luận (GV seminar đánh giá)
+---
+Số buổi vắng (điểm danh) | Rất tích cực | Tích cực | Có tham gia | Không tham gia
+0 | 10, 10+ | 9 | 8 | 7
+1 | 9, 10 | 8 | 7 | 6
+2 | 8, 9 | 7 | 6 | 5
+> 2 | 0 điểm, học lại | 0 điểm, học lại | 0 điểm, học lại | 0 điểm, học lại
+[/TABLE]
+
+* Ghi chú: 10+: có thể xem xét để cộng điểm vào điểm đánh giá 40% khi điểm chuyên cần là 10.
+
+Tiêu chí đánh giá tham gia thảo luận
+
+[TABLE]
+Rất tích cực | Tích cực | Có tham gia | Không tham gia
+---
+- Xung phong trả lời, chữa bài tập từ hai lần trở lên;
+- Chủ động trình bày vấn đề và ý kiến cá nhân, thảo luận;
+- Đề xuất các vấn đề, chủ đề mới;
+- Hoạt động nổi bật khác. | - Xung phong trả lời câu hỏi;
+- Xung phong chữa bài tập;
+- Đặt câu hỏi thảo luận với lớp;
+- Trả lời đúng câu hỏi mà các sinh viên khác chưa trả lời được;
+- Trả lời tốt về bài tập nhóm. | - Trả lời câu hỏi GV yêu cầu trả lời;
+- Trình bày bài tập do GV yêu cầu làm ở nhà;
+- Có phát biểu ý kiến;
+- Có trả lời về bài tập nhóm.
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 24/27 (độ dài: 2000 ký tự) ---
+âu hỏi;
+- Xung phong chữa bài tập;
+- Đặt câu hỏi thảo luận với lớp;
+- Trả lời đúng câu hỏi mà các sinh viên khác chưa trả lời được;
+- Trả lời tốt về bài tập nhóm. | - Trả lời câu hỏi GV yêu cầu trả lời;
+- Trình bày bài tập do GV yêu cầu làm ở nhà;
+- Có phát biểu ý kiến;
+- Có trả lời về bài tập nhóm. | - Không trả lời câu hỏi;
+- Không trình bày đáp án bài tập;
+- Không tham gia tương tác.
+[/TABLE]
+
+CLO của đánh giá chuyên cần
+
+[TABLE]
+Cách thức đánh giá | CLO | CLO | CLO
+---
+Cách thức đánh giá | 4.1 | 4.2 | 4.3
+Điểm danh |  |  | 
+Trả lời câu hỏi, bài tập |  |  | 
+Đăng kí nhóm đúng thời hạn |  |  | 
+Trả lời về chủ đề của nhóm, thảo luận chủ đề nhóm khác |  |  | 
+Trả lời về nội dung phân tích của nhóm và thảo luận nhóm khác |  |  | 
+Trả lời về giải pháp đề xuất của nhóm, thảo luận giải pháp của nhóm khác |  |  | 
+[/TABLE]
+
+Rubrics 3. Đánh giá bài viết PR (Bài cá nhân)
+
+Trọng số: 20% (thành phần thứ nhất của điểm đánh giá 40%)
+
+Đánh giá qua kết quả sản phẩm bài viết gửi nộp
+
+[TABLE]
+Tiêu chí | CLO | Tỷ trọng % | Mức điểm (thang điểm 10) | Mức điểm (thang điểm 10) | Mức điểm (thang điểm 10) | Mức điểm (thang điểm 10)
+---
+Tiêu chí | CLO | Tỷ trọng % | Giỏi
+8,5 – 10 | Khá
+7,0 – 8,4 | Trung bình
+4,5 – 6,9 | Yếu
+0 – 4,4
+Nội dung | 3.1
+4.1
+4.2 | 60 | Tiêu đề, phần tóm tắt bài viết tốt, phù hợp với nội dung bài viết;
+Xác định và phân tích tất cả các nội dung, vấn đề một cách sâu sắc và toàn diện;
+Đưa ra các dẫn chứng tốt, giải thích được lý do lựa chọn và lồng ghép thương hiệu hiệu vào bài viết tốt. | Tiêu đề, phần tóm tắt bài viết tốt;
+Xác định và phân tích nội dung, vấn đề tốt;
+Đưa ra các dẫn chứng tốt và lồng ghép thương hiệu hiệu vào bài viết tốt. | Tiêu đề, phần tóm tắt bài viết không tốt;
+Xác định và phân tích nội dung, vấn đề không tốt; 
+Chưa đưa ra các dẫn chứng và lồng ghép thương hiệu hiệu vào bài viết. | Tiêu đề, phần tóm tắt bài viết không tốt;
+Không xác định và phân tích nội dung, vấn đề; 
+Không đưa ra các dẫn chứng và lồng ghép thương hiệu hiệu vào bài viết.
+Kết c
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 25/27 (độ dài: 2000 ký tự) ---
+ không tốt;
+Xác định và phân tích nội dung, vấn đề không tốt; 
+Chưa đưa ra các dẫn chứng và lồng ghép thương hiệu hiệu vào bài viết. | Tiêu đề, phần tóm tắt bài viết không tốt;
+Không xác định và phân tích nội dung, vấn đề; 
+Không đưa ra các dẫn chứng và lồng ghép thương hiệu hiệu vào bài viết.
+Kết cấu | 3.1
+4.2 | 20 | Thông tin luôn được trình bày một cách hợp lý, thú vị, dễ nắm bắt;
+Mục đích bài viết luôn được nêu rõ và giải thích được cấu trúc của bài. | Thông tin được trình bày một cách hợp lý và dễ nắm bắt;
+Mục đích bài viết chưa được nêu rõ và giải thích được cấu trúc của bài. | Thông tin chưa được trình bày một cách hợp lý và dễ nắm bắt;
+Mục đích bài viết không được nêu rõ và giải thích được cấu trúc của bài. | Thông tin không được trình bày một cách hợp lý và dễ nắm bắt;
+Mục đích bài viết không được nêu rõ và giải thích được cấu trúc của bài.
+Hình thức | 4.3 | 20 | Sử dung ngữ pháp, chính tả, dấu câu tốt, văn bản và cú pháp chuyên nghiệp;
+Luôn sử dụng nguồn tham khảo phù hợp và có độ tin cậy cao. | Sử dung ngữ pháp, chính tả, dấu câu tốt, văn bản và cú pháp chưa chuyên nghiệp;
+Không sử dụng nguồn tham khảo phù hợp và có độ tin cậy cao. | Sử dung ngữ pháp, chính tả, dấu câu chưa tốt, văn bản và cú pháp không chuyên nghiệp;
+Không sử dụng nguồn tham khảo phù hợp và có độ tin cậy cao. | Sử dung ngữ pháp, chính tả, dấu câu không tốt, văn bản và cú pháp không chuyên nghiệp;
+Không sử dụng nguồn tham khảo phù hợp và có độ tin cậy cao.
+[/TABLE]
+
+Rubrics 2. Đánh giá bài tập nhóm
+
+Trọng số: 20% (thành phần thứ hai của điểm đánh giá 40%)
+
+Đánh giá qua kết quả bài tập nhóm
+
+[TABLE]
+Tiêu chí | CLO | Tỷ trọng % | Mức điểm (thang điểm 10) | Mức điểm (thang điểm 10) | Mức điểm (thang điểm 10) | Mức điểm (thang điểm 10)
+---
+Tiêu chí | CLO | Tỷ trọng % | Giỏi
+8,5 – 10 | Khá
+7,0 – 8,4 | Trung bình
+4,5 – 6,9 | Yếu
+0 – 4,4
+Kết cấu và Nội dung | 3.2
+4.1
+4.2 | 30 | Phân tích tình hình và xác định vấn đề/cơ hội rõ ràng, logic, hợp lí, phù hợp với chủ đề;
+Giải pháp cải thiện phù hợp v
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 26/27 (độ dài: 2000 ký tự) ---
+ng điểm 10) | Mức điểm (thang điểm 10)
+---
+Tiêu chí | CLO | Tỷ trọng % | Giỏi
+8,5 – 10 | Khá
+7,0 – 8,4 | Trung bình
+4,5 – 6,9 | Yếu
+0 – 4,4
+Kết cấu và Nội dung | 3.2
+4.1
+4.2 | 30 | Phân tích tình hình và xác định vấn đề/cơ hội rõ ràng, logic, hợp lí, phù hợp với chủ đề;
+Giải pháp cải thiện phù hợp với phân tích 
+Bài báo cáo có kết cấu rõ ràng, logic
+Gắn mục tiêu với nội dung | Phân tích tình hình và xác định vấn đề/cơ hội rõ ràng, logic, hợp lí, phù hợp với chủ đề;
+Giải pháp cải thiện không phù hợp với phân tích 
+Bài báo cáo có kết cấu rõ ràng, logic
+Chưa gắn mục tiêu với nội dung | Phân tích tình hình và xác định vấn đề/cơ hội chưa rõ ràng, logic, hợp lí;
+Giải pháp cải thiện không phù hợp với phân tích 
+Bài báo cáo có kết cấu chưa rõ ràng
+Chưa gắn mục tiêu với nội dung | Phân tích tình hình và xác định vấn đề/cơ hội không rõ ràng, 
+Giải pháp đưa ra không phù hợp với phân tích 
+Bài báo cáo có kết cấu không rõ ràng
+Không gắn mục tiêu với nội dung
+Hình thức trình bày | 4.3 | 30 | Có đánh giá sự tham gia của các thành viên
+Sử dụng các hình ảnh, bảng biểu, sơ đồ và biểu đồ logic, trực quan và minh họa chính xác nội dung
+Tất cả thành viên tham gia trình bày và làm chủ nội dung khi trình bày
+Sử dụng tốt các phương tiện hỗ trợ
+Đảm bảo yêu cầu thời gian | Có đánh giá sự tham gia của các thành viên
+Sử dụng các hình ảnh, bảng biểu, sơ đồ và biểu đồ logic, trực quan
+Không phải tất cả thành viên tham gia trình bày và chưa làm chủ nội dung khi trình bày
+Sử dụng tốt các phương tiện hỗ trợ
+Chưa đảm bảo yêu cầu thời gian | Chưa có đánh giá sự tham gia của các thành viên
+Sử dụng các hình ảnh, bảng biểu, sơ đồ và biểu đồ chưa logic
+Không phải tất cả thành viên tham gia trình bày và chưa làm chủ nội dung khi trình bày
+Sử dụng chưa tốt các phương tiện hỗ trợ
+Không đảm bảo yêu cầu thời gian | Không có đánh giá sự tham gia của các thành viên
+Sử dụng các hình ảnh, bảng biểu, sơ đồ không hợp lý
+Chỉ 1 thành viên tham gia trình bày và không làm chủ nội dung khi trình bày
+Sử dụng không tốt cá
+
+--------------------------------------------------------------------------------
+
+--- CHUNK 27/27 (độ dài: 1258 ký tự) ---
+m chủ nội dung khi trình bày
+Sử dụng chưa tốt các phương tiện hỗ trợ
+Không đảm bảo yêu cầu thời gian | Không có đánh giá sự tham gia của các thành viên
+Sử dụng các hình ảnh, bảng biểu, sơ đồ không hợp lý
+Chỉ 1 thành viên tham gia trình bày và không làm chủ nội dung khi trình bày
+Sử dụng không tốt các phương tiện hỗ trợ
+Không đảm bảo yêu cầu thời gian
+Mức độ hợp tác trong nhóm | 4.1 | 20 | Thành viên có mặt đầy đủ
+Các thành viên hỗ trợ nhau
+Các thành viên thống nhất trong phương án trả lời | Thành viên có mặt đầy đủ
+Các thành viên chưa hỗ trợ nhau
+Các thành viên chưa thống nhất trong phương án trả lời | Thành viên không có mặt đầy đủ
+Các thành viên chưa hỗ trợ nhau
+Các thành viên chưa thống nhất trong phương án trả lời | Thành viên không có mặt đầy đủ
+Các thành viên chưa hỗ trợ nhau
+Các thành viên chưa thống nhất trong phương án trả lời
+Khả năng bảo vệ ý kiến | 4.1
+4.2 | 20 | Trả lời thuyết phục các câu hỏi và thắc mắc
+Đưa ra được các câu hỏi cho nhóm khác | Trả lời thuyết phục các câu hỏi và thắc mắc
+Không đưa ra được các câu hỏi cho nhóm khác | Trả lời chưa thuyết phục các câu hỏi và thắc mắc
+Không đưa ra được các câu hỏi cho nhóm khác | Trả lời chưa thuyết phục các câu hỏi và thắc mắc
+Không đưa ra được các câu hỏi cho nhóm khác
+[/TABLE]
+
+--------------------------------------------------------------------------------
+

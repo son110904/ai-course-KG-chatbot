@@ -2,6 +2,12 @@
 import logging
 import os
 from datetime import datetime
+import sys
+
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+logging.basicConfig(handlers=[handler], level=logging.INFO)
 
 
 class Logger:

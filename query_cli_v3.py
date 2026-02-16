@@ -18,7 +18,11 @@ from logger import Logger
 # CONFIGURATION
 # =========================================================
 
-load_dotenv()
+
+from dotenv import load_dotenv
+load_dotenv(override=True) 
+
+# load_dotenv()
 logger = Logger("QueryCLI_V3").get_logger()
 
 # Configuration from .env

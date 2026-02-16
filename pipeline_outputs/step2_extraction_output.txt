@@ -1,0 +1,594 @@
+================================================================================
+STEP 2: EXTRACTION - DETAILED OUTPUT
+================================================================================
+
+📊 THỐNG KÊ:
+   - Số chunks đầu vào: 27
+   - Số extraction results: 27
+   - Workers song song: 15
+   - Model sử dụng: gpt-4o-mini
+   - Thời gian xử lý: 10.54s
+
+================================================================================
+📝 TẤT CẢ ENTITIES & RELATIONS:
+================================================================================
+
+--- EXTRACTION 1/27 ---
+ENTITY: BỘ GIÁO DỤC VÀ ĐÀO TẠO
+ENTITY: TRƯỜNG ĐH KINH TẾ QUỐC DÂN
+ENTITY: An ninh không gian mạng
+ENTITY: Cybersecurity
+ENTITY: Viện Công nghệ thông tin & Kinh tế số
+ENTITY: TS. Nguyễn Thanh Hương
+ENTITY: TS. Tống Thị Hảo Tâm
+RELATION: BỘ GIÁO DỤC VÀ ĐÀO TẠO -> phát hành -> TRƯỜNG ĐH KINH TẾ QUỐC DÂN
+RELATION: An ninh không gian mạng -> là -> Cybersecurity
+RELATION: Viện Công nghệ thông tin & Kinh tế số -> quản lý -> An ninh không gian mạng
+RELATION: TS. Nguyễn Thanh Hương -> giảng dạy -> An ninh không gian mạng
+RELATION: TS. Tống Thị Hảo Tâm -> giảng dạy -> An ninh không gian mạng
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 2/27 ---
+ENTITY: Sinh viên
+ENTITY: Lỗ hổng hệ thống mạng
+ENTITY: Tấn công mạng
+ENTITY: Giải pháp an toàn mạng
+ENTITY: Kỹ năng tư duy
+ENTITY: Công cụ nhận biết
+RELATION: Sinh viên -> đánh giá -> Lỗ hổng hệ thống mạng
+RELATION: Sinh viên -> tìm hiểu -> Tấn công mạng
+RELATION: Tấn công mạng -> bao gồm -> tấn công mật khẩu
+RELATION: Tấn công mạng -> bao gồm -> tấn công giả mạo địa chỉ IP
+RELATION: Tấn công mạng -> bao gồm -> chiếm quyền máy chủ
+RELATION: Tấn công mạng -> bao gồm -> tấn công từ chối dịch vụ
+RELATION: Tấn công mạng -> bao gồm -> tấn công cổng sau
+RELATION: Sinh viên -> nhận biết -> Giải pháp an toàn mạng
+RELATION: Giải pháp an toàn mạng -> bao gồm -> chính sách an ninh IP
+RELATION: Giải pháp an toàn mạng -> bao gồm -> hệ thống tường lửa
+RELATION: Giải pháp an toàn mạng -> bao gồm -> hệ thống IDS/IPS
+RELATION: Giải pháp an toàn mạng -> bao gồm -> bảo mật mạng không dây
+RELATION: Học phần -> phát triển -> Kỹ năng tư duy
+RELATION: Học phần -> sử dụng -> Công cụ nhận biết
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 3/27 ---
+ENTITY: Nguyễn Thị Thanh Vân
+ENTITY: Huỳnh Nguyên Chính
+ENTITY: Giáo trình an ninh mạng
+ENTITY: EC-Council
+ENTITY: Certified Ethical Hacker
+ENTITY: Wireshark
+ENTITY: Mục tiêu học phần
+ENTITY: Chuẩn đầu ra học phần
+RELATION: Nguyễn Thị Thanh Vân -> viết -> Giáo trình an ninh mạng
+RELATION: Huỳnh Nguyên Chính -> viết -> Giáo trình an ninh mạng
+RELATION: EC-Council -> xuất bản -> Certified Ethical Hacker
+RELATION: Phần mềm phân tích mạng -> là -> Wireshark
+RELATION: Mục tiêu học phần -> chứa -> CG1
+RELATION: Mục tiêu học phần -> chứa -> CG2
+RELATION: Mục tiêu học phần -> chứa -> CG3
+RELATION: Chuẩn đầu ra học phần -> nằm trong -> Mục tiêu học phần
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 4/27 ---
+ENTITY: CLO 1.4
+ENTITY: Hiểm họa tấn công mạng
+RELATION: CLO 1.4 -> phát hiện, phân tích -> Hiểm họa tấn công mạng
+
+ENTITY: CLO 1.5
+ENTITY: An ninh mạng
+ENTITY: Giải pháp đảm bảo an ninh
+RELATION: CLO 1.5 -> vận dụng -> An ninh mạng
+RELATION: CLO 1.5 -> xây dựng -> Giải pháp đảm bảo an ninh
+
+ENTITY: CLO 2.1
+ENTITY: Tài liệu tiếng Anh chuyên ngành
+ENTITY: Kỹ năng đọc hiểu
+RELATION: CLO 2.1 -> kỹ năng -> Kỹ năng đọc hiểu
+RELATION: CLO 2.1 -> tự học và nghiên cứu -> Tài liệu tiếng Anh chuyên ngành
+
+ENTITY: CLO 2.2
+ENTITY: Rủi ro hệ thống mạng
+ENTITY: Tấn công mạng
+RELATION: CLO 2.2 -> phát hiện, đánh giá -> Rủi ro hệ thống mạng
+RELATION: CLO 2.2 -> phát hiện, phân tích -> Tấn công mạng
+
+ENTITY: CLO 2.3
+ENTITY: Giải pháp đảm bảo an ninh
+ENTITY: Hệ thống mạng
+RELATION: CLO 2.3 -> thiết kế, cài đặt và triển khai -> Giải pháp đảm bảo an ninh
+RELATION: CLO 2.3 -> trong thực tế -> Hệ thống mạng
+
+ENTITY: CLO 3.1
+ENTITY: Làm việc cá nhân
+ENTITY: Làm việc nhóm
+RELATION: CLO 3.1 -> có năng lực ->
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 5/27 ---
+ENTITY: Giảng viên
+ENTITY: Sinh viên
+ENTITY: Đề cương chi tiết môn học
+ENTITY: An ninh mạng
+ENTITY: Mẫu đề thi 
+ENTITY: Đánh giá quá trình
+ENTITY: Đánh giá cuối kỳ
+RELATION: Giảng viên -> giới thiệu -> Đề cương chi tiết môn học
+RELATION: Giảng viên -> giảng lý thuyết theo nội dung -> An ninh mạng
+RELATION: Sinh viên -> xem trước -> Đề cương chi tiết môn học
+RELATION: Sinh viên -> đọc -> tài liệu
+RELATION: Sinh viên -> xem lại -> kiến thức của học phần tiên quyết
+RELATION: Đánh giá quá trình -> gồm -> Đề xuất chủ đề
+RELATION: Đánh giá cuối kỳ -> theo -> lịch của Trường
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 6/27 ---
+ENTITY: Giảng viên
+ENTITY: Sinh viên
+ENTITY: Đánh giá an toàn mạng
+ENTITY: Phương pháp đánh giá
+RELATION: Giảng viên -> giảng lý thuyết -> Nội dung bài học
+RELATION: Giảng viên -> đưa ra -> Bài toán vận dụng
+RELATION: Giảng viên -> hướng dẫn -> Công cụ quét
+RELATION: Sinh viên -> làm bài tập -> Bài tập được giao
+RELATION: Sinh viên -> chuẩn bị -> Bài mới
+RELATION: Sinh viên -> nghe giảng -> Tài liệu học tập
+RELATION: Sinh viên -> đưa ra -> Câu hỏi thảo luận
+RELATION: Đánh giá an toàn mạng -> cần thiết -> Đánh giá
+RELATION: Phương pháp đánh giá -> là -> Các công cụ quét
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 7/27 ---
+ENTITY: Tấn công từ chối dịch vụ
+ENTITY: Tấn công từ chối dịch vụ phân tán
+ENTITY: Tấn công cổng sau
+ENTITY: Mã độc tấn công mạng
+ENTITY: Tấn công mạng không dây
+ENTITY: Giảng viên
+ENTITY: Sinh viên
+ENTITY: Hệ thống tường lửa
+ENTITY: Hệ thống phát hiện xâm nhập
+ENTITY: Hệ thống ngăn ngừa xâm nhập mạng
+ENTITY: Bảo mật mạng không dây
+
+RELATION: Tấn công từ chối dịch vụ -> là -> Tấn công từ chối dịch vụ phân tán
+RELATION: Tấn công từ chối dịch vụ -> bao gồm -> Tấn công cổng sau
+RELATION: Tấn công từ chối dịch vụ -> bao gồm -> Mã độc tấn công mạng
+RELATION: Tấn công từ chối dịch vụ -> bao gồm -> Tấn công mạng không dây
+RELATION: Giảng viên -> giảng dạy -> Sinh viên
+RELATION: Sinh viên -> làm -> bài tập
+RELATION: Hệ thống tường lửa -> là -> một số giải pháp an ninh mạng
+RELATION: Hệ thống phát hiện xâm nhập -> là -> một số giải pháp an ninh mạng
+RELATION: Hệ thống ngăn ngừa xâm nhập mạng -> là -> một số giải pháp an ninh mạng
+RELATION: Bảo mật mạng không dây -> là -> một số giải pháp an ninh mạng
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 8/27 ---
+ENTITY: Học tập
+ENTITY: Câu hỏi
+ENTITY: Bài tập nhóm
+ENTITY: Giảng viên
+ENTITY: Sinh viên
+ENTITY: Điểm chuyên cần
+ENTITY: Điểm quá trình
+ENTITY: Điều kiện thi
+
+RELATION: Học tập -> bao gồm -> Câu hỏi
+RELATION: Học tập -> bao gồm -> Bài tập nhóm
+RELATION: Bài tập nhóm -> được nộp bởi -> Sinh viên
+RELATION: Giảng viên -> đánh giá -> Bài tập nhóm
+RELATION: Giảng viên -> giải đáp -> Câu hỏi
+RELATION: Sinh viên -> có mặt để -> nhận thông tin
+RELATION: Điểm chuyên cần -> đạt yêu cầu -> từ 5 trở lên
+RELATION: Điểm chuyên cần -> được đánh giá theo -> quy định chung
+RELATION: Hệ thống -> đánh giá -> mức độ đạt được CLO
+RELATION: Học phần -> được đánh giá bởi -> Sinh viên và Trường
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 9/27 ---
+ENTITY: Giảng viên
+ENTITY: Tài liệu
+ENTITY: Học phần
+ENTITY: Người học
+ENTITY: Bài tập lớn
+RELATION: Giảng viên -> cung cấp -> Tài liệu
+RELATION: Học phần -> thực hiện -> nguyên tắc tôn trọng
+RELATION: Người học -> nộp -> Bài tập lớn
+RELATION: Người học -> nhận -> điểm 0
+RELATION: Bài nộp -> trừ -> một điểm
+ENTITY: TS. Phạm Xuân Lâm
+ENTITY: GS.TS Phạm Hồng Chương
+RELATION: TS. Phạm Xuân Lâm -> phụ trách -> Khoa
+RELATION: GS.TS Phạm Hồng Chương -> hiệu trưởng -> Khoa
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 10/27 ---
+ENTITY: BỘ GIÁO DỤC VÀ ĐÀO TẠO
+ENTITY: TRƯỜNG ĐẠI HỌC KINH TẾ QUỐC DÂN
+ENTITY: ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN
+ENTITY: Học phần
+ENTITY: Khoa Marketing
+ENTITY: TS. Hoàng Ngọc Vinh Hạnh
+ENTITY: ThS. Hoàng Tuấn Dũng
+ENTITY: Báo chí hiện đại
+RELATION: TRƯỜNG ĐẠI HỌC KINH TẾ QUỐC DÂN -> ban hành -> ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN
+RELATION: ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN -> mã số -> MKTT1147
+RELATION: Khoa Marketing -> quản lý -> Học phần
+RELATION: Học phần -> tên -> Báo chí hiện đại
+RELATION: Học phần -> trình độ đào tạo -> Đại học
+RELATION: Khoa Marketing -> địa chỉ -> Phòng 1306, Nhà A1, Trường ĐH Kinh tế Quốc dân
+RELATION: Học phần -> giảng dạy bởi -> TS. Hoàng Ngọc Vinh Hạnh
+RELATION: Học phần -> giảng dạy bởi -> ThS. Hoàng Tuấn Dũng
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 11/27 ---
+ENTITY: Quan hệ công chúng
+ENTITY: Báo chí
+RELATION: Quan hệ công chúng -> phù hợp với -> Báo chí
+
+ENTITY: Kỹ năng viết
+ENTITY: Tin bài
+RELATION: Kỹ năng viết -> thực hiện -> Tin bài
+
+ENTITY: Tổ chức
+ENTITY: Hoạt động quan hệ công chúng
+RELATION: Tổ chức -> tổ chức -> Hoạt động quan hệ công chúng
+
+ENTITY: Quy trình quản trị
+ENTITY: Quan hệ công chúng
+RELATION: Quy trình quản trị -> quản lý -> Quan hệ công chúng
+
+ENTITY: Sự kiện
+ENTITY: Hoạt động quan hệ công chúng
+RELATION: Sự kiện -> là một phần của -> Hoạt động quan hệ công chúng
+
+ENTITY: Tài liệu tham khảo
+ENTITY: Giáo trình
+RELATION: Tài liệu tham khảo -> bao gồm -> Giáo trình
+
+ENTITY: PGS.TS Nguyễn Thị Trường Giang
+ENTITY: Báo chí và truyền thông đa phương tiện
+RELATION: PGS.TS Nguyễn Thị Trường Giang -> viết -> Báo chí và truyền thông đa phương tiện
+
+ENTITY: Claudia Mast
+ENTITY: Truyền thông đại chúng
+RELATION: Claudia Mast -> viết -> Truyền thông đại chúng
+
+ENTITY: Bill Kovach
+ENTITY: The elements of Journalism
+RELATION: Bill Kovach -> viết -> The elements of Journalism
+
+ENTITY: Nguyễn Văn Dững
+ENTITY: Cơ sở lý luận báo chí
+RELATION: Nguyễn Văn Dững -> viết -> Cơ sở lý luận báo chí
+
+ENTITY: Nguyễn Văn Dững
+ENTITY: Báo chí truyền thông hiện đại
+RELATION: Nguyễn
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 12/27 ---
+ENTITY: Chức năng quan hệ công chúng
+ENTITY: Bộ phận khác
+ENTITY: Nhóm công chúng báo chí
+ENTITY: Mục tiêu chung của doanh nghiệp
+ENTITY: Môi trường ngành quan hệ công chúng
+ENTITY: Các yếu tố môi trường
+ENTITY: Loại hình báo chí
+ENTITY: Kế hoạch quan hệ công chúng
+ENTITY: Tổ chức
+ENTITY: Doanh nghiệp
+ENTITY: Hiện tượng quan hệ công chúng
+ENTITY: Kiến thức đã học
+ENTITY: Sản phẩm báo chí
+ENTITY: Hình ảnh tích cực
+ENTITY: Nhận thức của công chúng
+ENTITY: Kiến thức
+ENTITY: Kỹ năng
+ENTITY: Nghề nghiệp
+ENTITY: Tốt nghiệp đại học
+ENTITY: Thuật ngữ liên quan đến báo chí
+ENTITY: Tài liệu báo chí hiện đại
+
+RELATION: Chức năng quan hệ công chúng -> phối hợp -> Bộ phận khác
+RELATION: Chức năng quan hệ công chúng -> vai trò -> Nhóm công chúng báo chí
+RELATION: Nhóm công chúng báo chí -> đạt được -> Mục tiêu chung của doanh nghiệp
+RELATION: Môi trường ngành quan hệ công chúng -> ảnh hưởng -> Các yếu tố môi trường
+RELATION: Các loại hình báo chí -> công cụ -> Kế hoạch quan hệ công chúng
+RELATION: Tổ chức -> xây dựng -> Hình ảnh tích cực
+RELATION: Kiến thức đã học -> đề xuất -> Sản phẩm báo chí
+RELATION: Nhận thức của công chúng -> ảnh hưởng -> Hình ảnh tích cực
+RELATION: Kiến thức -> ứng dụng -> Nghề nghiệp
+RELATION: Kiến
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 13/27 ---
+ENTITY: Doanh nghiệp
+ENTITY: Quan hệ công chúng
+ENTITY: Báo chí
+ENTITY: Kiến thức báo chí hiện đại
+ENTITY: Hình ảnh thương hiệu
+RELATION: Doanh nghiệp -> sử dụng -> Quan hệ công chúng
+RELATION: Quan hệ công chúng -> sử dụng -> Báo chí
+RELATION: Báo chí -> ảnh hưởng -> Quan hệ công chúng
+RELATION: Kiến thức báo chí hiện đại -> đưa ra -> Định hướng
+RELATION: Doanh nghiệp -> xây dựng -> Hình ảnh thương hiệu
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 14/27 ---
+ENTITY: Bài tập cá nhân
+ENTITY: Bài tập nhóm
+ENTITY: Doanh nghiệp
+ENTITY: Chiến dịch QHCC
+ENTITY: Khoa Marketing
+RELATION: Bài tập cá nhân -> nộp sản phẩm -> Lưạ chọn loại hình báo chí và thực hành sáng tạo tác phẩm báo chí phục vụ một chiến dịch QHCC cụ thể
+RELATION: Bài tập nhóm -> đánh giá thực trạng -> công cụ báo chí trong các chương trình quan hệ công chúng ở các doanh nghiệp
+RELATION: Bài tập nhóm -> đề xuất xây dựng -> hệ thống tin bài báo chí theo chiến dịch quan hệ công chúng
+RELATION: Khoa Marketing -> hướng dẫn chi tiết về -> định dạng bài tập
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 15/27 ---
+ENTITY: Sinh viên
+ENTITY: Giảng viên
+ENTITY: Slide bài lecture 1
+ENTITY: Slide bài seminar 1
+ENTITY: Seminar 1
+RELATION: Giảng viên -> hướng dẫn -> Seminar 1
+RELATION: Sinh viên -> xem trước -> đề cương
+RELATION: Sinh viên -> đọc -> tài liệu
+RELATION: Sinh viên -> tham gia -> thảo luận
+RELATION: Seminar 1 -> thảo luận về -> lịch sử, sự phát triển và vai trò của báo chí tại Việt Nam
+RELATION: Giảng viên -> hướng dẫn -> trả lời câu hỏi, làm bài tập seminar 1
+RELATION: Sinh viên -> đề xuất -> chủ đề bài viết cá nhân và bài tập nhóm
+RELATION: Sinh viên -> theo dõi -> các thảo luận
+RELATION: Giảng viên -> hướng dẫn -> làm bài tập trong giáo trình, chương 1
+RELATION: Sinh viên -> tham gia -> chữa bài
+RELATION: Sinh viên -> thảo luận về -> chủ đề bài viết cá nhân và bài tập của nhóm mình hoặc nhóm khác
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 16/27 ---
+ENTITY: Giảng viên
+ENTITY: Sinh viên
+ENTITY: Seminar 2
+ENTITY: Chủ đề bài viết cá nhân
+ENTITY: Bài tập nhóm
+RELATION: Giảng viên -> giảng dạy -> Seminar 2
+RELATION: Giảng viên -> hướng dẫn -> Sinh viên
+RELATION: Sinh viên -> đọc -> tài liệu
+RELATION: Sinh viên -> xem trước -> ví dụ
+RELATION: Seminar 2 -> thảo luận về -> các loại hình báo chí hiện đại
+RELATION: Giảng viên -> hướng dẫn -> thảo luận
+RELATION: Sinh viên -> tham gia -> thảo luận
+RELATION: Sinh viên -> đề xuất -> chủ đề bài viết cá nhân
+RELATION: Sinh viên -> tham gia -> chữa bài
+RELATION: Giảng viên -> hướng dẫn -> khai thác dữ liệu
+RELATION: Sinh viên -> theo dõi -> nội dung thảo luận
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 17/27 ---
+ENTITY: Seminar 3
+ENTITY: Giảng viên
+ENTITY: Sinh viên
+ENTITY: Slide bài lecture 4
+ENTITY: Chương 3
+ENTITY: Chương 4
+RELATION: Seminar 3 -> thuộc về -> Chương 3
+RELATION: Giảng viên -> hướng dẫn -> thực hành phân tích
+RELATION: Giảng viên -> hướng dẫn -> trả lời câu hỏi
+RELATION: Giảng viên -> hướng dẫn -> viết bài cá nhân
+RELATION: Giảng viên -> giới thiệu -> ví dụ trong slide
+RELATION: Sinh viên -> tham gia -> chữa bài
+RELATION: Sinh viên -> đề xuất -> chủ đề bài tập nhóm
+RELATION: Sinh viên -> trình bày -> thông tin đã thu thập
+RELATION: Sinh viên -> thảo luận -> về chủ đề bài tập nhóm
+RELATION: Slide bài lecture 4 -> chứa -> nội dung lý thuyết
+RELATION: Chương 4 -> bao gồm -> hoạt động sáng tạo tác phẩm báo phát thanh
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 18/27 ---
+ENTITY: Bài tập lớn
+ENTITY: Seminar 4
+ENTITY: Giảng viên
+ENTITY: Sinh viên
+ENTITY: Chương 4
+ENTITY: Slide bài lecture 4
+ENTITY: Bài thực hành 4
+ENTITY: Lecture 5
+ENTITY: Chương 5
+ENTITY: Slide bài lecture 5
+
+RELATION: Bài tập lớn -> bao gồm -> Seminar 4
+RELATION: Seminar 4 -> có nội dung -> Thực hành phân tích và sản xuất ấn phẩm báo phát thanh
+RELATION: Seminar 4 -> có nội dung -> Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 4
+RELATION: Seminar 4 -> có nội dung -> Thảo luận về nội dung bài tập nhóm
+RELATION: Seminar 4 -> có nội dung -> Thảo luận về thông tin của các nhóm
+RELATION: Giảng viên -> hướng dẫn -> Thực hành phân tích và sản xuất ấn phẩm báo in
+RELATION: Giảng viên -> trả lời -> câu hỏi trong seminar 4
+RELATION: Giảng viên -> thảo luận về -> thông tin của các nhóm đã nộp
+RELATION: Giảng viên -> thảo luận về -> các tình huống của các nhóm đã nộp sơ bộ lần đầu
+RELATION: Sinh viên -> đọc -> tài liệu trước
+RELATION: Sinh viên -> theo dõi -> thực hành
+RELATION: Sinh viên -> tham gia -> chữa bài
+RELATION: Sinh viên -> thảo luận về -> thông tin đã thu thập và tình huống đã lựa chọn của nhóm mình
+RELATION: Sinh viên -> tham gia -> thảo luận về
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 19/27 ---
+ENTITY: Slide bài lecture 5  
+ENTITY: Seminar 5  
+ENTITY: Giảng viên  
+ENTITY: Sinh viên  
+ENTITY: Chương 5  
+ENTITY: Bài viết PR  
+RELATION: Slide bài lecture 5 -> là nội dung của -> Seminar 5  
+RELATION: Giảng viên -> hướng dẫn -> Thảo luận về hình thức sử dụng truyền hình trong báo chí hiện đại  
+RELATION: Giảng viên -> hướng dẫn -> Làm bài tập trong seminar 5  
+RELATION: Giảng viên -> hướng dẫn -> Giải bài tập trong giáo trình chương 5  
+RELATION: Giảng viên -> đánh giá -> Sản phẩm bài tập của nhóm đề xuất  
+RELATION: Giảng viên -> bình luận -> Bài cá nhân  
+RELATION: Giảng viên -> bình luận -> Hướng triển khai của các nhóm đã nộp  
+RELATION: Sinh viên -> đọc -> Tài liệu trước  
+RELATION: Sinh viên -> theo dõi -> Thảo luận  
+RELATION: Sinh viên -> tham gia -> Chữa bài  
+RELATION: Sinh viên -> đề xuất -> Hướng bài tập nhóm  
+RELATION: Sinh viên -> trình bày -> Dữ liệu đã thu thập  
+RELATION: Sinh viên -> tham gia thảo luận -> Chủ đề bài tập của nhóm mình hoặc nhóm khác  
+RELATION: Sinh viên -> nộp -> Bài viết PR  
+ENTITY: Lecture 6  
+ENTITY: Hệ thống báo chí hiện đại  
+ENTITY: Hoạt động sáng tạo tác phẩm báo điện tử  
+ENTITY: Công chúng báo điện tử  
+ENTITY: Chương 6  
+ENTITY: Chương 7  
+RELATION: Lecture 6 -> là
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 20/27 ---
+ENTITY: Giảng viên
+ENTITY: Sinh viên
+ENTITY: Slide bài lecture 6
+ENTITY: Slide seminar 6
+ENTITY: Giáo trình chương 6, 7
+ENTITY: Chương 8
+ENTITY: Chương 9
+RELATION: Giảng viên -> hướng dẫn -> tổ chức sự kiện và quản trị tài trợ
+RELATION: Giảng viên -> thảo luận -> bài tập trong giáo trình, chương 6, 7
+RELATION: Giảng viên -> yêu cầu -> Sinh viên
+RELATION: Sinh viên -> theo dõi -> hướng dẫn thực hành
+RELATION: Sinh viên -> thảo luận -> ví dụ trong slide và giáo trình
+RELATION: Sinh viên -> tham gia -> chữa bài tập
+RELATION: Sinh viên -> trình bày -> bài tập nhóm của mình
+RELATION: Giảng viên -> giảng -> lý thuyết theo nội dung slide lecture 7
+RELATION: Giảng viên -> hướng dẫn -> đọc giáo trình chương 8, 9
+RELATION: Sinh viên -> đọc -> các tài liệu
+RELATION: Sinh viên -> xem trước -> ví dụ, làm bài tập được yêu cầu
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 21/27 ---
+ENTITY: PR
+ENTITY: Giáo trình
+ENTITY: Giảng viên
+ENTITY: Sinh viên
+ENTITY: Seminar 8
+RELATION: PR -> bao gồm -> Giáo trình
+RELATION: Giảng viên -> hướng dẫn -> Sinh viên
+RELATION: Seminar 8 -> bao gồm -> Giảng viên
+RELATION: Sinh viên -> tham gia -> Seminar 8
+RELATION: Giảng viên -> thông báo -> điểm chuyên cần
+RELATION: Sinh viên -> có mặt -> Giảng viên
+RELATION: Sinh viên -> nộp -> bài tập nhóm
+RELATION: Sinh viên -> thực hiện -> thực hành
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 22/27 ---
+ENTITY: Hệ thống quản lý đào tạo
+ENTITY: Chuẩn đầu ra học phần
+ENTITY: Sinh viên
+ENTITY: Trường
+ENTITY: Điểm chuyên cần
+RELATION: Hệ thống quản lý đào tạo -> đánh giá -> Chuẩn đầu ra học phần
+RELATION: Chuẩn đầu ra học phần -> đánh giá -> Sinh viên
+RELATION: Chuẩn đầu ra học phần -> đánh giá -> Trường
+RELATION: Sinh viên -> có -> Điểm chuyên cần
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 23/27 ---
+ENTITY: Trọng số trong điểm học phần
+ENTITY: Hình thức
+ENTITY: Thời gian
+ENTITY: Số câu hỏi
+ENTITY: Phụ lục 2
+ENTITY: Rubrics 1
+ENTITY: Đánh giá điểm chuyên cần
+ENTITY: Số buổi vắng
+ENTITY: Tham gia thảo luận
+RELATION: Trọng số trong điểm học phần -> là -> 50%
+RELATION: Hình thức -> là -> Tự luận
+RELATION: Thời gian -> là -> 90 phút
+RELATION: Số câu hỏi -> là -> 4 câu
+RELATION: Phụ lục 2 -> chứa -> Rubrics 1
+RELATION: Rubrics 1 -> là -> Đánh giá điểm chuyên cần
+RELATION: Số buổi vắng -> ảnh hưởng đến -> Tham gia thảo luận
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 24/27 ---
+ENTITY: Bài tập
+ENTITY: Câu hỏi
+ENTITY: Sinh viên
+ENTITY: Giáo viên
+ENTITY: Nhóm
+RELATION: Bài tập -> Xung phong chữa -> Câu hỏi
+RELATION: Sinh viên -> trả lời -> Câu hỏi
+RELATION: Sinh viên -> tham gia -> Nhóm
+RELATION: Nhóm -> thảo luận -> Câu hỏi
+RELATION: Giáo viên -> yêu cầu -> Trả lời câu hỏi
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 25/27 ---
+ENTITY: Nội dung
+ENTITY: Vấn đề
+ENTITY: Dẫn chứng
+ENTITY: Thương hiệu
+ENTITY: Bài viết
+RELATION: Nội dung -> không tốt -> Vấn đề
+RELATION: Dẫn chứng -> chưa đưa ra -> Bài viết
+RELATION: Thương hiệu -> lồng ghép -> Bài viết
+RELATION: Bài viết -> không được nêu rõ -> Mục đích
+RELATION: Mục đích -> chưa được nêu rõ -> Cấu trúc
+RELATION: Ngữ pháp -> sử dụng -> Dấu câu
+RELATION: Nguồn tham khảo -> sử dụng -> Độ tin cậy
+RELATION: Ngữ pháp -> không chuyên nghiệp -> Văn bản
+RELATION: Nguồn tham khảo -> không phù hợp -> Độ tin cậy
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 26/27 ---
+ENTITY: Mức điểm
+ENTITY: Tiêu chí
+ENTITY: Kết cấu và Nội dung
+ENTITY: Hình thức trình bày
+RELATION: Mức điểm -> bao gồm -> Tiêu chí
+RELATION: Kết cấu và Nội dung -> liên quan đến -> Mức điểm
+RELATION: Hình thức trình bày -> liên quan đến -> Mức điểm
+
+--------------------------------------------------------------------------------
+
+--- EXTRACTION 27/27 ---
+ENTITY: Phương tiện hỗ trợ
+ENTITY: Mức độ hợp tác
+ENTITY: Thành viên
+ENTITY: Khả năng bảo vệ ý kiến
+ENTITY: Câu hỏi
+RELATION: Phương tiện hỗ trợ -> sử dụng -> không tốt
+RELATION: Mức độ hợp tác -> đánh giá -> Thành viên có mặt đầy đủ
+RELATION: Mức độ hợp tác -> đánh giá -> Thành viên không có mặt đầy đủ
+RELATION: Khả năng bảo vệ ý kiến -> liên quan đến -> Câu hỏi
+RELATION: Câu hỏi -> đưa ra -> cho nhóm khác
+RELATION: Câu hỏi -> không đưa ra -> cho nhóm khác
+
+--------------------------------------------------------------------------------
+

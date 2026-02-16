@@ -564,7 +564,7 @@ OUTPUT FORMAT (JSON):
   ]
 }
 
-CHỈ trả về JSON, KHÔNG thêm giải thích.
+CHỈ trả về JSON, KHÔNG thêm giải thích, KHÔNG thêm markdown.
 """
         
         return base_prompt

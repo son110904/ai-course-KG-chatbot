@@ -1,0 +1,267 @@
+================================================================================
+STEP 4: COMMUNITY DETECTION - DETAILED OUTPUT
+================================================================================
+
+📊 THỐNG KÊ:
+   - Số nodes trong graph: 291
+   - Số edges trong graph: 213
+   - Số connected components: 85
+   - Tổng số communities: 92
+   - Communities lớn (>=3): 25
+
+📊 PHÂN BỐ KÍCH THƯỚC:
+   - Size 1: 32 communities
+   - Size 2: 35 communities
+   - Size 3: 8 communities
+   - Size 4: 2 communities
+   - Size 5: 8 communities
+   - Size 7: 1 communities
+   - Size 8: 2 communities
+   - Size 9: 1 communities
+   - Size 12: 1 communities
+   - Size 34: 1 communities
+   - Size 39: 1 communities
+
+================================================================================
+📝 TẤT CẢ COMMUNITIES (25 communities):
+================================================================================
+
+--- COMMUNITY 1 (Size: 39) ---
+   1. Sinh viên
+   2. thảo luận về
+   3. Thảo luận
+   4. chủ đề bài tập nhóm
+   5. thực hành
+   6. các tài liệu
+   7. Bài mới
+   8. bài tập
+   9. về chủ đề bài tập nhóm
+   10. Bài tập được giao
+   11. thông tin đã thu thập và tình huống đã lựa chọn của nhóm mình
+   12. ví dụ trong slide và giáo trình
+   13. bài tập nhóm
+   14. Hướng bài tập nhóm
+   15. Chủ đề bài tập của nhóm mình hoặc nhóm khác
+   16. hướng dẫn thực hành
+   17. các thảo luận
+   18. chủ đề bài viết cá nhân
+   19. ví dụ
+   20. tài liệu
+   21. nội dung thảo luận
+   22. bài tập nhóm của mình
+   23. Dữ liệu đã thu thập
+   24. đề cương
+   25. Lỗ hổng hệ thống mạng
+   26. chủ đề bài viết cá nhân và bài tập nhóm
+   27. Câu hỏi thảo luận
+   28. chữa bài tập
+   29. nhận thông tin
+   30. Chữa bài
+   31. Tài liệu trước
+   32. ví dụ, làm bài tập được yêu cầu
+   33. tài liệu trước
+   34. kiến thức của học phần tiên quyết
+   35. chủ đề bài viết cá nhân và bài tập của nhóm mình hoặc nhóm khác
+   36. chữa bài
+   37. Bài viết PR
+   38. Tài liệu học tập
+   39. thông tin đã thu thập
+
+--- COMMUNITY 2 (Size: 34) ---
+   1. câu hỏi trong seminar 4
+   2. làm bài tập trong giáo trình, chương 1
+   3. ví dụ trong slide
+   4. trả lời câu hỏi, làm bài tập seminar 1
+   5. lịch sử, sự phát triển và vai trò của báo chí tại Việt Nam
+   6. Công cụ quét
+   7. Seminar 2
+   8. thực hành phân tích
+   9. thảo luận
+   10. Nội dung bài học
+   11. Thảo luận về hình thức sử dụng truyền hình trong báo chí hiện đại
+   12. các tình huống của các nhóm đã nộp sơ bộ lần đầu
+   13. điểm chuyên cần
+   14. các loại hình báo chí hiện đại
+   15. Seminar 1
+   16. Làm bài tập trong seminar 5
+   17. Sản phẩm bài tập của nhóm đề xuất
+   18. Bài cá nhân
+   19. viết bài cá nhân
+   20. Bài toán vận dụng
+   21. đọc giáo trình chương 8, 9
+   22. Giải bài tập trong giáo trình chương 5
+   23. bài tập trong giáo trình, chương 6, 7
+   24. Hướng triển khai của các nhóm đã nộp
+   25. Tài liệu
+   26. trả lời câu hỏi
+   27. khai thác dữ liệu
+   28. Đề cương chi tiết môn học
+   29. thông tin của các nhóm đã nộp
+   30. lý thuyết theo nội dung slide lecture 7
+   31. Seminar 8
+   32. Giảng viên
+   33. Thực hành phân tích và sản xuất ấn phẩm báo in
+   34. tổ chức sự kiện và quản trị tài trợ
+
+--- COMMUNITY 3 (Size: 12) ---
+   1. Khoa Marketing
+   2. ThS. Hoàng Tuấn Dũng
+   3. Đại học
+   4. Công cụ nhận biết
+   5. nguyên tắc tôn trọng
+   6. Báo chí hiện đại
+   7. Sinh viên và Trường
+   8. TS. Hoàng Ngọc Vinh Hạnh
+   9. định dạng bài tập
+   10. Phòng 1306, Nhà A1, Trường ĐH Kinh tế Quốc dân
+   11. Kỹ năng tư duy
+   12. Học phần
+
+--- COMMUNITY 4 (Size: 9) ---
+   1. Bài tập
+   2. Bài tập nhóm
+   3. Nhóm
+   4. Khả năng bảo vệ ý kiến
+   5. hệ thống tin bài báo chí theo chiến dịch quan hệ công chúng
+   6. Câu hỏi
+   7. cho nhóm khác
+   8. công cụ báo chí trong các chương trình quan hệ công chúng ở các doanh nghiệp
+   9. Học tập
+
+--- COMMUNITY 5 (Size: 8) ---
+   1. Rủi ro hệ thống mạng
+   2. tấn công từ chối dịch vụ
+   3. CLO 2.2
+   4. tấn công giả mạo địa chỉ IP
+   5. chiếm quyền máy chủ
+   6. Tấn công mạng
+   7. tấn công cổng sau
+   8. tấn công mật khẩu
+
+--- COMMUNITY 6 (Size: 8) ---
+   1. Bài tập lớn
+   2. Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 4
+   3. Seminar 4
+   4. Thực hành phân tích và sản xuất ấn phẩm báo phát thanh
+   5. điểm 0
+   6. Thảo luận về nội dung bài tập nhóm
+   7. Người học
+   8. Thảo luận về thông tin của các nhóm
+
+--- COMMUNITY 7 (Size: 7) ---
+   1. CG2
+   2. Mục tiêu học phần
+   3. Trường
+   4. CG1
+   5. CG3
+   6. Chuẩn đầu ra học phần
+   7. Hệ thống quản lý đào tạo
+
+--- COMMUNITY 8 (Size: 5) ---
+   1. An ninh không gian mạng
+   2. Cybersecurity
+   3. TS. Tống Thị Hảo Tâm
+   4. Viện Công nghệ thông tin & Kinh tế số
+   5. TS. Nguyễn Thanh Hương
+
+--- COMMUNITY 9 (Size: 5) ---
+   1. An ninh mạng
+   2. CLO 2.3
+   3. Hệ thống mạng
+   4. Giải pháp đảm bảo an ninh
+   5. CLO 1.5
+
+--- COMMUNITY 10 (Size: 5) ---
+   1. bảo mật mạng không dây
+   2. Giải pháp an toàn mạng
+   3. hệ thống tường lửa
+   4. hệ thống IDS/IPS
+   5. chính sách an ninh IP
+
+--- COMMUNITY 11 (Size: 5) ---
+   1. Tấn công mạng không dây
+   2. Tấn công từ chối dịch vụ phân tán
+   3. Mã độc tấn công mạng
+   4. Tấn công từ chối dịch vụ
+   5. Tấn công cổng sau
+
+--- COMMUNITY 12 (Size: 5) ---
+   1. Hệ thống phát hiện xâm nhập
+   2. một số giải pháp an ninh mạng
+   3. Hệ thống tường lửa
+   4. Bảo mật mạng không dây
+   5. Hệ thống ngăn ngừa xâm nhập mạng
+
+--- COMMUNITY 13 (Size: 5) ---
+   1. Doanh nghiệp
+   2. Quan hệ công chúng
+   3. Quy trình quản trị
+   4. Hình ảnh thương hiệu
+   5. Báo chí
+
+--- COMMUNITY 14 (Size: 5) ---
+   1. Tổ chức
+   2. Sự kiện
+   3. Hình ảnh tích cực
+   4. Nhận thức của công chúng
+   5. Hoạt động quan hệ công chúng
+
+--- COMMUNITY 15 (Size: 5) ---
+   1. Thương hiệu
+   2. Dẫn chứng
+   3. Cấu trúc
+   4. Mục đích
+   5. Bài viết
+
+--- COMMUNITY 16 (Size: 4) ---
+   1. Bộ phận khác
+   2. Nhóm công chúng báo chí
+   3. Mục tiêu chung của doanh nghiệp
+   4. Chức năng quan hệ công chúng
+
+--- COMMUNITY 17 (Size: 4) ---
+   1. Hình thức trình bày
+   2. Mức điểm
+   3. Kết cấu và Nội dung
+   4. Tiêu chí
+
+--- COMMUNITY 18 (Size: 3) ---
+   1. Điểm chuyên cần
+   2. từ 5 trở lên
+   3. quy định chung
+
+--- COMMUNITY 19 (Size: 3) ---
+   1. Huỳnh Nguyên Chính
+   2. Nguyễn Thị Thanh Vân
+   3. Giáo trình an ninh mạng
+
+--- COMMUNITY 20 (Size: 3) ---
+   1. CLO 2.1
+   2. Tài liệu tiếng Anh chuyên ngành
+   3. Kỹ năng đọc hiểu
+
+--- COMMUNITY 21 (Size: 3) ---
+   1. GS.TS Phạm Hồng Chương
+   2. TS. Phạm Xuân Lâm
+   3. Khoa
+
+--- COMMUNITY 22 (Size: 3) ---
+   1. TRƯỜNG ĐẠI HỌC KINH TẾ QUỐC DÂN
+   2. ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN
+   3. MKTT1147
+
+--- COMMUNITY 23 (Size: 3) ---
+   1. Đánh giá điểm chuyên cần
+   2. Phụ lục 2
+   3. Rubrics 1
+
+--- COMMUNITY 24 (Size: 3) ---
+   1. Dấu câu
+   2. Văn bản
+   3. Ngữ pháp
+
+--- COMMUNITY 25 (Size: 3) ---
+   1. Thành viên có mặt đầy đủ
+   2. Thành viên không có mặt đầy đủ
+   3. Mức độ hợp tác
+

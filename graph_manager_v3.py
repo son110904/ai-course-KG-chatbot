@@ -126,6 +126,45 @@ class GraphManagerV3:
             'relations_created': total_relations
         }
     
+    def _sanitize_property_value(self, value: Any) -> Any:
+        """
+        Sanitize property value for Neo4j storage.
+        
+        Neo4j only supports:
+        - Primitives: string, int, float, bool
+        - Lists of primitives (same type)
+        - NOT: nested lists, dicts, mixed types
+        """
+        import json
+        
+        if value is None:
+            return ""
+        
+        # If it's a list
+        if isinstance(value, list):
+            if not value:
+                return ""
+            
+            # Check if all elements are primitives of same type
+            first_type = type(value[0])
+            if all(isinstance(v, (str, int, float, bool)) and type(v) == first_type for v in value):
+                # Simple list of same type primitives - Neo4j can handle
+                return value
+            else:
+                # Complex list (nested, mixed types) - serialize to JSON string
+                return json.dumps(value, ensure_ascii=False)
+        
+        # If it's a dict - serialize to JSON string
+        if isinstance(value, dict):
+            return json.dumps(value, ensure_ascii=False)
+        
+        # If it's a primitive - keep as is
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        
+        # Fallback - convert to string
+        return str(value)
+    
     def _create_entity(
         self,
         entity: Dict[str, Any],
@@ -155,8 +194,26 @@ class GraphManagerV3:
         # Add custom properties
         props.update(properties)
         
-        # Clean properties (remove None/empty values)
-        props = {k: v for k, v in props.items() if v is not None and str(v).strip()}
+        # ★ ADD: Sanitize special properties from Entity Linking
+        if 'variants' in entity:
+            # Convert variants list to JSON string
+            props['variants'] = self._sanitize_property_value(entity['variants'])
+        
+        if 'source_count' in entity:
+            props['source_count'] = int(entity.get('source_count', 1))
+        
+        # ★ ADD: Sanitize all property values for Neo4j compatibility
+        sanitized_props = {}
+        for key, value in props.items():
+            if value is None or (isinstance(value, str) and not value.strip()):
+                continue  # Skip None/empty
+            
+            # Sanitize the value
+            sanitized_value = self._sanitize_property_value(value)
+            
+            # Only add if not empty after sanitization
+            if sanitized_value != "":
+                sanitized_props[key] = sanitized_value
         
         with self.db.get_session() as session:
             # MERGE on normalized name to avoid duplicates
@@ -164,7 +221,7 @@ class GraphManagerV3:
                 MERGE (e:Entity {name_normalized: $name_normalized})
                 ON CREATE SET e = $props
                 ON MATCH SET e += $props
-            """, name_normalized=name_normalized, props=props)
+            """, name_normalized=name_normalized, props=sanitized_props)
     
     def _create_relation(
         self,

@@ -1,0 +1,522 @@
+================================================================================
+STEP 3: GRAPH BUILDING - DETAILED OUTPUT
+================================================================================
+
+📊 THỐNG KÊ:
+   - Số extraction results đầu vào: 27
+   - Số nodes (entities): 291
+   - Số edges (relations): 213
+   - Mật độ graph: 0.0050
+   - Số connected components: 85
+
+================================================================================
+📝 TẤT CẢ NODES (291 nodes):
+================================================================================
+1. 4 câu
+2. 50%
+3. 90 phút
+4. An ninh không gian mạng
+5. An ninh mạng
+6. Bill Kovach
+7. Bài cá nhân
+8. Bài mới
+9. Bài nộp
+10. Bài thực hành 4
+11. Bài toán vận dụng
+12. Bài tập
+13. Bài tập cá nhân
+14. Bài tập lớn
+15. Bài tập nhóm
+16. Bài tập được giao
+17. Bài viết
+18. Bài viết PR
+19. Báo chí
+20. Báo chí hiện đại
+21. Báo chí truyền thông hiện đại
+22. Báo chí và truyền thông đa phương tiện
+23. Bảo mật mạng không dây
+24. BỘ GIÁO DỤC VÀ ĐÀO TẠO
+25. Bộ phận khác
+26. CG1
+27. CG2
+28. CG3
+29. CLO 1.4
+30. CLO 1.5
+31. CLO 2.1
+32. CLO 2.2
+33. CLO 2.3
+34. CLO 3.1
+35. Certified Ethical Hacker
+36. Chiến dịch QHCC
+37. Chuẩn đầu ra học phần
+38. Chương 3
+39. Chương 4
+40. Chương 5
+41. Chương 6
+42. Chương 7
+43. Chương 8
+44. Chương 9
+45. Chủ đề bài tập của nhóm mình hoặc nhóm khác
+46. Chủ đề bài viết cá nhân
+47. Chức năng quan hệ công chúng
+48. Chữa bài
+49. Claudia Mast
+50. Cybersecurity
+51. Các công cụ quét
+52. Các loại hình báo chí
+53. Các yếu tố môi trường
+54. Câu hỏi
+55. Câu hỏi thảo luận
+56. Công chúng báo điện tử
+57. Công cụ nhận biết
+58. Công cụ quét
+59. Cơ sở lý luận báo chí
+60. Cấu trúc
+61. Doanh nghiệp
+62. Dấu câu
+63. Dẫn chứng
+64. Dữ liệu đã thu thập
+65. EC-Council
+66. GS.TS Phạm Hồng Chương
+67. Giáo trình
+68. Giáo trình an ninh mạng
+69. Giáo trình chương 6, 7
+70. Giáo viên
+71. Giải bài tập trong giáo trình chương 5
+72. Giải pháp an toàn mạng
+73. Giải pháp đảm bảo an ninh
+74. Giảng viên
+75. Hiểm họa tấn công mạng
+76. Hiện tượng quan hệ công chúng
+77. Hoạt động quan hệ công chúng
+78. Hoạt động sáng tạo tác phẩm báo điện tử
+79. Huỳnh Nguyên Chính
+80. Hình thức
+81. Hình thức trình bày
+82. Hình ảnh thương hiệu
+83. Hình ảnh tích cực
+84. Hướng bài tập nhóm
+85. Hướng triển khai của các nhóm đã nộp
+86. Hệ thống
+87. Hệ thống báo chí hiện đại
+88. Hệ thống mạng
+89. Hệ thống ngăn ngừa xâm nhập mạng
+90. Hệ thống phát hiện xâm nhập
+91. Hệ thống quản lý đào tạo
+92. Hệ thống tường lửa
+93. Học phần
+94. Học tập
+95. Khoa
+96. Khoa Marketing
+97. Khả năng bảo vệ ý kiến
+98. Kiến thức
+99. Kiến thức báo chí hiện đại
+100. Kiến thức đã học
+101. Kế hoạch quan hệ công chúng
+102. Kết cấu và Nội dung
+103. Kỹ năng
+104. Kỹ năng tư duy
+105. Kỹ năng viết
+106. Kỹ năng đọc hiểu
+107. Lecture 5
+108. Lecture 6
+109. Loại hình báo chí
+110. Làm bài tập trong seminar 5
+111. Làm việc cá nhân
+112. Làm việc nhóm
+113. Lưạ chọn loại hình báo chí và thực hành sáng tạo tác phẩm báo chí phục vụ một chiến dịch QHCC cụ thể
+114. Lỗ hổng hệ thống mạng
+115. MKTT1147
+116. Mã độc tấn công mạng
+117. Môi trường ngành quan hệ công chúng
+118. Mẫu đề thi
+119. Mục tiêu chung của doanh nghiệp
+120. Mục tiêu học phần
+121. Mục đích
+122. Mức điểm
+123. Mức độ hợp tác
+124. Nghề nghiệp
+125. Nguyễn Thị Thanh Vân
+126. Nguyễn Văn Dững
+127. Nguồn tham khảo
+128. Người học
+129. Ngữ pháp
+130. Nhóm
+131. Nhóm công chúng báo chí
+132. Nhận thức của công chúng
+133. Nội dung
+134. Nội dung bài học
+135. PGS.TS Nguyễn Thị Trường Giang
+136. Phòng 1306, Nhà A1, Trường ĐH Kinh tế Quốc dân
+137. Phương pháp đánh giá
+138. Phương tiện hỗ trợ
+139. Phần mềm phân tích mạng
+140. Phụ lục 2
+141. Quan hệ công chúng
+142. Quy trình quản trị
+143. Rubrics 1
+144. Rủi ro hệ thống mạng
+145. Seminar 1
+146. Seminar 2
+147. Seminar 3
+148. Seminar 4
+149. Seminar 5
+150. Seminar 8
+151. Sinh viên
+152. Sinh viên và Trường
+153. Slide bài lecture 1
+154. Slide bài lecture 4
+155. Slide bài lecture 5
+156. Slide bài lecture 6
+157. Slide bài seminar 1
+158. Slide seminar 6
+159. Sản phẩm bài tập của nhóm đề xuất
+160. Sản phẩm báo chí
+161. Số buổi vắng
+162. Số câu hỏi
+163. Sự kiện
+164. TRƯỜNG ĐH KINH TẾ QUỐC DÂN
+165. TRƯỜNG ĐẠI HỌC KINH TẾ QUỐC DÂN
+166. TS. Hoàng Ngọc Vinh Hạnh
+167. TS. Nguyễn Thanh Hương
+168. TS. Phạm Xuân Lâm
+169. TS. Tống Thị Hảo Tâm
+170. ThS. Hoàng Tuấn Dũng
+171. Tham gia thảo luận
+172. The elements of Journalism
+173. Thuật ngữ liên quan đến báo chí
+174. Thành viên
+175. Thành viên có mặt đầy đủ
+176. Thành viên không có mặt đầy đủ
+177. Thương hiệu
+178. Thảo luận
+179. Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 4
+180. Thảo luận về hình thức sử dụng truyền hình trong báo chí hiện đại
+181. Thảo luận về nội dung bài tập nhóm
+182. Thảo luận về thông tin của các nhóm
+183. Thời gian
+184. Thực hành phân tích và sản xuất ấn phẩm báo in
+185. Thực hành phân tích và sản xuất ấn phẩm báo phát thanh
+186. Tin bài
+187. Tiêu chí
+188. Truyền thông đại chúng
+189. Trường
+190. Trả lời câu hỏi
+191. Trọng số trong điểm học phần
+192. Tài liệu
+193. Tài liệu báo chí hiện đại
+194. Tài liệu học tập
+195. Tài liệu tham khảo
+196. Tài liệu tiếng Anh chuyên ngành
+197. Tài liệu trước
+198. Tấn công cổng sau
+199. Tấn công mạng
+200. Tấn công mạng không dây
+201. Tấn công từ chối dịch vụ
+202. Tấn công từ chối dịch vụ phân tán
+203. Tốt nghiệp đại học
+204. Tổ chức
+205. Tự luận
+206. Viện Công nghệ thông tin & Kinh tế số
+207. Văn bản
+208. Vấn đề
+209. Wireshark
+210. bài tập
+211. bài tập nhóm
+212. bài tập nhóm của mình
+213. bài tập trong giáo trình, chương 6, 7
+214. bảo mật mạng không dây
+215. chiếm quyền máy chủ
+216. cho nhóm khác
+217. chính sách an ninh IP
+218. chủ đề bài tập nhóm
+219. chủ đề bài viết cá nhân
+220. chủ đề bài viết cá nhân và bài tập của nhóm mình hoặc nhóm khác
+221. chủ đề bài viết cá nhân và bài tập nhóm
+222. chữa bài
+223. chữa bài tập
+224. các loại hình báo chí hiện đại
+225. các thảo luận
+226. các tài liệu
+227. các tình huống của các nhóm đã nộp sơ bộ lần đầu
+228. câu hỏi trong seminar 4
+229. công cụ báo chí trong các chương trình quan hệ công chúng ở các doanh nghiệp
+230. hoạt động sáng tạo tác phẩm báo phát thanh
+231. hướng dẫn thực hành
+232. hệ thống IDS/IPS
+233. hệ thống tin bài báo chí theo chiến dịch quan hệ công chúng
+234. hệ thống tường lửa
+235. khai thác dữ liệu
+236. không tốt
+237. kiến thức của học phần tiên quyết
+238. làm bài tập trong giáo trình, chương 1
+239. lý thuyết theo nội dung slide lecture 7
+240. lịch của Trường
+241. lịch sử, sự phát triển và vai trò của báo chí tại Việt Nam
+242. một số giải pháp an ninh mạng
+243. một điểm
+244. mức độ đạt được CLO
+245. nguyên tắc tôn trọng
+246. nhận thông tin
+247. nội dung lý thuyết
+248. nội dung thảo luận
+249. quy định chung
+250. thông tin của các nhóm đã nộp
+251. thông tin đã thu thập
+252. thông tin đã thu thập và tình huống đã lựa chọn của nhóm mình
+253. thảo luận
+254. thảo luận về
+255. thực hành
+256. thực hành phân tích
+257. trả lời câu hỏi
+258. trả lời câu hỏi, làm bài tập seminar 1
+259. tài liệu
+260. tài liệu trước
+261. tấn công cổng sau
+262. tấn công giả mạo địa chỉ IP
+263. tấn công mật khẩu
+264. tấn công từ chối dịch vụ
+265. tổ chức sự kiện và quản trị tài trợ
+266. từ 5 trở lên
+267. viết bài cá nhân
+268. ví dụ
+269. ví dụ trong slide
+270. ví dụ trong slide và giáo trình
+271. ví dụ, làm bài tập được yêu cầu
+272. về chủ đề bài tập nhóm
+273. Điều kiện thi
+274. Điểm chuyên cần
+275. Điểm quá trình
+276. Đánh giá
+277. Đánh giá an toàn mạng
+278. Đánh giá cuối kỳ
+279. Đánh giá quá trình
+280. Đánh giá điểm chuyên cần
+281. Đại học
+282. ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN
+283. Đề cương chi tiết môn học
+284. Đề xuất chủ đề
+285. Định hướng
+286. Độ tin cậy
+287. điểm 0
+288. điểm chuyên cần
+289. đề cương
+290. định dạng bài tập
+291. đọc giáo trình chương 8, 9
+
+================================================================================
+🔗 TẤT CẢ EDGES (213 edges):
+================================================================================
+1. An ninh không gian mạng ↔ Cybersecurity
+2. An ninh không gian mạng ↔ TS. Nguyễn Thanh Hương
+3. An ninh không gian mạng ↔ TS. Tống Thị Hảo Tâm
+4. An ninh không gian mạng ↔ Viện Công nghệ thông tin & Kinh tế số
+5. An ninh mạng ↔ Giảng viên
+6. Bill Kovach ↔ The elements of Journalism
+7. Bài nộp ↔ một điểm
+8. Bài tập cá nhân ↔ Lưạ chọn loại hình báo chí và thực hành sáng tạo tác phẩm báo chí phục vụ một chiến dịch QHCC cụ thể
+9. Bài tập lớn ↔ Seminar 4
+10. Bài tập nhóm ↔ công cụ báo chí trong các chương trình quan hệ công chúng ở các doanh nghiệp
+11. Bài tập nhóm ↔ hệ thống tin bài báo chí theo chiến dịch quan hệ công chúng
+12. Bài viết ↔ Mục đích
+13. Bảo mật mạng không dây ↔ một số giải pháp an ninh mạng
+14. BỘ GIÁO DỤC VÀ ĐÀO TẠO ↔ TRƯỜNG ĐH KINH TẾ QUỐC DÂN
+15. CLO 1.4 ↔ Hiểm họa tấn công mạng
+16. CLO 1.5 ↔ An ninh mạng
+17. CLO 1.5 ↔ Giải pháp đảm bảo an ninh
+18. CLO 2.1 ↔ Kỹ năng đọc hiểu
+19. CLO 2.1 ↔ Tài liệu tiếng Anh chuyên ngành
+20. CLO 2.2 ↔ Rủi ro hệ thống mạng
+21. CLO 2.3 ↔ Hệ thống mạng
+22. Chuẩn đầu ra học phần ↔ Hệ thống quản lý đào tạo
+23. Chuẩn đầu ra học phần ↔ Trường
+24. Chương 4 ↔ hoạt động sáng tạo tác phẩm báo phát thanh
+25. Chức năng quan hệ công chúng ↔ Bộ phận khác
+26. Chức năng quan hệ công chúng ↔ Nhóm công chúng báo chí
+27. Claudia Mast ↔ Truyền thông đại chúng
+28. Câu hỏi ↔ Bài tập
+29. Câu hỏi ↔ Khả năng bảo vệ ý kiến
+30. Câu hỏi ↔ Nhóm
+31. Câu hỏi ↔ cho nhóm khác
+32. Công cụ nhận biết ↔ Học phần
+33. Doanh nghiệp ↔ Hình ảnh thương hiệu
+34. Dẫn chứng ↔ Bài viết
+35. EC-Council ↔ Certified Ethical Hacker
+36. GS.TS Phạm Hồng Chương ↔ Khoa
+37. Giáo viên ↔ Trả lời câu hỏi
+38. Giải pháp an toàn mạng ↔ bảo mật mạng không dây
+39. Giải pháp an toàn mạng ↔ chính sách an ninh IP
+40. Giải pháp an toàn mạng ↔ hệ thống IDS/IPS
+41. Giải pháp an toàn mạng ↔ hệ thống tường lửa
+42. Giải pháp đảm bảo an ninh ↔ CLO 2.3
+43. Giảng viên ↔ Bài cá nhân
+44. Giảng viên ↔ Bài toán vận dụng
+45. Giảng viên ↔ Bài tập nhóm
+46. Giảng viên ↔ Câu hỏi
+47. Giảng viên ↔ Công cụ quét
+48. Giảng viên ↔ Giải bài tập trong giáo trình chương 5
+49. Giảng viên ↔ Hướng triển khai của các nhóm đã nộp
+50. Giảng viên ↔ Làm bài tập trong seminar 5
+51. Giảng viên ↔ Nội dung bài học
+52. Giảng viên ↔ Seminar 1
+53. Giảng viên ↔ Seminar 2
+54. Giảng viên ↔ Seminar 8
+55. Giảng viên ↔ Sản phẩm bài tập của nhóm đề xuất
+56. Giảng viên ↔ Thảo luận về hình thức sử dụng truyền hình trong báo chí hiện đại
+57. Giảng viên ↔ Thực hành phân tích và sản xuất ấn phẩm báo in
+58. Giảng viên ↔ Tài liệu
+59. Giảng viên ↔ bài tập trong giáo trình, chương 6, 7
+60. Giảng viên ↔ các tình huống của các nhóm đã nộp sơ bộ lần đầu
+61. Giảng viên ↔ câu hỏi trong seminar 4
+62. Giảng viên ↔ khai thác dữ liệu
+63. Giảng viên ↔ làm bài tập trong giáo trình, chương 1
+64. Giảng viên ↔ lý thuyết theo nội dung slide lecture 7
+65. Giảng viên ↔ thông tin của các nhóm đã nộp
+66. Giảng viên ↔ thảo luận
+67. Giảng viên ↔ thực hành phân tích
+68. Giảng viên ↔ trả lời câu hỏi
+69. Giảng viên ↔ trả lời câu hỏi, làm bài tập seminar 1
+70. Giảng viên ↔ tổ chức sự kiện và quản trị tài trợ
+71. Giảng viên ↔ viết bài cá nhân
+72. Giảng viên ↔ ví dụ trong slide
+73. Giảng viên ↔ Đề cương chi tiết môn học
+74. Giảng viên ↔ điểm chuyên cần
+75. Giảng viên ↔ đọc giáo trình chương 8, 9
+76. Hoạt động quan hệ công chúng ↔ Sự kiện
+77. Huỳnh Nguyên Chính ↔ Giáo trình an ninh mạng
+78. Hình thức ↔ Tự luận
+79. Hình ảnh tích cực ↔ Nhận thức của công chúng
+80. Hệ thống ↔ mức độ đạt được CLO
+81. Hệ thống ngăn ngừa xâm nhập mạng ↔ một số giải pháp an ninh mạng
+82. Hệ thống phát hiện xâm nhập ↔ một số giải pháp an ninh mạng
+83. Hệ thống tường lửa ↔ một số giải pháp an ninh mạng
+84. Học phần ↔ Báo chí hiện đại
+85. Học phần ↔ Khoa Marketing
+86. Học phần ↔ Sinh viên và Trường
+87. Học phần ↔ TS. Hoàng Ngọc Vinh Hạnh
+88. Học phần ↔ ThS. Hoàng Tuấn Dũng
+89. Học phần ↔ nguyên tắc tôn trọng
+90. Học phần ↔ Đại học
+91. Học tập ↔ Bài tập nhóm
+92. Học tập ↔ Câu hỏi
+93. Khoa Marketing ↔ Phòng 1306, Nhà A1, Trường ĐH Kinh tế Quốc dân
+94. Khoa Marketing ↔ định dạng bài tập
+95. Kiến thức ↔ Nghề nghiệp
+96. Kiến thức báo chí hiện đại ↔ Định hướng
+97. Kiến thức đã học ↔ Sản phẩm báo chí
+98. Kế hoạch quan hệ công chúng ↔ Các loại hình báo chí
+99. Kỹ năng tư duy ↔ Học phần
+100. Kỹ năng viết ↔ Tin bài
+101. Môi trường ngành quan hệ công chúng ↔ Các yếu tố môi trường
+102. Mục tiêu học phần ↔ CG1
+103. Mục tiêu học phần ↔ CG2
+104. Mục tiêu học phần ↔ CG3
+105. Mục tiêu học phần ↔ Chuẩn đầu ra học phần
+106. Mục đích ↔ Cấu trúc
+107. Mức điểm ↔ Hình thức trình bày
+108. Mức điểm ↔ Kết cấu và Nội dung
+109. Mức điểm ↔ Tiêu chí
+110. Mức độ hợp tác ↔ Thành viên có mặt đầy đủ
+111. Mức độ hợp tác ↔ Thành viên không có mặt đầy đủ
+112. Nguyễn Thị Thanh Vân ↔ Giáo trình an ninh mạng
+113. Nguyễn Văn Dững ↔ Cơ sở lý luận báo chí
+114. Nguồn tham khảo ↔ Độ tin cậy
+115. Người học ↔ Bài tập lớn
+116. Người học ↔ điểm 0
+117. Ngữ pháp ↔ Dấu câu
+118. Ngữ pháp ↔ Văn bản
+119. Nhóm công chúng báo chí ↔ Mục tiêu chung của doanh nghiệp
+120. Nội dung ↔ Vấn đề
+121. PGS.TS Nguyễn Thị Trường Giang ↔ Báo chí và truyền thông đa phương tiện
+122. Phương pháp đánh giá ↔ Các công cụ quét
+123. Phương tiện hỗ trợ ↔ không tốt
+124. Phụ lục 2 ↔ Rubrics 1
+125. Quan hệ công chúng ↔ Báo chí
+126. Quan hệ công chúng ↔ Doanh nghiệp
+127. Quan hệ công chúng ↔ Quy trình quản trị
+128. Rubrics 1 ↔ Đánh giá điểm chuyên cần
+129. Seminar 1 ↔ lịch sử, sự phát triển và vai trò của báo chí tại Việt Nam
+130. Seminar 2 ↔ các loại hình báo chí hiện đại
+131. Seminar 3 ↔ Chương 3
+132. Seminar 4 ↔ Thảo luận về các ví dụ, câu hỏi, bài tập của seminar 4
+133. Seminar 4 ↔ Thảo luận về nội dung bài tập nhóm
+134. Seminar 4 ↔ Thảo luận về thông tin của các nhóm
+135. Seminar 4 ↔ Thực hành phân tích và sản xuất ấn phẩm báo phát thanh
+136. Sinh viên ↔ Bài mới
+137. Sinh viên ↔ Bài tập nhóm
+138. Sinh viên ↔ Bài tập được giao
+139. Sinh viên ↔ Bài viết PR
+140. Sinh viên ↔ Chuẩn đầu ra học phần
+141. Sinh viên ↔ Chủ đề bài tập của nhóm mình hoặc nhóm khác
+142. Sinh viên ↔ Chữa bài
+143. Sinh viên ↔ Câu hỏi
+144. Sinh viên ↔ Câu hỏi thảo luận
+145. Sinh viên ↔ Dữ liệu đã thu thập
+146. Sinh viên ↔ Giải pháp an toàn mạng
+147. Sinh viên ↔ Giảng viên
+148. Sinh viên ↔ Hướng bài tập nhóm
+149. Sinh viên ↔ Lỗ hổng hệ thống mạng
+150. Sinh viên ↔ Nhóm
+151. Sinh viên ↔ Seminar 8
+152. Sinh viên ↔ Thảo luận
+153. Sinh viên ↔ Tài liệu học tập
+154. Sinh viên ↔ Tài liệu trước
+155. Sinh viên ↔ Tấn công mạng
+156. Sinh viên ↔ bài tập
+157. Sinh viên ↔ bài tập nhóm
+158. Sinh viên ↔ bài tập nhóm của mình
+159. Sinh viên ↔ chủ đề bài tập nhóm
+160. Sinh viên ↔ chủ đề bài viết cá nhân
+161. Sinh viên ↔ chủ đề bài viết cá nhân và bài tập của nhóm mình hoặc nhóm khác
+162. Sinh viên ↔ chủ đề bài viết cá nhân và bài tập nhóm
+163. Sinh viên ↔ chữa bài
+164. Sinh viên ↔ chữa bài tập
+165. Sinh viên ↔ các thảo luận
+166. Sinh viên ↔ các tài liệu
+167. Sinh viên ↔ hướng dẫn thực hành
+168. Sinh viên ↔ kiến thức của học phần tiên quyết
+169. Sinh viên ↔ nhận thông tin
+170. Sinh viên ↔ nội dung thảo luận
+171. Sinh viên ↔ thông tin đã thu thập
+172. Sinh viên ↔ thông tin đã thu thập và tình huống đã lựa chọn của nhóm mình
+173. Sinh viên ↔ thảo luận
+174. Sinh viên ↔ thảo luận về
+175. Sinh viên ↔ thực hành
+176. Sinh viên ↔ tài liệu
+177. Sinh viên ↔ tài liệu trước
+178. Sinh viên ↔ ví dụ
+179. Sinh viên ↔ ví dụ trong slide và giáo trình
+180. Sinh viên ↔ ví dụ, làm bài tập được yêu cầu
+181. Sinh viên ↔ về chủ đề bài tập nhóm
+182. Sinh viên ↔ Điểm chuyên cần
+183. Sinh viên ↔ Đề cương chi tiết môn học
+184. Sinh viên ↔ đề cương
+185. Slide bài lecture 4 ↔ nội dung lý thuyết
+186. Slide bài lecture 5 ↔ Seminar 5
+187. Số buổi vắng ↔ Tham gia thảo luận
+188. Số câu hỏi ↔ 4 câu
+189. TRƯỜNG ĐẠI HỌC KINH TẾ QUỐC DÂN ↔ ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN
+190. TS. Phạm Xuân Lâm ↔ Khoa
+191. Thương hiệu ↔ Bài viết
+192. Thời gian ↔ 90 phút
+193. Trọng số trong điểm học phần ↔ 50%
+194. Tài liệu tham khảo ↔ Giáo trình
+195. Tấn công mạng ↔ CLO 2.2
+196. Tấn công mạng ↔ chiếm quyền máy chủ
+197. Tấn công mạng ↔ tấn công cổng sau
+198. Tấn công mạng ↔ tấn công giả mạo địa chỉ IP
+199. Tấn công mạng ↔ tấn công mật khẩu
+200. Tấn công mạng ↔ tấn công từ chối dịch vụ
+201. Tấn công từ chối dịch vụ ↔ Mã độc tấn công mạng
+202. Tấn công từ chối dịch vụ ↔ Tấn công cổng sau
+203. Tấn công từ chối dịch vụ ↔ Tấn công mạng không dây
+204. Tấn công từ chối dịch vụ ↔ Tấn công từ chối dịch vụ phân tán
+205. Tổ chức ↔ Hoạt động quan hệ công chúng
+206. Tổ chức ↔ Hình ảnh tích cực
+207. Wireshark ↔ Phần mềm phân tích mạng
+208. Điểm chuyên cần ↔ quy định chung
+209. Điểm chuyên cần ↔ từ 5 trở lên
+210. Đánh giá an toàn mạng ↔ Đánh giá
+211. Đánh giá cuối kỳ ↔ lịch của Trường
+212. Đánh giá quá trình ↔ Đề xuất chủ đề
+213. ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN ↔ MKTT1147

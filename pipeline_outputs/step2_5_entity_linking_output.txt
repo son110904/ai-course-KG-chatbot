@@ -1,0 +1,169 @@
+KEEP: BỘ GIÁO DỤC VÀ ĐÀO TẠO
+MERGE: TRƯỜNG ĐH KINH TẾ QUỐC DÂN  -->  Trường Đại học Kinh tế Quốc dân
+KEEP: An ninh không gian mạng
+KEEP: Cybersecurity
+KEEP: Viện Công nghệ thông tin & Kinh tế số
+KEEP: TS. Nguyễn Thanh Hương
+KEEP: TS. Tống Thị Hảo Tâm
+KEEP: Sinh viên
+KEEP: Lỗ hổng hệ thống mạng
+KEEP: Tấn công mạng
+KEEP: Giải pháp an toàn mạng
+KEEP: Kỹ năng tư duy
+KEEP: Công cụ nhận biết
+KEEP: Nguyễn Thị Thanh Vân
+KEEP: Huỳnh Nguyên Chính
+KEEP: Giáo trình an ninh mạng
+KEEP: EC-Council
+KEEP: Certified Ethical Hacker
+KEEP: Wireshark
+KEEP: Mục tiêu học phần
+KEEP: Chuẩn đầu ra học phần
+KEEP: CLO 1.4
+KEEP: Hiểm họa tấn công mạng
+MERGE: CLO 1.5  -->  CLO 1.4
+KEEP: An ninh mạng
+KEEP: Giải pháp đảm bảo an ninh
+MERGE: CLO 2.1  -->  CLO 1.4
+KEEP: Tài liệu tiếng Anh chuyên ngành
+KEEP: Kỹ năng đọc hiểu
+MERGE: CLO 2.2  -->  CLO 1.4
+KEEP: Rủi ro hệ thống mạng
+MERGE: CLO 2.3  -->  CLO 1.4
+KEEP: Hệ thống mạng
+MERGE: CLO 3.1  -->  CLO 1.4
+KEEP: Làm việc cá nhân
+KEEP: Làm việc nhóm
+KEEP: Giảng viên
+KEEP: Đề cương chi tiết môn học
+KEEP: Mẫu đề thi
+KEEP: Đánh giá quá trình
+KEEP: Đánh giá cuối kỳ
+KEEP: Đánh giá an toàn mạng
+KEEP: Phương pháp đánh giá
+KEEP: Tấn công từ chối dịch vụ
+MERGE: Tấn công từ chối dịch vụ phân tán  -->  Tấn công từ chối dịch vụ
+KEEP: Tấn công cổng sau
+KEEP: Mã độc tấn công mạng
+MERGE: Tấn công mạng không dây  -->  Tấn công mạng
+KEEP: Hệ thống tường lửa
+KEEP: Hệ thống phát hiện xâm nhập
+KEEP: Hệ thống ngăn ngừa xâm nhập mạng
+KEEP: Bảo mật mạng không dây
+KEEP: Học tập
+KEEP: Câu hỏi
+KEEP: Bài tập nhóm
+KEEP: Điểm chuyên cần
+KEEP: Điểm quá trình
+KEEP: Điều kiện thi
+KEEP: Tài liệu
+KEEP: Học phần
+KEEP: Người học
+KEEP: Bài tập lớn
+KEEP: TS. Phạm Xuân Lâm
+KEEP: GS.TS Phạm Hồng Chương
+KEEP: TRƯỜNG ĐẠI HỌC KINH TẾ QUỐC DÂN
+KEEP: ĐỀ CƯƠNG CHI TIẾT HỌC PHẦN
+KEEP: Khoa Marketing
+KEEP: TS. Hoàng Ngọc Vinh Hạnh
+KEEP: ThS. Hoàng Tuấn Dũng
+KEEP: Báo chí hiện đại
+KEEP: Quan hệ công chúng
+KEEP: Báo chí
+KEEP: Kỹ năng viết
+KEEP: Tin bài
+KEEP: Tổ chức
+KEEP: Hoạt động quan hệ công chúng
+KEEP: Quy trình quản trị
+KEEP: Sự kiện
+KEEP: Tài liệu tham khảo
+KEEP: Giáo trình
+KEEP: PGS.TS Nguyễn Thị Trường Giang
+KEEP: Báo chí và truyền thông đa phương tiện
+KEEP: Claudia Mast
+KEEP: Truyền thông đại chúng
+KEEP: Bill Kovach
+KEEP: The elements of Journalism
+KEEP: Nguyễn Văn Dững
+KEEP: Cơ sở lý luận báo chí
+MERGE: Báo chí truyền thông hiện đại  -->  Báo chí hiện đại
+KEEP: Chức năng quan hệ công chúng
+KEEP: Bộ phận khác
+KEEP: Nhóm công chúng báo chí
+KEEP: Mục tiêu chung của doanh nghiệp
+KEEP: Môi trường ngành quan hệ công chúng
+KEEP: Các yếu tố môi trường
+KEEP: Loại hình báo chí
+KEEP: Kế hoạch quan hệ công chúng
+KEEP: Doanh nghiệp
+KEEP: Hiện tượng quan hệ công chúng
+KEEP: Kiến thức đã học
+KEEP: Sản phẩm báo chí
+KEEP: Hình ảnh tích cực
+KEEP: Nhận thức của công chúng
+KEEP: Kiến thức
+KEEP: Kỹ năng
+KEEP: Nghề nghiệp
+KEEP: Tốt nghiệp đại học
+KEEP: Thuật ngữ liên quan đến báo chí
+KEEP: Tài liệu báo chí hiện đại
+KEEP: Kiến thức báo chí hiện đại
+KEEP: Hình ảnh thương hiệu
+KEEP: Bài tập cá nhân
+KEEP: Chiến dịch QHCC
+KEEP: Slide bài lecture 1
+KEEP: Slide bài seminar 1
+KEEP: Seminar 1
+MERGE: Seminar 2  -->  Seminar 1
+KEEP: Chủ đề bài viết cá nhân
+KEEP: Seminar 3
+MERGE: Slide bài lecture 4  -->  Slide bài lecture 1
+KEEP: Chương 3
+MERGE: Chương 4  -->  Chương 3
+MERGE: Seminar 4  -->  Seminar 3
+KEEP: Bài thực hành 4
+KEEP: Lecture 5
+MERGE: Chương 5  -->  Chương 3
+MERGE: Slide bài lecture 5  -->  Slide bài lecture 1
+KEEP: Seminar 5
+KEEP: Bài viết PR
+MERGE: Lecture 6  -->  Lecture 5
+KEEP: Hệ thống báo chí hiện đại
+KEEP: Hoạt động sáng tạo tác phẩm báo điện tử
+KEEP: Công chúng báo điện tử
+MERGE: Chương 6  -->  Chương 3
+KEEP: Chương 7
+MERGE: Slide bài lecture 6  -->  Slide bài lecture 1
+KEEP: Slide seminar 6
+KEEP: Giáo trình chương 6, 7
+MERGE: Chương 8  -->  Chương 7
+KEEP: Chương 9
+KEEP: PR
+KEEP: Seminar 8
+KEEP: Hệ thống quản lý đào tạo
+KEEP: Trường
+KEEP: Trọng số trong điểm học phần
+KEEP: Hình thức
+KEEP: Thời gian
+KEEP: Số câu hỏi
+KEEP: Phụ lục 2
+KEEP: Rubrics 1
+KEEP: Đánh giá điểm chuyên cần
+KEEP: Số buổi vắng
+KEEP: Tham gia thảo luận
+KEEP: Bài tập
+KEEP: Giáo viên
+KEEP: Nhóm
+KEEP: Nội dung
+KEEP: Vấn đề
+KEEP: Dẫn chứng
+KEEP: Thương hiệu
+KEEP: Bài viết
+KEEP: Mức điểm
+KEEP: Tiêu chí
+KEEP: Kết cấu và Nội dung
+KEEP: Hình thức trình bày
+KEEP: Phương tiện hỗ trợ
+KEEP: Mức độ hợp tác
+KEEP: Thành viên
+KEEP: Khả năng bảo vệ ý kiến
