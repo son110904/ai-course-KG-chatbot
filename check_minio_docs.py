@@ -19,7 +19,7 @@ MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 MINIO_FOLDERS = [
     "courses-processed/curriculum/",
     "courses-processed/syllabus/",
-    "courses-processed/career description/"
+    "courses-processed/career_description/"
 ]
 
 def check_minio_documents():

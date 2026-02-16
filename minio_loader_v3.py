@@ -470,7 +470,10 @@ class MinioLoaderV3:
         chunk_type: str,
         source_file: str
     ) -> str:
-        """Build enhanced extraction prompt based on chunk type."""
+        """Build enhanced extraction prompt based on chunk type and document type."""
+        
+        # Detect if this is career description
+        is_career_desc = 'career' in source_file.lower() or 'nghề' in text.lower()
         
         base_prompt = f"""Trích xuất thông tin có cấu trúc từ văn bản sau đây.
 
@@ -484,87 +487,151 @@ YÊU CẦU:
 Trích xuất các ENTITIES (thực thể) và RELATIONS (quan hệ) theo định dạng JSON.
 
 ENTITIES có các loại sau:
-- học_phần: Các môn học, học phần (VD: "Phân tích và thiết kế hệ thống", "Lập trình Java")
-- giảng_viên: Giảng viên, giáo viên
-- khoa: Khoa, viện quản lý
-- tài_liệu: Sách, giáo trình, tài liệu tham khảo
-- phần_mềm: Phần mềm, công cụ sử dụng
-- chương_trình: Chương trình đào tạo, ngành học
-- mục_tiêu: Mục tiêu học phần (CG)
-- chuẩn_đầu_ra: Chuẩn đầu ra (CLO)
-- nội_dung: Nội dung học tập, chương
-- đánh_giá: Phương thức đánh giá, rubric
+"""
+        
+        if is_career_desc:
+            # Career description specific entities
+            base_prompt += """
+⭐ ƯU TIÊN CHO CAREER DESCRIPTION:
+- nghề_nghiệp: Tên nghề, vị trí công việc (VD: "Lập trình game", "Kỹ sư phần mềm", "Data Scientist")
+  Properties: mô_tả, nhóm_nghề, vai_trò, mức_lương_junior, mức_lương_senior
+  
+- kỹ_năng: Kỹ năng cần thiết cho nghề
+  Properties: loại (chuyên_môn/mềm/ngoại_ngữ), mức_độ_yêu_cầu, mô_tả
+  
+- ngành_học: Ngành học phù hợp (VD: "Công nghệ thông tin", "Công nghệ đa phương tiện")
+  Properties: mô_tả, thời_gian_đào_tạo
+  
+- công_việc_chính: Công việc, nhiệm vụ của nghề
+  Properties: mô_tả
+  
+- chứng_chỉ: Chứng chỉ liên quan
+  Properties: tên, yêu_cầu
 
-Mỗi ENTITY phải có:
-- name: Tên đầy đủ
-- type: Loại entity (từ danh sách trên)
-- properties: Các thuộc tính bổ sung (email, mã học phần, số tín chỉ, v.v.)
+QUAN TRỌNG - Trích xuất từ Career Description:
+- Tên nghề: Tìm "Tên nghề", "Career", "NGHỀ NGHIỆP"
+- Nhóm nghề: Tìm "Nhóm nghề", "lĩnh vực"
+- Kỹ năng: Tìm trong phần "Kỹ năng yêu cầu", "hard skills", "soft skills"
+  + Kỹ năng chuyên môn: C++, C#, Java, Python, v.v.
+  + Kỹ năng mềm: Giải quyết vấn đề, sáng tạo, v.v.
+- Ngành học: Tìm "Ngành học phù hợp", "ngành nghề liên quan"
+- Mức lương: Tìm "Mức lương", "Junior", "Senior"
+
+VÍ DỤ:
+Từ: "Lập trình game (Game Developer)...các ngành nghề liên quan đến công nghệ thông tin như Ngành công nghệ đa phương tiện"
+
+Trích xuất:
+- Entity: nghề_nghiệp "Lập trình game" với properties {mô_tả: "Game Developer..."}
+- Entity: kỹ_năng "C++" với properties {loại: "chuyên_môn"}
+- Entity: kỹ_năng "C#" với properties {loại: "chuyên_môn"}
+- Entity: ngành_học "Công nghệ đa phương tiện"
+- Relation: YÊU_CẦU_KỸ_NĂNG từ "Lập trình game" -> "C++"
+- Relation: ĐÀO_TẠO_CHO_NGHỀ từ "Công nghệ đa phương tiện" -> "Lập trình game"
+"""
+        else:
+            # Syllabus/curriculum entities
+            base_prompt += """
+- học_phần: Các môn học, học phần (VD: "Phân tích và thiết kế hệ thống", "Lập trình Java")
+  Properties: mã_học_phần, số_tín_chỉ, số_giờ_trên_lớp
+  
+- giảng_viên: Giảng viên, giáo viên
+  Properties: email, chức_danh, học_vị
+  
+- khoa: Khoa, viện quản lý
+  Properties: tên_đầy_đủ, địa_chỉ
+  
+- tài_liệu: Sách, giáo trình, tài liệu tham khảo
+  Properties: tác_giả, năm_xuất_bản
+  
+- phần_mềm: Phần mềm, công cụ sử dụng
+  
+- chương_trình: Chương trình đào tạo, ngành học
+  
+- mục_tiêu: Mục tiêu học phần (CG)
+  
+- chuẩn_đầu_ra: Chuẩn đầu ra (CLO)
+"""
+
+        base_prompt += """
 
 RELATIONS có thể là:
+"""
+        
+        if is_career_desc:
+            base_prompt += """
+⭐ ƯU TIÊN CHO CAREER:
+- YÊU_CẦU_KỸ_NĂNG: nghề_nghiệp -> kỹ_năng
+- ĐÀO_TẠO_CHO_NGHỀ: ngành_học -> nghề_nghiệp  
+- PHÁT_TRIỂN_KỸ_NĂNG: ngành_học -> kỹ_năng
+- CÓ_CÔNG_VIỆC: nghề_nghiệp -> công_việc_chính
+- YÊU_CẦU_CHỨNG_CHỈ: nghề_nghiệp -> chứng_chỉ
+"""
+        else:
+            base_prompt += """
 - GIẢNG_DẠY: giảng_viên -> học_phần
-- THUỘC_KHOA: học_phần -> khoa, giảng_viên -> khoa
+- THUỘC_KHOA: học_phần -> khoa
 - SỬ_DỤNG: học_phần -> tài_liệu, học_phần -> phần_mềm
 - TIÊN_QUYẾT: học_phần -> học_phần
 - THUỘC_CHƯƠNG_TRÌNH: học_phần -> chương_trình
-- CÓ_MỤC_TIÊU: học_phần -> mục_tiêu
-- CÓ_CHUẨN_ĐẦU_RA: học_phần -> chuẩn_đầu_ra
-- CÓ_NỘI_DUNG: học_phần -> nội_dung
-- ĐÁNH_GIÁ_BẰNG: học_phần -> đánh_giá
-
-Mỗi RELATION phải có:
-- source: Tên entity nguồn
-- target: Tên entity đích
-- type: Loại quan hệ (từ danh sách trên)
-- properties: Thuộc tính bổ sung (trọng số, mô tả, v.v.)
-
-ĐẶC BIỆT CHÚ Ý:
 """
 
         if chunk_type == 'table':
             base_prompt += """
-- Đây là BẢNG dữ liệu, hãy trích xuất chính xác các thông tin:
-  + Nếu là bảng giảng viên: Trích xuất tên, email, chức danh
-  + Nếu là bảng mục tiêu/CLO: Trích xuất mã, mô tả, mức độ
-  + Nếu là bảng đánh giá: Trích xuất tiêu chí, trọng số
-  + Nếu là bảng kế hoạch: Trích xuất tuần, nội dung, CLO
+
+ĐẶC BIỆT - Đây là BẢNG:
+- Trích xuất chính xác từng dòng
+- Giữ nguyên cấu trúc thông tin
 """
         else:
             base_prompt += """
-- Đây là văn bản PARAGRAPH, tập trung vào:
-  + Thông tin tổng quát về học phần
-  + Mô tả, mục đích học phần
-  + Tài liệu, công cụ sử dụng
-  + Các quan hệ logic giữa các thành phần
+
+ĐẶC BIỆT - Đây là PARAGRAPH:
+- Trích xuất tất cả entities được đề cập
+- Tạo relations logic giữa các entities
 """
 
         base_prompt += """
+
+⚠️ CRITICAL - FILTER TEST DATA:
+NEVER extract test/example data:
+- Tên người giả: "Nguyễn Văn A", "Trần Văn B", "Họ Tên" 
+- Single letters: "A", "B", "C"
+- Keywords: "test", "example", "sample", "demo"
+- Placeholder text: "...", "xxx", "abc"
+
+VALIDATION RULES:
+✓ Extract: "ThS. Trần Thị Mỹ Diệp" (real name with title)
+✗ Skip: "Nguyễn Văn A" (test pattern: Văn + single letter)
+✓ Extract: "Lập trình Java" (real course)
+✗ Skip: "Môn học A" (placeholder)
+
+If unsure whether data is real or test → SKIP IT.
+Only extract entities you are confident are REAL.
 
 OUTPUT FORMAT (JSON):
 {
   "entities": [
     {
-      "name": "tên entity",
+      "name": "tên entity chính xác",
       "type": "loại entity",
       "properties": {
-        "key1": "value1",
-        "key2": "value2"
+        "key": "value"
       }
     }
   ],
   "relations": [
     {
-      "source": "entity nguồn",
-      "target": "entity đích",
+      "source": "tên entity nguồn",
+      "target": "tên entity đích",
       "type": "loại quan hệ",
       "properties": {
-        "description": "mô tả",
-        "weight": 1.0
+        "description": "mô tả ngắn"
       }
     }
   ]
 }
 
-CHỈ trả về JSON, KHÔNG thêm giải thích.
+CHỈ trả về JSON, KHÔNG thêm giải thích hoặc markdown.
 """
         
         return base_prompt

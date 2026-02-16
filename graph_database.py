@@ -12,14 +12,6 @@ class GraphDatabaseConnection:
     logger = Logger('GraphDatabaseConnection').get_logger()
 
     def __init__(self, uri, user, password):
-        """
-        Initialize database connection.
-        
-        Args:
-            uri: Neo4j connection URI (e.g., neo4j://localhost:7687 or neo4j+s://xxx.databases.neo4j.io)
-            user: Database username
-            password: Database password
-        """
         if not uri or not user or not password:
             raise ValueError(
                 "URI, user, and password must be provided to initialize the DatabaseConnection."

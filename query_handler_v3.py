@@ -1,3 +1,12 @@
+# query_handler_v3.py
+"""
+ENHANCED Query Handler V3
+- Improved Vietnamese query processing
+- Better fallback mechanisms
+- Context-aware responses
+- Enhanced entity matching
+"""
+
 from graph_manager_v3 import GraphManagerV3
 from logger import Logger
 from typing import List, Dict, Optional
@@ -195,19 +204,26 @@ class QueryHandlerV3:
     def _extract_mentioned_entities(self, query: str) -> List[str]:
         """
         Extract entity names mentioned in query.
-        Look for capitalized phrases that might be entity names.
+        Enhanced for Vietnamese course/instructor names.
         """
         entities = []
         
-        # Pattern: Capitalized words (potential entity names)
+        # Method 1: Look for quoted strings (explicit mentions)
+        quoted = re.findall(r'"([^"]+)"', query)
+        entities.extend(quoted)
+        
+        # Method 2: Look for capitalized phrases
         # Vietnamese course names often have caps
         words = query.split()
         current_entity = []
         
         for word in words:
             # Check if word starts with capital or is all caps
+            # But exclude common question words even if capitalized
             if word and (word[0].isupper() or word.isupper()):
-                current_entity.append(word)
+                # Skip if it's a question word
+                if word.lower() not in ['gì', 'nào', 'ai', 'đâu', 'sao']:
+                    current_entity.append(word)
             else:
                 if current_entity:
                     entity_name = ' '.join(current_entity)
@@ -220,6 +236,20 @@ class QueryHandlerV3:
             entity_name = ' '.join(current_entity)
             if len(entity_name) > 3:
                 entities.append(entity_name)
+        
+        # Method 3: Look for common Vietnamese name patterns
+        # Teacher names: "ThS. ...", "TS. ...", "PGS. ...", "GS. ..."
+        name_patterns = [
+            r'((?:ThS|TS|PGS|GS)\.?\s+[A-ZĐĂÂÊÔƠƯ][a-zđăâêôơư]+(?:\s+[A-ZĐĂÂÊÔƠƯ][a-zđăâêôơư]+)+)',
+            r'((?:Thạc sĩ|Tiến sĩ|Phó Giáo sư|Giáo sư)\s+[A-ZĐĂÂÊÔƠƯ][a-zđăâêôơư]+(?:\s+[A-ZĐĂÂÊÔƠƯ][a-zđăâêôơư]+)+)'
+        ]
+        
+        for pattern in name_patterns:
+            matches = re.findall(pattern, query)
+            entities.extend(matches)
+        
+        # Deduplicate
+        entities = list(dict.fromkeys(entities))  # Preserve order
         
         return entities
     
@@ -234,15 +264,31 @@ class QueryHandlerV3:
         # Extract words
         terms = re.findall(r'\w+', query.lower())
 
-        # Vietnamese stopwords
+        # Vietnamese stopwords - MINIMAL set
+        # Only remove truly meaningless words, keep domain-specific terms
         stopwords = {
-            'là', 'bao', 'nhiêu', 'có', 'mấy', 'cho', 'của',
-            'môn', 'học', 'phần', 'gì', 'nào', 'thế', 'như',
-            'và', 'với', 'trong', 'về', 'các', 'những', 'được',
+            # Question words
+            'là', 'bao', 'nhiêu', 'có', 'mấy', 'gì', 'nào', 'thế', 
             'ai', 'khi', 'nào', 'đâu', 'sao', 'thì', 'này', 'đó',
-            'cho', 'để', 'từ', 'hay', 'hoặc', 'nhưng', 'mà',
-            'không', 'chưa', 'đã', 'sẽ', 'đang', 'vẫn'
+            
+            # Conjunctions & prepositions
+            'và', 'với', 'trong', 'về', 'cho', 'của', 'để', 'từ', 
+            'hay', 'hoặc', 'nhưng', 'mà',
+            
+            # Verb helpers
+            'không', 'chưa', 'đã', 'sẽ', 'đang', 'vẫn', 'được',
+            
+            # Articles/determiners  
+            'các', 'những', 'một', 'cái',
+            
+            # Common but meaningless
+            'như', 'em', 'tôi', 'bạn', 'ạ'
         }
+        
+        # NOTE: We do NOT remove domain terms like:
+        # - 'môn', 'học', 'phần' (course-related)
+        # - 'cho' when part of entity name
+        # These may be part of entity names or important context
 
         # Filter
         meaningful_terms = [
