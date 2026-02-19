@@ -32,5 +32,10 @@ Rules:
 ## Chạy ingest + demo hỏi đáp
 
 ```bash
-python app.py
+python build_graph_v3.py
+```
+
+
+```bash
+python query_cli_v3.py
 ```
