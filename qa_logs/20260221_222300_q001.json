@@ -1,0 +1,106 @@
+{
+  "query_id": "q001",
+  "query": "Phạm Xuân Lâm dạy gì",
+  "generated_answer": "TS. PHẠM XUÂN LÂM dạy các môn sau:\n\n1. KHÓA LUẬN TỐT NGHIỆP (Mã môn: CNTT1193 và CNTT1194)\n2. LẬP TRÌNH JAVA (Mã môn: CNTT1153)\n3. LẬP TRÌNH WEB (Mã môn: CNTT1188)\n4. PHÁT TRIỂN ỨNG DỤNG DI ĐỘNG (Mã môn: CNTT1157) \n\nNếu bạn cần thêm thông tin về các môn học này, hãy cho tôi biết!",
+  "context_text": "{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"KHÓA LUẬN TỐT NGHIỆP\", \"s.code\": \"CNTT1193\"}\n{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"KHÓA LUẬN TỐT NGHIỆP\", \"s.code\": \"CNTT1194\"}\n{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"LẬP TRÌNH JAVA\", \"s.code\": \"CNTT1153\"}\n{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"LẬP TRÌNH WEB\", \"s.code\": \"CNTT1188\"}\n{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"PHÁT TRIỂN ỨNG DỤNG DI ĐỘNG\", \"s.code\": \"CNTT1157\"}",
+  "retrieved_nodes": [
+    {
+      "node_id": "node001",
+      "content": "{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"KHÓA LUẬN TỐT NGHIỆP\", \"s.code\": \"CNTT1193\"}",
+      "score": 1.0,
+      "entities": [
+        "TS. PHẠM XUÂN LÂM",
+        "CNTT1193",
+        "KHÓA LUẬN TỐT NGHIỆP"
+      ]
+    },
+    {
+      "node_id": "node002",
+      "content": "{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"KHÓA LUẬN TỐT NGHIỆP\", \"s.code\": \"CNTT1194\"}",
+      "score": 1.0,
+      "entities": [
+        "TS. PHẠM XUÂN LÂM",
+        "KHÓA LUẬN TỐT NGHIỆP",
+        "CNTT1194"
+      ]
+    },
+    {
+      "node_id": "node003",
+      "content": "{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"LẬP TRÌNH JAVA\", \"s.code\": \"CNTT1153\"}",
+      "score": 1.0,
+      "entities": [
+        "TS. PHẠM XUÂN LÂM",
+        "LẬP TRÌNH JAVA",
+        "CNTT1153"
+      ]
+    },
+    {
+      "node_id": "node004",
+      "content": "{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"LẬP TRÌNH WEB\", \"s.code\": \"CNTT1188\"}",
+      "score": 1.0,
+      "entities": [
+        "TS. PHẠM XUÂN LÂM",
+        "LẬP TRÌNH WEB",
+        "CNTT1188"
+      ]
+    },
+    {
+      "node_id": "node005",
+      "content": "{\"t.name\": \"TS. PHẠM XUÂN LÂM\", \"s.name\": \"PHÁT TRIỂN ỨNG DỤNG DI ĐỘNG\", \"s.code\": \"CNTT1157\"}",
+      "score": 1.0,
+      "entities": [
+        "TS. PHẠM XUÂN LÂM",
+        "PHÁT TRIỂN ỨNG DỤNG DI ĐỘNG",
+        "CNTT1157"
+      ]
+    }
+  ],
+  "traversal_path": [
+    {
+      "from": "TS. PHẠM XUÂN LÂM",
+      "to": "KHÓA LUẬN TỐT NGHIỆP",
+      "relation": "TEACH",
+      "hop": 1
+    },
+    {
+      "from": "TS. PHẠM XUÂN LÂM",
+      "to": "KHÓA LUẬN TỐT NGHIỆP",
+      "relation": "TEACH",
+      "hop": 1
+    },
+    {
+      "from": "TS. PHẠM XUÂN LÂM",
+      "to": "LẬP TRÌNH JAVA",
+      "relation": "TEACH",
+      "hop": 1
+    },
+    {
+      "from": "TS. PHẠM XUÂN LÂM",
+      "to": "LẬP TRÌNH WEB",
+      "relation": "TEACH",
+      "hop": 1
+    },
+    {
+      "from": "TS. PHẠM XUÂN LÂM",
+      "to": "PHÁT TRIỂN ỨNG DỤNG DI ĐỘNG",
+      "relation": "TEACH",
+      "hop": 1
+    }
+  ],
+  "communities_covered": [
+    "TS. PHẠM XUÂN LÂM",
+    "LẬP TRÌNH WEB",
+    "CNTT1188",
+    "CNTT1157",
+    "KHÓA LUẬN TỐT NGHIỆP",
+    "LẬP TRÌNH JAVA",
+    "PHÁT TRIỂN ỨNG DỤNG DI ĐỘNG",
+    "CNTT1193",
+    "CNTT1194",
+    "CNTT1153"
+  ],
+  "cypher_queries": [
+    "MATCH (t:TEACHER)-[:TEACH]->(s:SUBJECT) WHERE toLower(t.name) CONTAINS 'phạm xuân lâm' RETURN t.name, s.name, s.code"
+  ],
+  "timestamp": "2026-02-21T22:23:00.785176"
+}
