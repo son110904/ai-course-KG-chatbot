@@ -19,11 +19,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-MINIO_ENDPOINT   = os.getenv("MINIO_ENDPOINT",)
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY",)
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY",)
-MINIO_BUCKET     = os.getenv("MINIO_BUCKET",)
-MINIO_SECURE     = os.getenv("MINIO_SECURE",).lower() == "true"
+MINIO_ENDPOINT   = os.getenv("MINIO_ENDPOINT",   "localhost:9000")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
+MINIO_BUCKET     = os.getenv("MINIO_BUCKET",     "syllabus")
+MINIO_SECURE     = os.getenv("MINIO_SECURE",     "false").lower() == "true"
 MINIO_BASE_FOLDER = os.getenv("MINIO_BASE_FOLDER", "courses-processed")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -103,11 +103,20 @@ KHÔNG tạo CAREER.""",
 
 Tài liệu này là CHƯƠNG TRÌNH ĐÀO TẠO (curriculum).
 Ý nghĩa thực thể trong tài liệu này:
-- Bản thân tài liệu đại diện cho DUY NHẤT 1 node MAJOR (ngành học). MAJOR phải có code ngành thực sự.
-- SUBJECT: tất cả các môn học trong chương trình. Mỗi SUBJECT phải có code môn học thực sự. Nếu môn không có code → bỏ qua, không tạo node.
-- CAREER: nghề nghiệp mà ngành này hướng tới (nếu có đề cập trong phần cơ hội nghề nghiệp).
+- Bản thân tài liệu đại diện cho DUY NHẤT 1 node MAJOR (ngành học). MAJOR phải có code ngành thực sự (ví dụ: CNTT, KTPM, 7480201).
+- SUBJECT: tất cả các môn học trong chương trình. Mỗi SUBJECT phải có code môn học thực sự. Nếu môn không có code → bỏ qua.
+- CAREER: nghề nghiệp mà ngành này hướng tới. Lấy từ phần "cơ hội nghề nghiệp" / "career_opportunities" / "vị trí công việc". Đây là thông tin RẤT QUAN TRỌNG, hãy trích xuất đầy đủ.
 Quan hệ hợp lệ: MAJOR-[OFFERS]->SUBJECT, MAJOR-[LEADS_TO]->CAREER, SUBJECT-[PREREQUISITE_FOR]->SUBJECT.
-KHÔNG tạo TEACHER.""",
+KHÔNG tạo TEACHER.
+
+QUAN TRỌNG về CAREER:
+- Mỗi vị trí/nghề nghiệp được nhắc tới → tạo 1 node CAREER riêng.
+- Tạo relationship (MAJOR)-[:LEADS_TO]->(CAREER) cho mỗi nghề.
+- Tên CAREER phải VIẾT HOA, ví dụ: "LẬP TRÌNH VIÊN", "CHUYÊN VIÊN PHÂN TÍCH DỮ LIỆU", "KỸ SƯ PHẦN MỀM".
+
+QUAN TRỌNG về MAJOR:
+- name: tên ngành đầy đủ, VIẾT HOA, ví dụ: "CÔNG NGHỆ THÔNG TIN".
+- code: mã ngành chính xác từ tài liệu, ví dụ: "7480201". Không được bỏ qua code.""",
 
     "career_description": SYSTEM_PROMPT_BASE + """
 
@@ -115,11 +124,18 @@ Tài liệu này là MÔ TẢ NGHỀ NGHIỆP (career_description).
 Ý nghĩa thực thể trong tài liệu này:
 - Bản thân tài liệu đại diện cho DUY NHẤT 1 node CAREER (nghề nghiệp).
 - SKILL: tất cả kỹ năng mà nghề này yêu cầu (cả hard skill lẫn soft skill).
-- MAJOR: các ngành học được khuyến nghị cho nghề này (nếu có, lấy từ recommended_majors). MAJOR không cần code.
+- MAJOR: các ngành học được khuyến nghị cho nghề này. Lấy từ trường recommended_majors. MAJOR KHÔNG cần code (vì không có trong tài liệu này).
 Quan hệ hợp lệ: CAREER-[REQUIRES]->SKILL, MAJOR-[LEADS_TO]->CAREER.
-TUYỆT ĐỐI KHÔNG tạo SUBJECT (vì career_description không chứa môn học cụ thể nào).
+TUYỆT ĐỐI KHÔNG tạo SUBJECT.
 TUYỆT ĐỐI KHÔNG tạo TEACHER.
-Lưu ý: các từ như "Công nghệ thông tin", "Kinh tế", "Marketing" trong tài liệu này là TÊN NGÀNH (MAJOR), không phải môn học (SUBJECT).""",
+
+QUAN TRỌNG về MAJOR:
+- Chỉ dùng name để định danh MAJOR, KHÔNG có code.
+- Tên MAJOR phải VIẾT HOA và phải KHỚP CHÍNH XÁC với tên ngành trong các tài liệu curriculum.
+  Ví dụ đúng: "CÔNG NGHỆ THÔNG TIN", "HỆ THỐNG THÔNG TIN QUẢN LÝ", "KỸ THUẬT PHẦN MỀM".
+  Ví dụ sai: "CNTT", "Công nghệ thông tin", "IT".
+- Khi Neo4j MERGE node MAJOR chỉ có name (không có code), nó sẽ được ghép với node MAJOR từ curriculum nếu name trùng khớp → đây là cách duy nhất để liên kết career_description với curriculum.
+- Các từ như "Công nghệ thông tin", "Kinh tế", "Marketing" là TÊN NGÀNH (MAJOR), không phải môn học (SUBJECT).""",
 }
 
 
