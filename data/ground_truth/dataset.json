@@ -1,0 +1,76 @@
+[
+  {
+    "id": "q001",
+    "query": "Who is the CEO of the company that created GPT-4?",
+    "query_type": "single_hop",
+    "ground_truth_answer": "Sam Altman is the CEO of OpenAI, which created GPT-4.",
+    "gold_entities": [
+      "Sam Altman",
+      "OpenAI",
+      "GPT-4"
+    ],
+    "relevant_node_ids": [
+      "node_openai_ceo",
+      "node_gpt4"
+    ],
+    "gold_path": [
+      "GPT-4",
+      "OpenAI",
+      "Sam Altman"
+    ],
+    "gold_hop_count": 2,
+    "expected_communities": []
+  },
+  {
+    "id": "q002",
+    "query": "How did the 2023 AI boom affect chip manufacturers and cloud providers?",
+    "query_type": "global",
+    "ground_truth_answer": "The 2023 AI boom drove massive demand for GPUs, benefiting NVIDIA, while cloud providers like AWS, Azure, and GCP expanded AI infrastructure.",
+    "gold_entities": [
+      "NVIDIA",
+      "AWS",
+      "Azure",
+      "GCP",
+      "GPU"
+    ],
+    "relevant_node_ids": [
+      "node_nvidia",
+      "node_aws",
+      "node_azure",
+      "node_gpu_demand"
+    ],
+    "gold_path": [],
+    "gold_hop_count": 0,
+    "expected_communities": [
+      "semiconductor",
+      "cloud_computing",
+      "ai_infrastructure"
+    ]
+  },
+  {
+    "id": "q003",
+    "query": "What technology does the company founded by Elon Musk use for its AI assistant?",
+    "query_type": "multi_hop",
+    "ground_truth_answer": "xAI, founded by Elon Musk, developed Grok which uses a custom transformer architecture trained on real-time data from X (Twitter).",
+    "gold_entities": [
+      "xAI",
+      "Elon Musk",
+      "Grok",
+      "X",
+      "Twitter"
+    ],
+    "relevant_node_ids": [
+      "node_xai",
+      "node_elon",
+      "node_grok",
+      "node_x_twitter"
+    ],
+    "gold_path": [
+      "Elon Musk",
+      "xAI",
+      "Grok"
+    ],
+    "gold_hop_count": 2,
+    "expected_communities": []
+  }
+]

@@ -1,0 +1,9 @@
+{
+  "query_id": "q001",
+  "query": "Who is the CEO of the company that created GPT-4?",
+  "generated_answer": "Xin lỗi, nhưng hiện tại tôi không có thông tin về CEO của công ty đã tạo ra GPT-4. Nếu bạn cần thêm thông tin, hãy cho tôi biết!",
+  "retrieved_nodes": [],
+  "traversal_path": [],
+  "communities_covered": [],
+  "context_text": ""
+}
