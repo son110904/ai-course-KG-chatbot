@@ -1,11 +1,19 @@
 """
-Script 3: Knowledge Graph Q&A Chatbot"""
+Script 3: Knowledge Graph Q&A Chatbot
+Fixes v2:
+  - Memory: lưu 3 lượt hội thoại gần nhất, đưa vào context LLM
+  - Intent detection: phân loại thực thể đề cập / thực thể được hỏi
+  - Relationship constraints per query type: ràng buộc đường truy xuất theo loại câu hỏi
+  - Negation handling: nhận diện "ko / k / không / chẳng / kém / chưa giỏi" → lọc thực thể phủ định
+  - Prompt AI trả lời sát trọng tâm, không thêm thông tin ngoài lề
+"""
 
 import os
 import json
 import uuid
 import datetime
 from pathlib import Path
+from collections import deque
 from neo4j import GraphDatabase
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -13,16 +21,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-NEO4J_URI      = os.getenv("DB_URL",)
+NEO4J_URI      = os.getenv("DB_URL")
 NEO4J_USERNAME = os.getenv("DB_USER")
 NEO4J_PASSWORD = os.getenv("DB_PASSWORD")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL")
 
-MAX_HOPS    = int(os.getenv("MAX_HOPS"))   # giới hạn BFS
-TOP_K       = int(os.getenv("TOP_K"))  # số node trả về sau ranking
-LOG_DIR     = Path("./qa_logs")   # dùng khi chạy evaluation
+MAX_HOPS    = int(os.getenv("MAX_HOPS", "3"))
+TOP_K       = int(os.getenv("TOP_K", "15"))
+LOG_DIR     = Path("./qa_logs")
+MEMORY_SIZE = 3   # Số lượt hội thoại được ghi nhớ
 # ─────────────────────────────────────────────────────────────────────────────
+
+# Từ đồng nghĩa phủ định — nhận diện câu hỏi có từ phủ định / "không giỏi"
+NEGATION_SYNONYMS = {
+    "ko", "k", "không", "chẳng", "chả", "kém", "chưa giỏi",
+    "không giỏi", "ko giỏi", "k giỏi", "yếu", "dở",
+    "không thích", "ko thích", "k thích", "chán",
+    "không muốn", "ko muốn", "không có", "ko có",
+    "không biết", "ko biết", "chưa biết",
+}
 
 SCHEMA_DESC = """
 Nodes: MAJOR{name,code,community_id,pagerank}, SUBJECT{name,code,community_id,pagerank},
@@ -37,6 +55,100 @@ Relationships:
   (MAJOR)-[:LEADS_TO]->(CAREER)
   (*)-[:MENTIONED_IN]->(DOCUMENT)
 All name values are UPPERCASE Vietnamese.
+"""
+
+# ── Ràng buộc quan hệ theo loại câu hỏi ──────────────────────────────────────
+# Key: (thực thể đề cập, thực thể được hỏi)
+RELATIONSHIP_CONSTRAINTS = {
+    # Đề cập MAJOR → hỏi CAREER
+    ("MAJOR", "CAREER"): (
+        "Đường truy xuất: MAJOR -[:LEADS_TO]-> CAREER.\n"
+        "Chỉ liệt kê các nghề nghiệp (CAREER) mà ngành (MAJOR) dẫn đến.\n"
+        "KHÔNG đề cập SUBJECT (môn học) trừ khi được hỏi thêm."
+    ),
+    # Đề cập CAREER → hỏi SKILL
+    ("CAREER", "SKILL"): (
+        "Đường truy xuất: CAREER -[:REQUIRES]-> SKILL và SUBJECT -[:PROVIDES]-> SKILL.\n"
+        "Trả lời: kỹ năng cần thiết cho nghề đó + môn học cung cấp kỹ năng tương ứng.\n"
+        "Kèm mã môn học nếu có."
+    ),
+    # Đề cập MAJOR → hỏi SKILL
+    ("MAJOR", "SKILL"): (
+        "Đường truy xuất: MAJOR -[:OFFERS]-> SUBJECT -[:PROVIDES]-> SKILL.\n"
+        "Trả lời: kỹ năng đạt được từ các môn học trong chương trình đào tạo.\n"
+        "Kèm tên môn học (mã môn) cung cấp kỹ năng đó."
+    ),
+    # Đề cập SKILL → hỏi MAJOR
+    ("SKILL", "MAJOR"): (
+        "Đường truy xuất: SKILL <-[:PROVIDES]- SUBJECT <-[:OFFERS]- MAJOR.\n"
+        "Trả lời: ngành học (MAJOR) có môn học cung cấp kỹ năng đó.\n"
+        "Kèm mã ngành, tên môn trung gian."
+    ),
+    # Đề cập CAREER → hỏi SUBJECT (môn học)
+    ("CAREER", "SUBJECT"): (
+        "Đường truy xuất: CAREER -[:REQUIRES]-> SKILL <-[:PROVIDES]- SUBJECT.\n"
+        "Trả lời: các môn học cung cấp kỹ năng mà nghề đó yêu cầu.\n"
+        "Kèm mã môn học và kỹ năng tương ứng."
+    ),
+    # Đề cập MAJOR → hỏi SUBJECT (môn học)
+    ("MAJOR", "SUBJECT"): (
+        "Đường truy xuất: MAJOR -[:OFFERS]-> SUBJECT.\n"
+        "Trả lời: các môn học thuộc chương trình ngành đó, kèm mã môn và kỹ năng cung cấp (SKILL)."
+    ),
+    # Đề cập SKILL → hỏi CAREER
+    ("SKILL", "CAREER"): (
+        "Đường truy xuất: SKILL <-[:REQUIRES]- CAREER.\n"
+        "Trả lời: danh sách nghề nghiệp yêu cầu kỹ năng đó."
+    ),
+    # Đề cập CAREER → hỏi MAJOR
+    ("CAREER", "MAJOR"): (
+        "Đường truy xuất: MAJOR -[:LEADS_TO]-> CAREER.\n"
+        "Trả lời: ngành học (MAJOR) dẫn đến nghề đó, kèm mã ngành."
+    ),
+    # Đề cập SUBJECT → hỏi SKILL
+    ("SUBJECT", "SKILL"): (
+        "Đường truy xuất: SUBJECT -[:PROVIDES]-> SKILL.\n"
+        "Trả lời: kỹ năng đạt được sau khi học môn đó."
+    ),
+    # Đề cập SKILL → hỏi SUBJECT
+    ("SKILL", "SUBJECT"): (
+        "Đường truy xuất: SKILL <-[:PROVIDES]- SUBJECT.\n"
+        "Trả lời: môn học (kèm mã môn) cung cấp kỹ năng đó, và ngành nào chứa môn đó."
+    ),
+    # Đề cập MAJOR → so sánh nhiều ngành
+    ("MAJOR", "MAJOR"): (
+        "Đây là câu so sánh giữa các ngành.\n"
+        "Truy xuất: MAJOR -[:LEADS_TO]-> CAREER và MAJOR -[:OFFERS]-> SUBJECT.\n"
+        "Trả lời: so sánh cơ hội nghề nghiệp và môn học đặc trưng của từng ngành.\n"
+        "Kèm mã ngành, mã môn học nếu có. Trích dẫn nguồn tài liệu (DOCUMENT) nếu có."
+    ),
+    # Đề cập MAJOR/CAREER → hỏi CAREER/MAJOR (tổng quát)
+    ("MAJOR", "MAJOR_CAREER"): (
+        "Đường truy xuất: MAJOR -[:LEADS_TO]-> CAREER và MAJOR -[:OFFERS]-> SUBJECT -[:PROVIDES]-> SKILL.\n"
+        "Trả lời nghề nghiệp + kỹ năng đặc trưng + môn học trong ngành đó."
+    ),
+}
+
+# ── Prompt hệ thống chính cho generate_answer ─────────────────────────────────
+ANSWER_SYSTEM_BASE = """Bạn là trợ lý tư vấn học thuật cho Đại học Kinh tế Quốc dân (NEU).
+Tổng hợp câu trả lời rõ ràng, tự nhiên bằng tiếng Việt từ kết quả Knowledge Graph đã xếp hạng.
+
+{schema}
+
+QUY TẮC QUAN TRỌNG:
+1. Trả lời ĐÚNG TRỌNG TÂM câu hỏi. Không thêm thông tin không được hỏi đến.
+2. Không dùng câu "ngoài ra..." để mở rộng ngoài phạm vi câu hỏi.
+3. Nếu dữ liệu không đủ để trả lời → nói rõ "Dữ liệu hiện tại chưa đủ để tư vấn về [chủ đề], bạn có thể liên hệ phòng đào tạo để biết thêm."
+4. KHÔNG bịa thông tin không có trong Knowledge Graph.
+5. Luôn kèm mã ngành (MAJOR.code) và mã môn học (SUBJECT.code) khi có trong dữ liệu.
+6. Khi người dùng đề cập thực thể mà họ KHÔNG giỏi / không thích → loại bỏ thực thể đó khỏi câu trả lời.
+7. Ngôn ngữ tự nhiên, thân thiện — KHÔNG máy móc, lý thuyết.
+
+RÀNG BUỘC THEO LOẠI CÂU HỎI:
+{constraint}
+
+LỊCH SỬ HỘI THOẠI GẦN NHẤT (3 lượt):
+{memory}
 """
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -60,10 +172,9 @@ def setup_graph_algorithms(driver):
     print("\n[Setup] Pull graph từ Neo4j → tính Louvain + PageRank bằng NetworkX...")
 
     G = nx.Graph()
-    node_labels = {}   # node_name → label
+    node_labels = {}
 
     with driver.session() as session:
-        # ── Pull toàn bộ nodes ────────────────────────────────────────────────
         nodes = session.run("""
             MATCH (n)
             WHERE n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER
@@ -74,7 +185,6 @@ def setup_graph_algorithms(driver):
                 G.add_node(row["name"])
                 node_labels[row["name"]] = row["label"]
 
-        # ── Pull toàn bộ relationships ────────────────────────────────────────
         rels = session.run("""
             MATCH (a)-[r]->(b)
             WHERE (a:MAJOR OR a:SUBJECT OR a:SKILL OR a:CAREER OR a:TEACHER)
@@ -87,12 +197,7 @@ def setup_graph_algorithms(driver):
 
     print(f"  Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-    # ── Community Detection: Louvain trong từng label group ─────────────────
-    # Chiến lược: mỗi label (TEACHER, SKILL, CAREER, MAJOR, SUBJECT) là 1 "super-community"
-    # Bên trong mỗi label, dùng Louvain để tìm sub-community
-    # → Đảm bảo TEACHER không bị lẫn vào community của SUBJECT
     print("  Chạy Louvain community detection (per-label)...")
-
     LABEL_BASE_ID = {
         "TEACHER": 0,
         "SKILL":   1000,
@@ -102,36 +207,26 @@ def setup_graph_algorithms(driver):
     }
 
     node_community = {}
-
     for label, base_id in LABEL_BASE_ID.items():
-        # Lấy các node thuộc label này
         label_nodes = [n for n, lbl in node_labels.items() if lbl == label]
         if not label_nodes:
             continue
-
-        # Tạo subgraph chỉ gồm các node cùng label
         subG = G.subgraph(label_nodes).copy()
-
         if subG.number_of_edges() > 0:
-            # Có edges → dùng Louvain để tìm sub-community
             sub_communities = louvain_communities(subG, seed=42)
             for sub_cid, community in enumerate(sub_communities):
                 for node in community:
                     node_community[node] = base_id + sub_cid
         else:
-            # Không có edges giữa các node cùng label → mỗi node 1 community
             for i, node in enumerate(label_nodes):
                 node_community[node] = base_id + i
 
     total_communities = len(set(node_community.values()))
-    print(f"  Tìm thấy {total_communities} communities "
-          f"(TEACHER:0xxx, SKILL:1xxx, CAREER:2xxx, MAJOR:3xxx, SUBJECT:4xxx)")
+    print(f"  Tìm thấy {total_communities} communities")
 
-    # ── PageRank ──────────────────────────────────────────────────────────────
     print("  Chạy PageRank...")
     pagerank = nx.pagerank(G, alpha=0.85, max_iter=100)
 
-    # ── Ghi ngược lên Neo4j ───────────────────────────────────────────────────
     print("  Ghi community_id + pagerank lên Neo4j...")
     with driver.session() as session:
         BATCH_SIZE = 500
@@ -148,23 +243,114 @@ def setup_graph_algorithms(driver):
                     n.pagerank      = row.pr
             """, batch=batch)
 
-    total_written = len(node_community)
-    print(f"  Đã ghi {total_written} nodes")
-    print("[Setup] Xong. community_id và pagerank đã được ghi vào graph.\n")
+    print(f"  Đã ghi {len(node_community)} nodes")
+    print("[Setup] Xong.\n")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 1: COMMUNITY DETECTION — Tìm community liên quan đến câu hỏi
+# MỚI: EXTRACT QUERY INTENT — Phân loại ý định câu hỏi
+# ══════════════════════════════════════════════════════════════════════════════
+
+def extract_query_intent(ai_client: OpenAI, question: str, memory: list[tuple]) -> dict:
+    """
+    Trích xuất:
+    - keywords: từ khoá tìm kiếm thực thể trong KG
+    - mentioned_labels: loại thực thể được đề cập trong câu hỏi
+    - asked_label: loại thực thể người dùng muốn biết
+    - negated_keywords: từ khoá người dùng phủ định (không giỏi, không thích, ...)
+    - is_comparison: câu hỏi so sánh
+    """
+    memory_text = ""
+    if memory:
+        memory_text = "\n".join([f"User: {q}\nAssistant: {a[:200]}..." for q, a in memory[-3:]])
+
+    memory_section = f"\nLịch sử hội thoại gần nhất:\n{memory_text}" if memory_text else ""
+
+    system_msg = (
+        "Bạn phân tích câu hỏi tư vấn học thuật và trả về JSON.\n"
+        "Schema Knowledge Graph:\n"
+        "  Node labels: MAJOR (ngành học), SUBJECT (môn học), SKILL (kỹ năng), "
+        "CAREER (nghề nghiệp / vị trí việc làm), TEACHER (giảng viên)\n\n"
+        "Từ đồng nghĩa phủ định: ko, k, không, chẳng, kém, yếu, dở, chưa giỏi, "
+        "không giỏi, không thích, không muốn, không biết\n\n"
+        "Trả về JSON với đúng các trường sau:\n"
+        "{\n"
+        '  "keywords": ["từ khoá thực thể để tìm trong KG"],\n'
+        '  "mentioned_labels": ["MAJOR|SUBJECT|SKILL|CAREER|TEACHER"],\n'
+        '  "asked_label": "MAJOR|SUBJECT|SKILL|CAREER|TEACHER|UNKNOWN",\n'
+        '  "negated_keywords": ["thực thể / kỹ năng / môn bị phủ định"],\n'
+        '  "is_comparison": true\n'
+        "}\n\n"
+        "Ví dụ:\n"
+        '  Câu: "Giỏi giao tiếp thì học ngành nào?" → mentioned_labels: ["SKILL"], asked_label: "MAJOR"\n'
+        '  Câu: "Ngành CNTT có những nghề gì?" → mentioned_labels: ["MAJOR"], asked_label: "CAREER"\n'
+        '  Câu: "Ko giỏi toán thì theo nghề lập trình viên được không?" '
+        '→ negated_keywords: ["toán"], mentioned_labels: ["CAREER"]\n'
+        '  Câu: "CNTT hay KTPM phù hợp hơn?" → is_comparison: true, mentioned_labels: ["MAJOR"]\n'
+        + memory_section
+    )
+
+    response = ai_client.chat.completions.create(
+        model=OPENAI_MODEL,
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user",   "content": f"Phan tich cau hoi sau va tra ve json: {question}"},
+        ],
+        temperature=0,
+        response_format={"type": "json_object"},
+    )
+    parsed = json.loads(response.choices[0].message.content)
+    return {
+        "keywords":        parsed.get("keywords", []),
+        "mentioned_labels": parsed.get("mentioned_labels", []),
+        "asked_label":     parsed.get("asked_label", "UNKNOWN"),
+        "negated_keywords": parsed.get("negated_keywords", []),
+        "is_comparison":   parsed.get("is_comparison", False),
+    }
+
+
+def detect_negation_in_question(question: str) -> bool:
+    """Kiểm tra nhanh câu hỏi có chứa từ phủ định không."""
+    q_lower = question.lower()
+    for neg in NEGATION_SYNONYMS:
+        if neg in q_lower:
+            return True
+    return False
+
+
+def get_relationship_constraint(intent: dict) -> str:
+    """Lấy ràng buộc quan hệ dựa trên intent."""
+    mentioned = intent.get("mentioned_labels", [])
+    asked     = intent.get("asked_label", "UNKNOWN")
+    is_comp   = intent.get("is_comparison", False)
+
+    if is_comp and "MAJOR" in mentioned:
+        return RELATIONSHIP_CONSTRAINTS.get(("MAJOR", "MAJOR"), "")
+
+    # Lấy label đề cập đầu tiên
+    first_mentioned = mentioned[0] if mentioned else None
+
+    if first_mentioned and asked and asked != "UNKNOWN":
+        key = (first_mentioned, asked)
+        if key in RELATIONSHIP_CONSTRAINTS:
+            return RELATIONSHIP_CONSTRAINTS[key]
+
+    # Thử tổ hợp khác
+    for m in mentioned:
+        key = (m, asked)
+        if key in RELATIONSHIP_CONSTRAINTS:
+            return RELATIONSHIP_CONSTRAINTS[key]
+
+    return "Trả lời theo đúng câu hỏi, chỉ dùng dữ liệu có trong Knowledge Graph."
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BƯỚC 1: COMMUNITY DETECTION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def find_relevant_communities(driver, keywords: list[str]) -> list[int]:
-    """
-    Tìm community_id của các node có tên chứa keyword.
-    Trả về danh sách community_id liên quan.
-    """
     if not keywords:
         return []
-
     with driver.session() as session:
         community_ids = set()
         for kw in keywords:
@@ -178,29 +364,22 @@ def find_relevant_communities(driver, keywords: list[str]) -> list[int]:
             """, kw=kw)
             for rec in result:
                 community_ids.add(rec["cid"])
-
     return list(community_ids)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 2: MULTI-HOP TRAVERSAL — BFS trong community, giới hạn max_hops
+# BƯỚC 2: MULTI-HOP TRAVERSAL
 # ══════════════════════════════════════════════════════════════════════════════
 
 def multihop_traversal(driver, keywords: list[str],
                        community_ids: list[int],
                        max_hops: int = MAX_HOPS) -> tuple[list[dict], list[dict]]:
-    """
-    BFS traversal từ các seed node (khớp keyword) mở rộng tối đa max_hops bước.
-    Nếu có community_id → chỉ tìm trong community đó.
-    Trả về (nodes, traversal_paths).
-    """
     all_nodes  = []
     all_paths  = []
     seen_names = set()
 
     with driver.session() as session:
         for kw in keywords:
-            # Tìm seed nodes
             seed_query = """
                 MATCH (seed)
                 WHERE (seed:MAJOR OR seed:SUBJECT OR seed:SKILL OR seed:CAREER OR seed:TEACHER)
@@ -216,8 +395,6 @@ def multihop_traversal(driver, keywords: list[str],
                     continue
                 seen_names.add(seed_name)
 
-                # BFS multi-hop: traversal tới max_hops bước
-                # Lọc theo community_id nếu có
                 community_filter = ""
                 params: dict = {"seed_name": seed_name, "max_hops": max_hops}
 
@@ -258,7 +435,6 @@ def multihop_traversal(driver, keywords: list[str],
                     }
                     all_nodes.append(node_info)
 
-                    # Build traversal path log
                     node_names = rec["node_names"]
                     rel_types  = rec["rel_types"]
                     for i, rel in enumerate(rel_types):
@@ -274,86 +450,100 @@ def multihop_traversal(driver, keywords: list[str],
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 3: PAGERANK RANKING — Xếp hạng và lọc top-K node quan trọng nhất
+# BƯỚC 3: PAGERANK RANKING
 # ══════════════════════════════════════════════════════════════════════════════
 
-def rank_nodes(nodes: list[dict], top_k: int = TOP_K) -> list[dict]:
+def rank_nodes(nodes: list[dict], top_k: int = TOP_K,
+               negated_keywords: list[str] | None = None) -> list[dict]:
     """
-    Xếp hạng nodes theo PageRank (đã tính sẵn trên Neo4j).
-    Ưu tiên: node có pagerank cao + hop ít (gần seed).
+    Xếp hạng nodes theo PageRank.
+    Lọc bỏ nodes khớp negated_keywords (thực thể người dùng phủ định).
     """
+    negated_keywords = [kw.lower() for kw in (negated_keywords or [])]
+
     def score(n: dict) -> float:
         pr   = n.get("pagerank") or 0.0
         hops = n.get("hops")     or 1
-        # Score = pagerank / hops  → node quan trọng + gần seed được ưu tiên
         return pr / hops
 
     ranked = sorted(nodes, key=score, reverse=True)
 
-    # Dedup theo name
     seen  = set()
     dedup = []
     for n in ranked:
-        key = (n.get("label",""), n.get("name",""))
-        if key not in seen:
-            seen.add(key)
-            dedup.append(n)
+        key = (n.get("label", ""), n.get("name", ""))
+        if key in seen:
+            continue
+        # Lọc thực thể bị phủ định
+        if negated_keywords:
+            node_name_lower = (n.get("name") or "").lower()
+            if any(neg in node_name_lower for neg in negated_keywords):
+                continue
+        seen.add(key)
+        dedup.append(n)
 
     return dedup[:top_k]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# LLM: Extract keywords + Generate answer
+# LLM: Extract intent + Generate answer
 # ══════════════════════════════════════════════════════════════════════════════
 
-def extract_keywords(ai_client: OpenAI, question: str) -> list[str]:
-    """Extract các từ khoá thực thể từ câu hỏi để làm seed BFS."""
-    response = ai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": (
-                "Extract entity keywords from the user question for a university Knowledge Graph search. "
-                "Return JSON: {\"keywords\": [\"keyword1\", \"keyword2\", ...]}. "
-                "Keywords should be names of: careers, subjects, skills, majors, or teachers. "
-                "Keep original Vietnamese text."
-            )},
-            {"role": "user", "content": question},
-        ],
-        temperature=0,
-        response_format={"type": "json_object"},
-    )
-    parsed = json.loads(response.choices[0].message.content)
-    return parsed.get("keywords", [])
-
-
 def generate_answer(ai_client: OpenAI, question: str,
-                    ranked_nodes: list[dict], traversal_paths: list[dict]) -> str:
+                    ranked_nodes: list[dict], traversal_paths: list[dict],
+                    intent: dict, memory: list[tuple]) -> str:
+    """
+    Tổng hợp câu trả lời từ KG context + intent constraints + conversation memory.
+    """
     context = json.dumps({
         "ranked_results": ranked_nodes,
         "traversal_paths": traversal_paths[:30],
     }, ensure_ascii=False, indent=2)
 
+    # Lấy ràng buộc quan hệ theo loại câu hỏi
+    constraint = get_relationship_constraint(intent)
+
+    # Bổ sung ghi chú phủ định nếu có
+    negated = intent.get("negated_keywords", [])
+    if negated:
+        constraint += (
+            f"\n\nLƯU Ý PHỦ ĐỊNH: Người dùng đề cập họ KHÔNG giỏi / không thích: {negated}. "
+            "Loại bỏ các môn/kỹ năng/ngành này khỏi gợi ý. "
+            "Thay vào đó gợi ý những lựa chọn phù hợp hơn."
+        )
+
+    # Build memory text
+    memory_text = "Chưa có lịch sử hội thoại."
+    if memory:
+        lines = []
+        for q, a in memory[-MEMORY_SIZE:]:
+            lines.append(f"User: {q}")
+            lines.append(f"Assistant: {a[:300]}{'...' if len(a) > 300 else ''}")
+        memory_text = "\n".join(lines)
+
+    system_prompt = ANSWER_SYSTEM_BASE.format(
+        schema=SCHEMA_DESC,
+        constraint=constraint,
+        memory=memory_text,
+    )
+
+    # Cảnh báo về dữ liệu trống
+    no_data_hint = ""
+    if not ranked_nodes:
+        no_data_hint = (
+            "\n[CẢNH BÁO: Không tìm thấy dữ liệu liên quan trong Knowledge Graph. "
+            "Thông báo lịch sự rằng dữ liệu chưa đủ, không bịa thông tin.]"
+        )
+
     response = ai_client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
-            {"role": "system", "content": (
-                "Bạn là trợ lý tư vấn học thuật. Tổng hợp câu trả lời rõ ràng bằng tiếng Việt "
-                "từ kết quả Knowledge Graph đã xếp hạng theo PageRank. "
-                "Ưu tiên các node có pagerank cao. Nếu không có dữ liệu, thông báo lịch sự.\n"
-                f"{SCHEMA_DESC}\n\n"
-                "QUY TẮC ĐỊNH DẠNG KẾT QUẢ:\n"
-                "- Khi đề cập đến MAJOR (chương trình đào tạo / ngành học): "
-                "luôn viết theo dạng 'Tên ngành (Mã ngành)'. "
-                "Ví dụ: 'Công nghệ thông tin (7480201)', 'Kỹ thuật phần mềm (7480103)'.\n"
-                "- Khi đề cập đến SUBJECT (môn học): "
-                "luôn viết theo dạng 'Tên môn (Mã môn)'. "
-                "Ví dụ: 'Cơ sở dữ liệu (IT001)'.\n"
-                "- Nếu không có mã trong dữ liệu thì chỉ ghi tên, không bịa mã."
-            )},
-            {"role": "user", "content": (
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": (
                 f"Câu hỏi: {question}\n\n"
-                f"Kết quả Knowledge Graph (đã xếp hạng PageRank):\n{context}\n\n"
-                "Hãy trả lời bằng tiếng Việt, nhớ kèm mã ngành/mã môn khi có:"
+                f"Kết quả Knowledge Graph (đã xếp hạng PageRank):\n{context}"
+                f"{no_data_hint}\n\n"
+                "Hãy trả lời bằng tiếng Việt, tự nhiên, súc tích, kèm mã ngành/mã môn khi có:"
             )},
         ],
         temperature=0.3,
@@ -365,18 +555,24 @@ def generate_answer(ai_client: OpenAI, question: str,
 # PIPELINE CHÍNH
 # ══════════════════════════════════════════════════════════════════════════════
 
-def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -> dict:
+def ask(driver, ai_client: OpenAI, question: str,
+        memory: list[tuple],
+        query_id: str | None = None) -> dict:
     if query_id is None:
         query_id = "q" + uuid.uuid4().hex[:6]
 
     print(f"\n{'='*60}")
     print(f"Q [{query_id}]: {question}")
 
-    # ── Bước 1: Extract keywords ──────────────────────────────────────────────
-    keywords = extract_keywords(ai_client, question)
+    # ── Bước 1: Extract intent (keywords + labels + negation) ─────────────────
+    intent = extract_query_intent(ai_client, question, memory)
+    keywords         = intent["keywords"]
+    negated_keywords = intent["negated_keywords"]
     print(f"  Keywords: {keywords}")
+    print(f"  Intent: mentioned={intent['mentioned_labels']} asked={intent['asked_label']} "
+          f"negated={negated_keywords} comparison={intent['is_comparison']}")
 
-    # ── Bước 2: Community Detection — thu hẹp không gian tìm kiếm ────────────
+    # ── Bước 2: Community Detection ───────────────────────────────────────────
     community_ids = find_relevant_communities(driver, keywords)
     print(f"  Communities: {community_ids}")
 
@@ -386,23 +582,26 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
     )
     print(f"  BFS nodes found: {len(raw_nodes)}  |  paths: {len(traversal_paths)}")
 
-    # ── Bước 4: PageRank Ranking ──────────────────────────────────────────────
-    ranked_nodes = rank_nodes(raw_nodes, top_k=TOP_K)
+    # ── Bước 4: PageRank Ranking (có lọc thực thể phủ định) ──────────────────
+    ranked_nodes = rank_nodes(raw_nodes, top_k=TOP_K, negated_keywords=negated_keywords)
     print(f"  After PageRank ranking (top {TOP_K}): {len(ranked_nodes)} nodes")
     if ranked_nodes:
         top3 = [(n["name"], round(n.get("pagerank") or 0, 4)) for n in ranked_nodes[:3]]
         print(f"  Top 3: {top3}")
 
-    # ── Bước 5: LLM tổng hợp câu trả lời ─────────────────────────────────────
-    answer = generate_answer(ai_client, question, ranked_nodes, traversal_paths)
+    # ── Bước 5: LLM tổng hợp câu trả lời (có memory + intent constraints) ────
+    answer = generate_answer(
+        ai_client, question, ranked_nodes, traversal_paths,
+        intent=intent, memory=memory
+    )
     print(f"\nA: {answer}")
 
-    # ── Build record (trả về để eval pipeline dùng, không tự động lưu file) ──
     qa_record = {
         "query_id":            query_id,
         "query":               question,
         "generated_answer":    answer,
         "keywords":            keywords,
+        "intent":              intent,
         "communities_covered": community_ids,
         "context_text":        json.dumps(ranked_nodes, ensure_ascii=False),
         "retrieved_nodes": [
@@ -410,16 +609,16 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
                 "node_id":  f"node{i+1:03d}",
                 "content":  json.dumps(n, ensure_ascii=False),
                 "score":    round(n.get("pagerank") or 0, 6),
-                "entities": [n.get("name","")],
+                "entities": [n.get("name", "")],
             }
             for i, n in enumerate(ranked_nodes)
         ],
         "traversal_path":      traversal_paths[:20],
         "timestamp":           datetime.datetime.now().isoformat(),
         "algorithm": {
-            "community_detection": "Louvain (Neo4j GDS)",
+            "community_detection": "Louvain (NetworkX)",
             "traversal":           f"BFS multi-hop (max_hops={MAX_HOPS})",
-            "ranking":             "PageRank (damping=0.85)",
+            "ranking":             "PageRank (damping=0.85) + negation filter",
         },
     }
 
@@ -432,12 +631,16 @@ def get_driver():
     return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
 
 
-# ── Interactive loop ──────────────────────────────────────────────────────────
+# ── Interactive loop với Memory ───────────────────────────────────────────────
 
 def interactive_loop(driver, ai_client: OpenAI):
     print("\n🎓 Knowledge Graph Chatbot (NEU)")
-    print(f"Pipeline: Community Detection → BFS multi-hop (max={MAX_HOPS}) → PageRank → LLM")
-    print("Gõ câu hỏi. Nhập 'exit' để thoát.\n")
+    print(f"Pipeline: Intent Detection → Community → BFS (max={MAX_HOPS}) → PageRank → LLM")
+    print(f"Memory: lưu {MEMORY_SIZE} lượt hội thoại gần nhất")
+    print("Gõ câu hỏi. Nhập 'exit' để thoát. Nhập 'clear' để xoá lịch sử.\n")
+
+    # Bộ nhớ hội thoại: deque lưu tối đa MEMORY_SIZE lượt (question, answer)
+    memory: deque[tuple[str, str]] = deque(maxlen=MEMORY_SIZE)
 
     counter = 1
     while True:
@@ -446,12 +649,27 @@ def interactive_loop(driver, ai_client: OpenAI):
         except (EOFError, KeyboardInterrupt):
             print("\nTạm biệt!")
             break
+
         if not question:
             continue
+
         if question.lower() in ("exit", "quit", "thoat", "thoát"):
             print("Tạm biệt!")
             break
-        ask(driver, ai_client, question, query_id=f"q{counter:03d}")
+
+        if question.lower() in ("clear", "xóa", "xoa", "reset"):
+            memory.clear()
+            print("[Memory đã được xoá]\n")
+            continue
+
+        qa_record = ask(
+            driver, ai_client, question,
+            memory=list(memory),
+            query_id=f"q{counter:03d}"
+        )
+
+        # Lưu vào memory
+        memory.append((question, qa_record["generated_answer"]))
         counter += 1
 
 
@@ -461,7 +679,6 @@ def main():
     driver    = get_driver()
 
     try:
-        # Hỏi người dùng có muốn chạy setup không
         print("\nBạn có muốn chạy Community Detection + PageRank không?")
         print("(Chỉ cần chạy 1 lần sau khi load dữ liệu lên Neo4j)")
         ans = input("Nhập 'yes' để chạy, Enter để bỏ qua: ").strip().lower()

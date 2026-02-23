@@ -19,11 +19,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────────
-MINIO_ENDPOINT   = os.getenv("MINIO_ENDPOINT",   "localhost:9000")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
-MINIO_BUCKET     = os.getenv("MINIO_BUCKET",     "syllabus")
-MINIO_SECURE     = os.getenv("MINIO_SECURE",     "false").lower() == "true"
+MINIO_ENDPOINT    = os.getenv("MINIO_ENDPOINT")
+MINIO_ACCESS_KEY  = os.getenv("MINIO_ACCESS_KEY")
+MINIO_SECRET_KEY  = os.getenv("MINIO_SECRET_KEY")
+MINIO_BUCKET      = os.getenv("MINIO_BUCKET")
+MINIO_SECURE      = os.getenv("MINIO_SECURE", "false").lower() == "true"
 MINIO_BASE_FOLDER = os.getenv("MINIO_BASE_FOLDER", "courses-processed")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -31,9 +31,7 @@ OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 INPUT_FOLDERS = ["curriculum", "career_description", "syllabus"]
 LOCAL_OUT_DIR = Path("./cache/output")
-
-# Số file xử lý song song — tăng nếu muốn nhanh hơn, giảm nếu bị rate limit
-MAX_WORKERS = int(os.getenv("MAX_WORKERS", "5"))
+MAX_WORKERS   = int(os.getenv("MAX_WORKERS", "5"))
 # ─────────────────────────────────────────────────────────────────────────────
 
 DOCTYPE_MAP = {
@@ -65,11 +63,11 @@ NGUYÊN TẮC CHUNG:
 
 RÀNG BUỘC THEO LOẠI TÀI LIỆU:
 - syllabus (đề cương): chứa SUBJECT (1 môn duy nhất, bắt buộc có code), TEACHER, SKILL. KHÔNG tạo CAREER, MAJOR.
-- curriculum (chương trình đào tạo): chứa MAJOR (1 ngành duy nhất, bắt buộc có code), SUBJECT (bắt buộc có code). KHÔNG tạo CAREER, TEACHER.
-- career_description (mô tả nghề): chứa CAREER (1 nghề duy nhất), SKILL, MAJOR (nếu có nhắc đến ngành khuyến nghị). KHÔNG tạo SUBJECT, TEACHER. MAJOR trong career_description không cần code.
+- curriculum (chương trình đào tạo): chứa MAJOR (1 ngành duy nhất, bắt buộc có code), SUBJECT (bắt buộc có code), CAREER. KHÔNG tạo TEACHER.
+- career_description (mô tả nghề): chứa CAREER (1 nghề duy nhất), SKILL, MAJOR (nếu có nhắc đến ngành khuyến nghị). KHÔNG tạo SUBJECT, TEACHER.
 
 QUAN TRỌNG:
-- SUBJECT bắt buộc phải có code thực sự (ví dụ: CNTT1234, IT001). Nếu không có code thì KHÔNG tạo node SUBJECT, thay vào đó dùng MAJOR hoặc SKILL tùy ngữ cảnh.
+- SUBJECT bắt buộc phải có code thực sự (ví dụ: CNTT1234, IT001). Nếu không có code thì KHÔNG tạo node SUBJECT.
 - KHÔNG dùng code='' hoặc code='SKILL' hoặc các giá trị vô nghĩa.
 
 Định dạng output:
@@ -88,54 +86,80 @@ QUAN TRỌNG:
 }"""
 
 SYSTEM_PROMPT_BY_DOCTYPE = {
+
+    # ── SYLLABUS ─────────────────────────────────────────────────────────────
     "syllabus": SYSTEM_PROMPT_BASE + """
 
 Tài liệu này là ĐỀ CƯƠNG MÔN HỌC (syllabus).
-Ý nghĩa thực thể trong tài liệu này:
-- Bản thân tài liệu đại diện cho DUY NHẤT 1 node SUBJECT (môn học). SUBJECT phải có code môn học thực sự (ví dụ: CNTT1234, IT001).
-- TEACHER: các giảng viên phụ trách môn đó.
-- SKILL: các kỹ năng sinh viên đạt được sau khi học môn (lấy từ chuẩn đầu ra / course_learning_outcomes).
-- MAJOR: ngành nào đang giảng dạy môn này (nếu có đề cập).
-Quan hệ hợp lệ: TEACHER-[TEACH]->SUBJECT, SUBJECT-[PROVIDES]->SKILL, MAJOR-[OFFERS]->SUBJECT.
-KHÔNG tạo CAREER.""",
 
+QUY TẮC TRÍCH XUẤT:
+- Bản thân tài liệu đại diện cho DUY NHẤT 1 node SUBJECT (môn học). SUBJECT phải có code môn học thực sự.
+- TEACHER: các giảng viên phụ trách môn đó.
+- MAJOR: ngành nào đang giảng dạy môn này (nếu có đề cập).
+- KHÔNG tạo CAREER.
+
+TRÍCH XUẤT SKILL — RẤT QUAN TRỌNG:
+- Nguồn CHÍNH để lấy SKILL là phần "Chuẩn đầu ra học phần" / "course_learning_outcomes" / "learning_outcomes".
+  Đây là nơi liệt kê rõ ràng các kiến thức, kỹ năng sinh viên đạt được sau môn học.
+- Mỗi chuẩn đầu ra (CLO) hoặc kết quả học tập → tạo 1 node SKILL.
+- Tên SKILL phải ngắn gọn, súc tích, thực chất (không sao chép nguyên câu dài).
+  Ví dụ đúng: "LẬP TRÌNH PYTHON", "PHÂN TÍCH DỮ LIỆU", "THIẾT KẾ GIAO DIỆN WEB"
+  Ví dụ sai: "SINH VIÊN CÓ KHẢ NĂNG VIẾT ĐƯỢC CHƯƠNG TRÌNH..."
+- Tạo relationship: (SUBJECT)-[:PROVIDES]->(SKILL)
+
+Quan hệ hợp lệ: TEACHER-[TEACH]->SUBJECT, SUBJECT-[PROVIDES]->SKILL, MAJOR-[OFFERS]->SUBJECT.""",
+
+    # ── CURRICULUM ───────────────────────────────────────────────────────────
     "curriculum": SYSTEM_PROMPT_BASE + """
 
 Tài liệu này là CHƯƠNG TRÌNH ĐÀO TẠO (curriculum).
-Ý nghĩa thực thể trong tài liệu này:
-- Bản thân tài liệu đại diện cho DUY NHẤT 1 node MAJOR (ngành học). MAJOR phải có code ngành thực sự (ví dụ: CNTT, KTPM, 7480201).
-- SUBJECT: tất cả các môn học trong chương trình. Mỗi SUBJECT phải có code môn học thực sự. Nếu môn không có code → bỏ qua.
-- CAREER: nghề nghiệp mà ngành này hướng tới. Lấy từ phần "cơ hội nghề nghiệp" / "career_opportunities" / "vị trí công việc". Đây là thông tin RẤT QUAN TRỌNG, hãy trích xuất đầy đủ.
-Quan hệ hợp lệ: MAJOR-[OFFERS]->SUBJECT, MAJOR-[LEADS_TO]->CAREER, SUBJECT-[PREREQUISITE_FOR]->SUBJECT.
-KHÔNG tạo TEACHER.
 
-QUAN TRỌNG về CAREER:
+QUY TẮC TRÍCH XUẤT:
+- Bản thân tài liệu đại diện cho DUY NHẤT 1 node MAJOR (ngành học). MAJOR phải có code ngành thực sự.
+- SUBJECT: tất cả các môn học trong chương trình, bắt buộc có code môn. Nếu không có code → bỏ qua.
+- KHÔNG tạo TEACHER.
+
+TRÍCH XUẤT CAREER — RẤT QUAN TRỌNG:
+- Nguồn CHÍNH để lấy CAREER là phần "Cơ hội làm việc và khả năng học tập nâng cao" / "career_opportunities"
+  / "vị trí công việc" / "cơ hội việc làm" / "job_opportunities".
+- Đây là các nghề nghiệp, vị trí công việc mà sinh viên tốt nghiệp ngành này có thể đảm nhận.
 - Mỗi vị trí/nghề nghiệp được nhắc tới → tạo 1 node CAREER riêng.
-- Tạo relationship (MAJOR)-[:LEADS_TO]->(CAREER) cho mỗi nghề.
-- Tên CAREER phải VIẾT HOA, ví dụ: "LẬP TRÌNH VIÊN", "CHUYÊN VIÊN PHÂN TÍCH DỮ LIỆU", "KỸ SƯ PHẦN MỀM".
+- Tên CAREER phải VIẾT HOA, cụ thể, súc tích.
+  Ví dụ đúng: "LẬP TRÌNH VIÊN", "CHUYÊN VIÊN PHÂN TÍCH DỮ LIỆU", "KỸ SƯ PHẦN MỀM", "GIẢNG VIÊN ĐẠI HỌC"
+  Ví dụ sai: "LÀM VIỆC TRONG LĨNH VỰC CÔNG NGHỆ"
+- Tạo relationship: (MAJOR)-[:LEADS_TO]->(CAREER) cho mỗi nghề.
+- KHÔNG bỏ sót bất kỳ nghề nào được nhắc đến, kể cả nghề phi kỹ thuật như giảng dạy, nghiên cứu.
 
 QUAN TRỌNG về MAJOR:
 - name: tên ngành đầy đủ, VIẾT HOA, ví dụ: "CÔNG NGHỆ THÔNG TIN".
-- code: mã ngành chính xác từ tài liệu, ví dụ: "7480201". Không được bỏ qua code.""",
+- code: mã ngành chính xác từ tài liệu, ví dụ: "7480201". Không được bỏ qua code.
 
+Quan hệ hợp lệ: MAJOR-[OFFERS]->SUBJECT, MAJOR-[LEADS_TO]->CAREER, SUBJECT-[PREREQUISITE_FOR]->SUBJECT.""",
+
+    # ── CAREER DESCRIPTION ───────────────────────────────────────────────────
     "career_description": SYSTEM_PROMPT_BASE + """
 
 Tài liệu này là MÔ TẢ NGHỀ NGHIỆP (career_description).
-Ý nghĩa thực thể trong tài liệu này:
-- Bản thân tài liệu đại diện cho DUY NHẤT 1 node CAREER (nghề nghiệp).
+
+QUY TẮC TRÍCH XUẤT:
+- Bản thân tài liệu đại diện cho DUY NHẤT 1 node CAREER (nghề nghiệp). Bắt buộc phải tạo node CAREER này.
 - SKILL: tất cả kỹ năng mà nghề này yêu cầu (cả hard skill lẫn soft skill).
-- MAJOR: các ngành học được khuyến nghị cho nghề này. Lấy từ trường recommended_majors. MAJOR KHÔNG cần code (vì không có trong tài liệu này).
-Quan hệ hợp lệ: CAREER-[REQUIRES]->SKILL, MAJOR-[LEADS_TO]->CAREER.
-TUYỆT ĐỐI KHÔNG tạo SUBJECT.
-TUYỆT ĐỐI KHÔNG tạo TEACHER.
+  Lấy từ các trường: required_skills, skills, key_skills, responsibilities, job_description.
+- MAJOR: các ngành học được khuyến nghị cho nghề này. Lấy từ trường recommended_majors. MAJOR KHÔNG cần code.
+- TUYỆT ĐỐI KHÔNG tạo SUBJECT.
+- TUYỆT ĐỐI KHÔNG tạo TEACHER.
+
+QUAN TRỌNG — BẮT BUỘC tạo node CAREER:
+- Tên CAREER = tên nghề trong tài liệu, VIẾT HOA.
+- Tạo relationship: (CAREER)-[:REQUIRES]->(SKILL) cho từng kỹ năng.
+- Tạo relationship: (MAJOR)-[:LEADS_TO]->(CAREER) cho từng ngành được khuyến nghị.
+- Tạo relationship: (CAREER)-[:MENTIONED_IN]->(DOCUMENT).
 
 QUAN TRỌNG về MAJOR:
 - Chỉ dùng name để định danh MAJOR, KHÔNG có code.
 - Tên MAJOR phải VIẾT HOA và phải KHỚP CHÍNH XÁC với tên ngành trong các tài liệu curriculum.
-  Ví dụ đúng: "CÔNG NGHỆ THÔNG TIN", "HỆ THỐNG THÔNG TIN QUẢN LÝ", "KỸ THUẬT PHẦN MỀM".
-  Ví dụ sai: "CNTT", "Công nghệ thông tin", "IT".
-- Khi Neo4j MERGE node MAJOR chỉ có name (không có code), nó sẽ được ghép với node MAJOR từ curriculum nếu name trùng khớp → đây là cách duy nhất để liên kết career_description với curriculum.
-- Các từ như "Công nghệ thông tin", "Kinh tế", "Marketing" là TÊN NGÀNH (MAJOR), không phải môn học (SUBJECT).""",
+  Ví dụ đúng: "CÔNG NGHỆ THÔNG TIN", "HỆ THỐNG THÔNG TIN QUẢN LÝ", "KỸ THUẬT PHẦN MỀM"
+  Ví dụ sai: "CNTT", "Công nghệ thông tin", "IT".""",
 }
 
 
@@ -213,7 +237,6 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
     docid    = make_docid(folder, filename)
     out_path = LOCAL_OUT_DIR / folder / f"{docid}.json"
 
-    # Resume: bỏ qua nếu đã extract rồi
     if out_path.exists():
         print(f"  [skip]  {filename} (đã có)")
         return "skip"
@@ -234,14 +257,11 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
 
 def process_folder(minio_client: Minio, ai_client: OpenAI, folder: str):
     print(f"\n{'='*60}\nProcessing folder: {folder}")
-
     objects = list_json_objects(minio_client, MINIO_BUCKET, f"{MINIO_BASE_FOLDER}/{folder}")
     if not objects:
         print(f"  No JSON files found in {folder}/")
         return
-
     print(f"  {len(objects)} files → {MAX_WORKERS} workers song song\n")
-
     counts = {"ok": 0, "skip": 0, "error": 0}
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
@@ -251,7 +271,6 @@ def process_folder(minio_client: Minio, ai_client: OpenAI, folder: str):
         for future in as_completed(futures):
             status = future.result()
             counts[status] = counts.get(status, 0) + 1
-
     print(f"\n  Folder '{folder}' xong: ✓{counts['ok']}  skip={counts['skip']}  ✗{counts['error']}")
 
 
@@ -259,10 +278,8 @@ def main():
     print("Starting entity extraction pipeline...")
     minio_client = get_minio_client()
     ai_client    = OpenAI(api_key=OPENAI_API_KEY)
-
     for folder in INPUT_FOLDERS:
         process_folder(minio_client, ai_client, folder)
-
     print("\n✅ Extraction complete. Results saved to ./cache/output/")
 
 

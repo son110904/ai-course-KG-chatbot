@@ -1,8 +1,10 @@
 """
-Script 2b: Post-processing — Ghép MAJOR nodes và tạo LEADS_TO relationships
-Chạy sau script2 để đảm bảo:
-1. MAJOR từ career_description (chỉ có name) được ghép với MAJOR từ curriculum (có code)
-2. LEADS_TO relationships được tạo đầy đủ
+
+Xóa MAJOR nodes trùng (code = name) bằng Cypher thuần — không cần APOC.
+Chiến lược:
+  1. Tìm cặp: MAJOR có code hợp lệ (bắt đầu bằng số) ↔ MAJOR cùng name nhưng code = name
+  2. Chuyển tất cả relationships từ node code=name sang node có code hợp lệ (tạo lại bằng Cypher)
+  3. Xóa node code=name
 """
 
 import os
@@ -12,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 NEO4J_URI      = os.getenv("DB_URL")
-NEO4J_USERNAME = os.getenv("DB_USER")
+NEO4J_USERNAME = os.getenv("DB_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("DB_PASSWORD")
 
 
@@ -20,153 +22,198 @@ def get_driver():
     return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
 
 
-def merge_duplicate_majors(session):
-    """
-    Tìm các cặp MAJOR node có cùng name nhưng 1 có code, 1 không có code.
-    Chuyển tất cả relationship từ node không có code sang node có code, rồi xóa node trùng.
-    """
-    print("\n[Step 1] Tìm MAJOR nodes trùng tên...")
-
-    # Tìm các cặp duplicate
-    dupes = session.run("""
-        MATCH (m_with_code:MAJOR)
-        WHERE m_with_code.code IS NOT NULL
-        MATCH (m_no_code:MAJOR {name: m_with_code.name})
-        WHERE m_no_code.code IS NULL AND id(m_with_code) <> id(m_no_code)
-        RETURN m_with_code.name AS name,
-               m_with_code.code AS code,
-               id(m_with_code)  AS id_with_code,
-               id(m_no_code)    AS id_no_code
+def step0_diagnose(session):
+    """Xem hiện trạng trước khi fix."""
+    print("\n[Diagnose] MAJOR nodes hiện tại:")
+    result = session.run("""
+        MATCH (m:MAJOR)
+        RETURN m.name AS name, m.code AS code, elementId(m) AS node_id,
+               CASE 
+                 WHEN m.code IS NULL THEN "NO CODE"
+                 WHEN m.code =~ '^\\d+' THEN "VALID_CODE"
+                 WHEN m.code = m.name THEN "CODE_IS_NAME (duplicate)"
+                 ELSE "OTHER"
+               END AS status
+        ORDER BY m.name, m.code
     """).data()
 
-    if not dupes:
-        print("  Không tìm thấy MAJOR nodes trùng lặp.")
+    for r in result:
+        code_str = f"code={r['code']}" if r['code'] else "NO CODE"
+        print(f"  id={r['node_id']}  {r['name']}  ({code_str})  [{r['status']}]")
+
+    # Tìm các tên bị trùng
+    dupes = session.run("""
+        MATCH (m:MAJOR)
+        WITH m.name AS name, collect(m) AS nodes, count(m) AS cnt
+        WHERE cnt > 1
+        RETURN name, cnt
+        ORDER BY name
+    """).data()
+
+    print(f"\n  → {len(dupes)} tên MAJOR bị trùng lặp:")
+    for d in dupes:
+        print(f"    '{d['name']}' xuất hiện {d['cnt']} lần")
+
+    return len(dupes)
+
+
+def step1_reconnect_relationships(session):
+    """
+    Với mỗi cặp (has_code, no_code) cùng name:
+    Tạo lại TẤT CẢ relationships của node no_code → trỏ vào has_code.
+    
+    Xử lý từng loại relationship riêng vì Cypher không cho phép
+    dynamic relationship type trong MERGE.
+    """
+    print("\n[Step 1] Chuyển relationships từ node code=name → node có code hợp lệ...")
+
+    rel_types = [
+        # (rel_type, direction)
+        # direction = "out"  → (no_code)-[r]->(x)  cần tạo (has_code)-[r]->(x)
+        # direction = "in" → (x)-[r]->(no_code)  cần tạo (x)-[r]->(has_code)
+        ("LEADS_TO",       "out"),   # MAJOR -[LEADS_TO]-> CAREER
+        ("OFFERS",         "out"),   # MAJOR -[OFFERS]-> SUBJECT
+        ("MENTIONED_IN",   "out"),   # MAJOR -[MENTIONED_IN]-> DOCUMENT
+    ]
+
+    total = 0
+    for rel_type, direction in rel_types:
+        if direction == "out":
+            # (no_code)-[rel]->(x) → tạo (has_code)-[rel]->(x)
+            cypher = f"""
+                MATCH (has_code:MAJOR)  
+                WHERE has_code.code IS NOT NULL AND has_code.code =~ '^\\d+'
+                MATCH (no_code:MAJOR)
+                    WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
+                    AND toLower(no_code.name) = toLower(has_code.name)
+                MATCH (no_code)-[:{rel_type}]->(x)
+                MERGE (has_code)-[:{rel_type}]->(x)
+                RETURN count(*) AS cnt
+            """
+        else:
+            # (x)-[rel]->(no_code) → tạo (x)-[rel]->(has_code)
+            cypher = f"""
+                MATCH (has_code:MAJOR)  
+                WHERE has_code.code IS NOT NULL AND has_code.code =~ '^\\d+'
+                MATCH (no_code:MAJOR)
+                    WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
+                    AND toLower(no_code.name) = toLower(has_code.name)
+                MATCH (x)-[:{rel_type}]->(no_code)
+                MERGE (x)-[:{rel_type}]->(has_code)
+                RETURN count(*) AS cnt
+            """
+        cnt = session.run(cypher).single()["cnt"]
+        if cnt > 0:
+            print(f"  ✓ [{rel_type}] {cnt} relationships tái tạo")
+        total += cnt
+
+    print(f"  → Tổng: {total} relationships đã chuyển")
+    return total
+
+
+def step2_delete_no_code_nodes(session):
+    """Xóa MAJOR nodes có code = name (đã là duplicate của node có code hợp lệ)."""
+    print("\n[Step 2] Xóa MAJOR nodes có code = name (duplicate)...")
+
+    # Chỉ xóa node no_code nếu tồn tại node has_code cùng tên
+    result = session.run("""
+        MATCH (has_code:MAJOR) 
+        WHERE has_code.code IS NOT NULL AND has_code.code =~ '^\\d+'
+        MATCH (no_code:MAJOR)
+            WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
+            AND toLower(no_code.name) = toLower(has_code.name)
+        RETURN no_code.name AS name, elementId(no_code) AS node_id
+    """).data()
+
+    if not result:
+        print("  Không có node nào cần xóa.")
         return 0
 
-    print(f"  Tìm thấy {len(dupes)} cặp trùng lặp:")
-    for d in dupes:
-        print(f"    '{d['name']}' (code={d['code']}) ↔ node không có code")
+    print(f"  Sẽ xóa {len(result)} nodes:")
+    for r in result:
+        print(f"    id={r['node_id']}  '{r['name']}'")
 
-    merged = 0
-    for d in dupes:
-        id_keep   = d["id_with_code"]   # giữ node có code
-        id_remove = d["id_no_code"]     # xóa node không có code
+    # Xóa (DETACH xử lý luôn các relationships còn sót)
+    deleted = session.run("""
+        MATCH (has_code:MAJOR) 
+        WHERE has_code.code IS NOT NULL AND has_code.code =~ '^\\d+'
+        MATCH (no_code:MAJOR)
+            WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
+            AND toLower(no_code.name) = toLower(has_code.name)
+        DETACH DELETE no_code
+        RETURN count(*) AS cnt
+    """).single()["cnt"]
 
-        # Chuyển tất cả relationship từ node không code sang node có code
-        # Incoming relationships (X)-[r]->(m_no_code) → (X)-[r]->(m_with_code)
-        session.run("""
-            MATCH (keep:MAJOR)   WHERE id(keep)   = $id_keep
-            MATCH (remove:MAJOR) WHERE id(remove) = $id_remove
-            MATCH (x)-[r]->(remove)
-            WHERE id(x) <> id(keep)
-            CALL apoc.refactor.to(r, keep)
-            YIELD input RETURN input
-        """, id_keep=id_keep, id_remove=id_remove)
-
-        # Outgoing relationships (m_no_code)-[r]->(X) → (m_with_code)-[r]->(X)
-        session.run("""
-            MATCH (keep:MAJOR)   WHERE id(keep)   = $id_keep
-            MATCH (remove:MAJOR) WHERE id(remove) = $id_remove
-            MATCH (remove)-[r]->(x)
-            WHERE id(x) <> id(keep)
-            CALL apoc.refactor.from(r, keep)
-            YIELD input RETURN input
-        """, id_keep=id_keep, id_remove=id_remove)
-
-        # Xóa node trùng
-        session.run("""
-            MATCH (remove:MAJOR) WHERE id(remove) = $id_remove
-            DETACH DELETE remove
-        """, id_remove=id_remove)
-
-        merged += 1
-        print(f"  ✓ Merged '{d['name']}'")
-
-    return merged
+    print(f"  ✓ Đã xóa {deleted} nodes")
+    return deleted
 
 
-def create_leads_to_from_career_docs(session):
-    """
-    Fallback: Nếu không có APOC, tạo LEADS_TO trực tiếp bằng cách
-    match MAJOR (có code) với CAREER qua tên ngành trong DOCUMENT.
-    Đọc từ node DOCUMENT loại career_description và career nodes.
-    """
-    print("\n[Step 2] Tạo LEADS_TO relationships từ career_description documents...")
+def step3_verify(session):
+    """Kiểm tra kết quả sau khi fix."""
+    print("\n[Verify] MAJOR nodes sau khi fix:")
 
-    # Lấy tất cả CAREER và MAJOR đang tồn tại
     result = session.run("""
-        MATCH (c:CAREER)-[:MENTIONED_IN]->(doc:DOCUMENT {doctype: 'career_description'})
-        MATCH (m:MAJOR)-[:MENTIONED_IN]->(doc)
-        WHERE m.code IS NOT NULL
-        MERGE (m)-[:LEADS_TO]->(c)
-        RETURN m.name AS major, m.code AS code, c.name AS career
-    """).data()
-
-    if result:
-        print(f"  ✓ Tạo {len(result)} LEADS_TO relationships:")
-        for r in result[:10]:
-            print(f"    {r['major']} ({r['code']}) → {r['career']}")
-        if len(result) > 10:
-            print(f"    ... và {len(result)-10} relationships khác")
-    else:
-        print("  Không tạo được qua DOCUMENT. Thử cách khác...")
-
-        # Cách 2: Match theo tên ngành giống nhau (case-insensitive)
-        result2 = session.run("""
-            MATCH (m_code:MAJOR) WHERE m_code.code IS NOT NULL
-            MATCH (m_nocode:MAJOR) WHERE m_nocode.code IS NULL
-              AND toLower(m_nocode.name) = toLower(m_code.name)
-            MATCH (m_nocode)-[:LEADS_TO]->(c:CAREER)
-            MERGE (m_code)-[:LEADS_TO]->(c)
-            RETURN m_code.name AS major, m_code.code AS code, c.name AS career
-        """).data()
-
-        if result2:
-            print(f"  ✓ Tạo {len(result2)} LEADS_TO relationships qua name matching:")
-            for r in result2[:10]:
-                print(f"    {r['major']} ({r['code']}) → {r['career']}")
-        else:
-            print("  ⚠ Không tạo được relationship nào. Kiểm tra lại dữ liệu.")
-
-    return len(result) if result else 0
-
-
-def verify_links(session):
-    """Kiểm tra kết quả sau khi ghép."""
-    print("\n[Verify] Kiểm tra MAJOR → CAREER links:")
-    result = session.run("""
-        MATCH (m:MAJOR)-[:LEADS_TO]->(c:CAREER)
-        RETURN m.name AS major, m.code AS code, collect(c.name) AS careers
+        MATCH (m:MAJOR)
+        OPTIONAL MATCH (m)-[:LEADS_TO]->(c:CAREER)
+        OPTIONAL MATCH (m)-[:OFFERS]->(s:SUBJECT)
+        RETURN m.name AS name, m.code AS code,
+               count(DISTINCT c) AS career_count,
+               count(DISTINCT s) AS subject_count
         ORDER BY m.name
     """).data()
 
-    if result:
-        for r in result:
-            print(f"  ✓ {r['major']} ({r['code']}) → {r['careers']}")
-    else:
-        print("  Vẫn chưa có MAJOR → CAREER links nào!")
+    for r in result:
+        code_str = r['code'] if r['code'] else "⚠ NO CODE"
+        print(f"  [{code_str}] {r['name']}")
+        print(f"         → {r['career_count']} careers,  {r['subject_count']} subjects")
 
-    return len(result)
+    # Kiểm tra còn node trùng không
+    dupes = session.run("""
+        MATCH (m:MAJOR)
+        WITH m.name AS name, count(m) AS cnt
+        WHERE cnt > 1
+        RETURN name, cnt
+    """).data()
+
+    if dupes:
+        print(f"\n  ⚠ Vẫn còn {len(dupes)} tên trùng:")
+        for d in dupes:
+            print(f"    '{d['name']}' × {d['cnt']}")
+    else:
+        print("\n  ✅ Không còn MAJOR node trùng lặp!")
+
+    return len(dupes) == 0
 
 
 def main():
-    print("Starting post-link pipeline...")
+    print("=" * 55)
+    print("Fix Duplicate MAJOR Nodes (no APOC needed)")
+    print("=" * 55)
+
     driver = get_driver()
-
     with driver.session() as session:
-        # Thử dùng APOC để merge duplicate nodes
-        try:
-            merged = merge_duplicate_majors(session)
-            print(f"\n  Merged {merged} duplicate MAJOR nodes")
-        except Exception as e:
-            print(f"\n  APOC không khả dụng ({e}), dùng fallback...")
-            # Fallback không cần APOC
-            create_leads_to_from_career_docs(session)
 
-        verify_links(session)
+        # Xem hiện trạng
+        dupe_count = step0_diagnose(session)
+
+        if dupe_count == 0:
+            print("\n✅ Không có node trùng. Không cần làm gì.")
+            driver.close()
+            return
+
+        input(f"\n→ Tìm thấy {dupe_count} tên trùng. Nhấn Enter để tiến hành fix...")
+
+        # Fix
+        step1_reconnect_relationships(session)
+        step2_delete_no_code_nodes(session)
+        ok = step3_verify(session)
+
+        if ok:
+            print("\n✅ Done! Graph đã sạch.")
+        else:
+            print("\n⚠ Vẫn còn vấn đề. Xem output phía trên để debug.")
 
     driver.close()
-    print("\n Post-link complete.")
 
 
 if __name__ == "__main__":
