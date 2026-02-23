@@ -371,13 +371,143 @@ def find_relevant_communities(driver, keywords: list[str]) -> list[int]:
 # BƯỚC 2: MULTI-HOP TRAVERSAL
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _add_node_and_paths(rec, all_nodes, all_paths):
+    """Helper: parse 1 record từ traversal query vào all_nodes / all_paths."""
+    node_info = {
+        "name":         rec["name"],
+        "label":        rec["label"],
+        "code":         rec["code"],
+        "pagerank":     rec["pagerank"],
+        "community_id": rec["community_id"],
+        "hops":         rec["hops"],
+    }
+    all_nodes.append(node_info)
+    node_names = rec["node_names"]
+    rel_types  = rec["rel_types"]
+    for i, rel in enumerate(rel_types):
+        all_paths.append({
+            "from":     node_names[i]   if i < len(node_names) else "",
+            "to":       node_names[i+1] if i+1 < len(node_names) else "",
+            "relation": rel,
+            "hop":      i + 1,
+        })
+
+
+# Bảng các targeted query theo intent (mentioned_label, asked_label)
+# Dùng khi BFS thông thường bị chặn bởi community filter
+TARGETED_QUERIES: dict[tuple[str, str], str] = {
+    ("MAJOR", "CAREER"): """
+        MATCH (start:MAJOR)-[:LEADS_TO]->(n:CAREER)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['LEADS_TO'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        LIMIT 30
+    """,
+    ("CAREER", "SKILL"): """
+        MATCH (start:CAREER)-[:REQUIRES]->(n:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['REQUIRES'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        LIMIT 30
+    """,
+    ("MAJOR", "SKILL"): """
+        MATCH (start:MAJOR)-[:OFFERS]->(sub:SUBJECT)-[:PROVIDES]->(n:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['OFFERS','PROVIDES'] AS rel_types, [start.name, sub.name, n.name] AS node_names, 2 AS hops
+        LIMIT 30
+    """,
+    ("SKILL", "MAJOR"): """
+        MATCH (n:MAJOR)-[:OFFERS]->(sub:SUBJECT)-[:PROVIDES]->(start:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['OFFERS','PROVIDES'] AS rel_types, [n.name, sub.name, start.name] AS node_names, 2 AS hops
+        LIMIT 30
+    """,
+    ("SKILL", "CAREER"): """
+        MATCH (n:CAREER)-[:REQUIRES]->(start:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['REQUIRES'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        LIMIT 30
+    """,
+    ("CAREER", "SUBJECT"): """
+        MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(n:SUBJECT)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['REQUIRES','PROVIDES'] AS rel_types, [start.name, sk.name, n.name] AS node_names, 2 AS hops
+        LIMIT 30
+    """,
+    ("MAJOR", "SUBJECT"): """
+        MATCH (start:MAJOR)-[:OFFERS]->(n:SUBJECT)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['OFFERS'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        LIMIT 30
+    """,
+    ("SKILL", "SUBJECT"): """
+        MATCH (n:SUBJECT)-[:PROVIDES]->(start:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['PROVIDES'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        LIMIT 30
+    """,
+    ("SUBJECT", "SKILL"): """
+        MATCH (start:SUBJECT)-[:PROVIDES]->(n:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['PROVIDES'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        LIMIT 30
+    """,
+    ("CAREER", "MAJOR"): """
+        MATCH (n:MAJOR)-[:LEADS_TO]->(start:CAREER)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               n.pagerank AS pagerank, n.community_id AS community_id,
+               ['LEADS_TO'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        LIMIT 30
+    """,
+}
+
+
 def multihop_traversal(driver, keywords: list[str],
                        community_ids: list[int],
-                       max_hops: int = MAX_HOPS) -> tuple[list[dict], list[dict]]:
+                       max_hops: int = MAX_HOPS,
+                       intent: dict | None = None) -> tuple[list[dict], list[dict]]:
     all_nodes  = []
     all_paths  = []
     seen_names = set()
 
+    mentioned_labels = (intent or {}).get("mentioned_labels", [])
+    asked_label      = (intent or {}).get("asked_label", "UNKNOWN")
+    first_mentioned  = mentioned_labels[0] if mentioned_labels else None
+
+    # ── Phase 1: Targeted query theo intent (không bị chặn bởi community) ────
+    targeted_key = (first_mentioned, asked_label) if first_mentioned else None
+    targeted_cypher = TARGETED_QUERIES.get(targeted_key) if targeted_key else None
+
+    if targeted_cypher:
+        with driver.session() as session:
+            for kw in keywords:
+                try:
+                    results = session.run(targeted_cypher, kw=kw)
+                    for rec in results:
+                        _add_node_and_paths(rec, all_nodes, all_paths)
+                    if all_nodes:
+                        print(f"  [targeted] ({targeted_key}) → {len(all_nodes)} nodes via direct path")
+                except Exception as e:
+                    print(f"  [targeted] WARNING: {e}")
+
+    # ── Phase 2: BFS thông thường (community-filtered) để lấy context ────────
     with driver.session() as session:
         for kw in keywords:
             seed_query = """
@@ -395,10 +525,19 @@ def multihop_traversal(driver, keywords: list[str],
                     continue
                 seen_names.add(seed_name)
 
+                # Community filter KHÔNG áp dụng cho asked_label
+                # để tránh chặn các node đích quan trọng
                 community_filter = ""
                 params: dict = {"seed_name": seed_name, "max_hops": max_hops}
 
-                if community_ids:
+                if community_ids and asked_label not in ("UNKNOWN", None):
+                    community_filter = (
+                        f"AND (n.community_id IN $cids "
+                        f"OR n.community_id IS NULL "
+                        f"OR labels(n)[0] = '{asked_label}')"
+                    )
+                    params["cids"] = community_ids
+                elif community_ids:
                     community_filter = "AND (n.community_id IN $cids OR n.community_id IS NULL)"
                     params["cids"] = community_ids
 
@@ -423,28 +562,8 @@ def multihop_traversal(driver, keywords: list[str],
                     LIMIT 50
                 """
                 results = session.run(traversal_query, **params)
-
                 for rec in results:
-                    node_info = {
-                        "name":         rec["name"],
-                        "label":        rec["label"],
-                        "code":         rec["code"],
-                        "pagerank":     rec["pagerank"],
-                        "community_id": rec["community_id"],
-                        "hops":         rec["hops"],
-                    }
-                    all_nodes.append(node_info)
-
-                    node_names = rec["node_names"]
-                    rel_types  = rec["rel_types"]
-                    for i, rel in enumerate(rel_types):
-                        path_entry = {
-                            "from":     node_names[i]   if i < len(node_names) else "",
-                            "to":       node_names[i+1] if i+1 < len(node_names) else "",
-                            "relation": rel,
-                            "hop":      i + 1,
-                        }
-                        all_paths.append(path_entry)
+                    _add_node_and_paths(rec, all_nodes, all_paths)
 
     return all_nodes, all_paths
 
@@ -454,10 +573,13 @@ def multihop_traversal(driver, keywords: list[str],
 # ══════════════════════════════════════════════════════════════════════════════
 
 def rank_nodes(nodes: list[dict], top_k: int = TOP_K,
-               negated_keywords: list[str] | None = None) -> list[dict]:
+               negated_keywords: list[str] | None = None,
+               asked_label: str | None = None) -> list[dict]:
     """
-    Xếp hạng nodes theo PageRank.
-    Lọc bỏ nodes khớp negated_keywords (thực thể người dùng phủ định).
+    Xếp hạng nodes theo PageRank với chiến lược 2 bucket:
+    - Bucket 1 (ưu tiên): nodes khớp asked_label → lấy tối đa top_k * 2 / 3
+    - Bucket 2 (context): các nodes còn lại → lấy phần còn lại
+    Lọc bỏ nodes khớp negated_keywords và dedup theo (label, name).
     """
     negated_keywords = [kw.lower() for kw in (negated_keywords or [])]
 
@@ -466,23 +588,41 @@ def rank_nodes(nodes: list[dict], top_k: int = TOP_K,
         hops = n.get("hops")     or 1
         return pr / hops
 
-    ranked = sorted(nodes, key=score, reverse=True)
-
-    seen  = set()
-    dedup = []
-    for n in ranked:
+    # Dedup toàn bộ trước (ưu tiên bản có hops nhỏ nhất = gần seed nhất)
+    seen_keys: dict = {}
+    for n in nodes:
         key = (n.get("label", ""), n.get("name", ""))
-        if key in seen:
-            continue
-        # Lọc thực thể bị phủ định
-        if negated_keywords:
-            node_name_lower = (n.get("name") or "").lower()
-            if any(neg in node_name_lower for neg in negated_keywords):
-                continue
-        seen.add(key)
-        dedup.append(n)
+        if key not in seen_keys or (n.get("hops") or 99) < (seen_keys[key].get("hops") or 99):
+            seen_keys[key] = n
 
-    return dedup[:top_k]
+    deduped = list(seen_keys.values())
+
+    # Lọc thực thể bị phủ định
+    if negated_keywords:
+        deduped = [
+            n for n in deduped
+            if not any(neg in (n.get("name") or "").lower() for neg in negated_keywords)
+        ]
+
+    # Tách 2 bucket
+    if asked_label and asked_label != "UNKNOWN":
+        target_nodes  = [n for n in deduped if n.get("label") == asked_label]
+        context_nodes = [n for n in deduped if n.get("label") != asked_label]
+
+        target_nodes.sort(key=score, reverse=True)
+        context_nodes.sort(key=score, reverse=True)
+
+        target_slots  = max(top_k // 2, min(len(target_nodes), top_k))
+        context_slots = top_k - min(len(target_nodes), target_slots)
+
+        result = target_nodes[:target_slots] + context_nodes[:context_slots]
+        print(f"  [rank] target({asked_label})={len(target_nodes)} dung {min(len(target_nodes), target_slots)} | "
+              f"context={len(context_nodes)} dung {min(len(context_nodes), context_slots)}")
+    else:
+        deduped.sort(key=score, reverse=True)
+        result = deduped[:top_k]
+
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -555,6 +695,35 @@ def generate_answer(ai_client: OpenAI, question: str,
 # PIPELINE CHÍNH
 # ══════════════════════════════════════════════════════════════════════════════
 
+
+def fetch_seed_entities(driver, keywords: list[str], mentioned_labels: list[str]) -> list[dict]:
+    """
+    Fetch trực tiếp các seed entity (MAJOR/CAREER/...) khớp keyword.
+    Đảm bảo code/name của thực thể gốc luôn có trong context dù bị ranking đẩy xuống.
+    """
+    if not keywords or not mentioned_labels:
+        return []
+    label_filter = " OR ".join([f"n:{lbl}" for lbl in mentioned_labels])
+    results = []
+    with driver.session() as session:
+        for kw in keywords:
+            rows = session.run(f"""
+                MATCH (n)
+                WHERE ({label_filter})
+                  AND toLower(n.name) CONTAINS toLower($kw)
+                RETURN n.name AS name, labels(n)[0] AS label,
+                       n.code AS code, n.pagerank AS pagerank,
+                       n.community_id AS community_id
+                LIMIT 3
+            """, kw=kw).data()
+            for r in rows:
+                results.append({
+                    "name": r["name"], "label": r["label"],
+                    "code": r["code"], "pagerank": r["pagerank"],
+                    "community_id": r["community_id"], "hops": 0,
+                })
+    return results
+
 def ask(driver, ai_client: OpenAI, question: str,
         memory: list[tuple],
         query_id: str | None = None) -> dict:
@@ -572,26 +741,37 @@ def ask(driver, ai_client: OpenAI, question: str,
     print(f"  Intent: mentioned={intent['mentioned_labels']} asked={intent['asked_label']} "
           f"negated={negated_keywords} comparison={intent['is_comparison']}")
 
+    # ── Bước 1b: Fetch seed entities (đảm bảo code luôn có trong context) ─────
+    seed_entities = fetch_seed_entities(driver, keywords, intent.get("mentioned_labels", []))
+    print(f"  Seed entities: {[(e['name'], e['code']) for e in seed_entities]}")
+
     # ── Bước 2: Community Detection ───────────────────────────────────────────
     community_ids = find_relevant_communities(driver, keywords)
     print(f"  Communities: {community_ids}")
 
     # ── Bước 3: Multi-hop BFS Traversal ──────────────────────────────────────
     raw_nodes, traversal_paths = multihop_traversal(
-        driver, keywords, community_ids, max_hops=MAX_HOPS
+        driver, keywords, community_ids, max_hops=MAX_HOPS, intent=intent
     )
     print(f"  BFS nodes found: {len(raw_nodes)}  |  paths: {len(traversal_paths)}")
 
     # ── Bước 4: PageRank Ranking (có lọc thực thể phủ định) ──────────────────
-    ranked_nodes = rank_nodes(raw_nodes, top_k=TOP_K, negated_keywords=negated_keywords)
+    ranked_nodes = rank_nodes(raw_nodes, top_k=TOP_K, negated_keywords=negated_keywords,
+                              asked_label=intent.get("asked_label"))
     print(f"  After PageRank ranking (top {TOP_K}): {len(ranked_nodes)} nodes")
     if ranked_nodes:
         top3 = [(n["name"], round(n.get("pagerank") or 0, 4)) for n in ranked_nodes[:3]]
         print(f"  Top 3: {top3}")
 
+    # ── Bước 4b: Inject seed entities vào đầu context (đảm bảo code luôn có) ─
+    # Dedup: loại seed_entities đã có trong ranked_nodes
+    ranked_names = {n.get("name") for n in ranked_nodes}
+    extra_seeds  = [e for e in seed_entities if e.get("name") not in ranked_names]
+    context_nodes = extra_seeds + ranked_nodes
+
     # ── Bước 5: LLM tổng hợp câu trả lời (có memory + intent constraints) ────
     answer = generate_answer(
-        ai_client, question, ranked_nodes, traversal_paths,
+        ai_client, question, context_nodes, traversal_paths,
         intent=intent, memory=memory
     )
     print(f"\nA: {answer}")
