@@ -157,34 +157,36 @@ LỊCH SỬ HỘI THOẠI GẦN NHẤT (3 lượt):
 
 def setup_graph_algorithms(driver):
     """
-    Community Detection (Louvain) + PageRank tính bằng NetworkX (Python),
-    sau đó ghi community_id và pagerank ngược lên Neo4j.
-    Không cần GDS plugin — hoạt động trên Aura Free.
-    Chỉ cần chạy 1 lần sau khi load xong dữ liệu.
+    Global Community Detection (Louvain) + PageRank
+    Chạy trên toàn bộ graph (không chia theo label).
+    Phù hợp cho GraphRAG reasoning đa thực thể.
     """
+
     try:
         import networkx as nx
         from networkx.algorithms.community import louvain_communities
     except ImportError:
-        print("  Cài networkx: pip install networkx")
+        print("Cài networkx: pip install networkx")
         return
 
-    print("\n[Setup] Pull graph từ Neo4j → tính Louvain + PageRank bằng NetworkX...")
+    print("\n[Setup] Pull graph từ Neo4j → tính Global Louvain + PageRank...")
 
     G = nx.Graph()
-    node_labels = {}
 
+    # ─── 1. Pull nodes ───────────────────────────────────
     with driver.session() as session:
+
         nodes = session.run("""
             MATCH (n)
             WHERE n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER
-            RETURN n.name AS name, labels(n)[0] AS label
+            RETURN n.name AS name
         """).data()
+
         for row in nodes:
             if row["name"]:
                 G.add_node(row["name"])
-                node_labels[row["name"]] = row["label"]
 
+        # ─── 2. Pull relationships ────────────────────────
         rels = session.run("""
             MATCH (a)-[r]->(b)
             WHERE (a:MAJOR OR a:SUBJECT OR a:SKILL OR a:CAREER OR a:TEACHER)
@@ -192,50 +194,44 @@ def setup_graph_algorithms(driver):
               AND a.name IS NOT NULL AND b.name IS NOT NULL
             RETURN a.name AS src, b.name AS tgt
         """).data()
+
         for row in rels:
             G.add_edge(row["src"], row["tgt"])
 
-    print(f"  Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+    print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-    print("  Chạy Louvain community detection (per-label)...")
-    LABEL_BASE_ID = {
-        "TEACHER": 0,
-        "SKILL":   1000,
-        "CAREER":  2000,
-        "MAJOR":   3000,
-        "SUBJECT": 4000,
-    }
+    # ─── 3. Global Louvain ───────────────────────────────
+    print("Chạy Global Louvain community detection...")
+    communities = louvain_communities(G, seed=42)
 
     node_community = {}
-    for label, base_id in LABEL_BASE_ID.items():
-        label_nodes = [n for n, lbl in node_labels.items() if lbl == label]
-        if not label_nodes:
-            continue
-        subG = G.subgraph(label_nodes).copy()
-        if subG.number_of_edges() > 0:
-            sub_communities = louvain_communities(subG, seed=42)
-            for sub_cid, community in enumerate(sub_communities):
-                for node in community:
-                    node_community[node] = base_id + sub_cid
-        else:
-            for i, node in enumerate(label_nodes):
-                node_community[node] = base_id + i
+    for cid, community in enumerate(communities):
+        for node in community:
+            node_community[node] = cid
 
-    total_communities = len(set(node_community.values()))
-    print(f"  Tìm thấy {total_communities} communities")
+    print(f"Tìm thấy {len(communities)} communities")
 
-    print("  Chạy PageRank...")
+    # ─── 4. PageRank ─────────────────────────────────────
+    print("Chạy PageRank...")
     pagerank = nx.pagerank(G, alpha=0.85, max_iter=100)
 
-    print("  Ghi community_id + pagerank lên Neo4j...")
+    # ─── 5. Ghi lại Neo4j ───────────────────────────────
+    print("Ghi community_id + pagerank lên Neo4j...")
+
     with driver.session() as session:
         BATCH_SIZE = 500
         items = list(node_community.items())
+
         for i in range(0, len(items), BATCH_SIZE):
             batch = [
-                {"name": name, "cid": cid, "pr": round(pagerank.get(name, 0.0), 8)}
+                {
+                    "name": name,
+                    "cid": cid,
+                    "pr": round(pagerank.get(name, 0.0), 8)
+                }
                 for name, cid in items[i:i+BATCH_SIZE]
             ]
+
             session.run("""
                 UNWIND $batch AS row
                 MATCH (n) WHERE n.name = row.name
@@ -243,7 +239,7 @@ def setup_graph_algorithms(driver):
                     n.pagerank      = row.pr
             """, batch=batch)
 
-    print(f"  Đã ghi {len(node_community)} nodes")
+    print(f"Đã ghi {len(node_community)} nodes")
     print("[Setup] Xong.\n")
 
 
@@ -273,6 +269,16 @@ def extract_query_intent(ai_client: OpenAI, question: str, memory: list[tuple]) 
         "CAREER (nghề nghiệp / vị trí việc làm), TEACHER (giảng viên)\n\n"
         "Từ đồng nghĩa phủ định: ko, k, không, chẳng, kém, yếu, dở, chưa giỏi, "
         "không giỏi, không thích, không muốn, không biết\n\n"
+        "PHÂN BIỆT QUAN TRỌNG:\n"
+        "  - Hỏi 'môn học / môn nào / học môn gì' → asked_label: 'SUBJECT'\n"
+        "  - Hỏi 'ngành nào / học ngành gì / chuyên ngành' → asked_label: 'MAJOR'\n"
+        "QUAN TRỌNG - Chuẩn hóa keyword về tiếng Việt theo graph:\n"
+        "  data analyst → chuyên viên phân tích dữ liệu\n"
+        "  software engineer / developer → lập trình viên, kỹ sư phần mềm\n"
+        "  tester / QA → kiểm thử\n"
+        "  IT / information technology → công nghệ thông tin\n"
+        "  AI / machine learning → trí tuệ nhân tạo, học máy\n"
+        "  Nếu không biết tên tiếng Việt → giữ nguyên tiếng Anh\n\n"
         "Trả về JSON với đúng các trường sau:\n"
         "{\n"
         '  "keywords": ["từ khoá thực thể để tìm trong KG"],\n'
@@ -287,6 +293,9 @@ def extract_query_intent(ai_client: OpenAI, question: str, memory: list[tuple]) 
         '  Câu: "Ko giỏi toán thì theo nghề lập trình viên được không?" '
         '→ negated_keywords: ["toán"], mentioned_labels: ["CAREER"]\n'
         '  Câu: "CNTT hay KTPM phù hợp hơn?" → is_comparison: true, mentioned_labels: ["MAJOR"]\n'
+        '  Câu: "Học môn gì để làm lập trình viên?" → mentioned_labels: ["CAREER"], asked_label: "SUBJECT"\n'
+        '  Câu: "Môn nào giúp tôi trở thành data analyst?" → mentioned_labels: ["CAREER"], asked_label: "SUBJECT"\n'
+        '  Câu: "Cần học những môn gì cho nghề kế toán?" → mentioned_labels: ["CAREER"], asked_label: "SUBJECT"\n'
         + memory_section
     )
 
@@ -407,6 +416,8 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
     ("CAREER", "SKILL"): """
         MATCH (start:CAREER)-[:REQUIRES]->(n:SKILL)
         WHERE toLower(start.name) CONTAINS toLower($kw)
+           OR toLower(start.name) CONTAINS 'phân tích'
+           OR toLower(start.name) CONTAINS 'analyst'
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['REQUIRES'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
@@ -637,7 +648,7 @@ def generate_answer(ai_client: OpenAI, question: str,
     """
     context = json.dumps({
         "ranked_results": ranked_nodes,
-        "traversal_paths": traversal_paths[:30],
+        "traversal_paths": traversal_paths[:60],
     }, ensure_ascii=False, indent=2)
 
     # Lấy ràng buộc quan hệ theo loại câu hỏi
@@ -683,7 +694,13 @@ def generate_answer(ai_client: OpenAI, question: str,
                 f"Câu hỏi: {question}\n\n"
                 f"Kết quả Knowledge Graph (đã xếp hạng PageRank):\n{context}"
                 f"{no_data_hint}\n\n"
-                "Hãy trả lời bằng tiếng Việt, tự nhiên, súc tích, kèm mã ngành/mã môn khi có:"
+                "Hướng dẫn trả lời:\n"
+                "- Dùng TẤT CẢ thông tin có trong kết quả trên để trả lời.\n"
+                "- Nếu có node SUBJECT với code (mã môn) → nhắc đến tên môn và mã môn.\n"
+                "- Nếu có node CAREER → nhắc đến nghề nghiệp cụ thể.\n"
+                "- Nếu có node SKILL → liệt kê kỹ năng.\n"
+                "- KHÔNG nói 'dữ liệu chưa đủ' nếu đã có nodes trong kết quả.\n"
+                "- Trả lời tự nhiên bằng tiếng Việt, kèm mã ngành/mã môn khi có:"
             )},
         ],
         temperature=0.3,
