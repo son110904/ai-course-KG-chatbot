@@ -1,7 +1,7 @@
 """
 Script 3: Knowledge Graph Q&A Chatbot
 Fixes v2:
-  - Memory: lưu 3 lượt hội thoại gần nhất, đưa vào context LLM
+
   - Intent detection: phân loại thực thể đề cập / thực thể được hỏi
   - Relationship constraints per query type: ràng buộc đường truy xuất theo loại câu hỏi
   - Negation handling: nhận diện "ko / k / không / chẳng / kém / chưa giỏi" → lọc thực thể phủ định
@@ -30,7 +30,6 @@ OPENAI_MODEL   = os.getenv("OPENAI_MODEL")
 MAX_HOPS    = int(os.getenv("MAX_HOPS", "3"))
 TOP_K       = int(os.getenv("TOP_K", "15"))
 LOG_DIR     = Path("./qa_logs")
-MEMORY_SIZE = 3   # Số lượt hội thoại được ghi nhớ
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Từ đồng nghĩa phủ định — nhận diện câu hỏi có từ phủ định / "không giỏi"
@@ -146,9 +145,6 @@ QUY TẮC QUAN TRỌNG:
 
 RÀNG BUỘC THEO LOẠI CÂU HỎI:
 {constraint}
-
-LỊCH SỬ HỘI THOẠI GẦN NHẤT (3 lượt):
-{memory}
 """
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -247,7 +243,7 @@ def setup_graph_algorithms(driver):
 # MỚI: EXTRACT QUERY INTENT — Phân loại ý định câu hỏi
 # ══════════════════════════════════════════════════════════════════════════════
 
-def extract_query_intent(ai_client: OpenAI, question: str, memory: list[tuple]) -> dict:
+def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
     """
     Trích xuất:
     - keywords: từ khoá tìm kiếm thực thể trong KG
@@ -256,11 +252,6 @@ def extract_query_intent(ai_client: OpenAI, question: str, memory: list[tuple]) 
     - negated_keywords: từ khoá người dùng phủ định (không giỏi, không thích, ...)
     - is_comparison: câu hỏi so sánh
     """
-    memory_text = ""
-    if memory:
-        memory_text = "\n".join([f"User: {q}\nAssistant: {a[:200]}..." for q, a in memory[-3:]])
-
-    memory_section = f"\nLịch sử hội thoại gần nhất:\n{memory_text}" if memory_text else ""
 
     system_msg = (
         "Bạn phân tích câu hỏi tư vấn học thuật và trả về JSON.\n"
@@ -296,7 +287,6 @@ def extract_query_intent(ai_client: OpenAI, question: str, memory: list[tuple]) 
         '  Câu: "Học môn gì để làm lập trình viên?" → mentioned_labels: ["CAREER"], asked_label: "SUBJECT"\n'
         '  Câu: "Môn nào giúp tôi trở thành data analyst?" → mentioned_labels: ["CAREER"], asked_label: "SUBJECT"\n'
         '  Câu: "Cần học những môn gì cho nghề kế toán?" → mentioned_labels: ["CAREER"], asked_label: "SUBJECT"\n'
-        + memory_section
     )
 
     response = ai_client.chat.completions.create(
@@ -642,9 +632,9 @@ def rank_nodes(nodes: list[dict], top_k: int = TOP_K,
 
 def generate_answer(ai_client: OpenAI, question: str,
                     ranked_nodes: list[dict], traversal_paths: list[dict],
-                    intent: dict, memory: list[tuple]) -> str:
+                    intent: dict) -> str:
     """
-    Tổng hợp câu trả lời từ KG context + intent constraints + conversation memory.
+    Tổng hợp câu trả lời từ KG context + intent constraints.
     """
     context = json.dumps({
         "ranked_results": ranked_nodes,
@@ -663,19 +653,9 @@ def generate_answer(ai_client: OpenAI, question: str,
             "Thay vào đó gợi ý những lựa chọn phù hợp hơn."
         )
 
-    # Build memory text
-    memory_text = "Chưa có lịch sử hội thoại."
-    if memory:
-        lines = []
-        for q, a in memory[-MEMORY_SIZE:]:
-            lines.append(f"User: {q}")
-            lines.append(f"Assistant: {a[:300]}{'...' if len(a) > 300 else ''}")
-        memory_text = "\n".join(lines)
-
     system_prompt = ANSWER_SYSTEM_BASE.format(
         schema=SCHEMA_DESC,
         constraint=constraint,
-        memory=memory_text,
     )
 
     # Cảnh báo về dữ liệu trống
@@ -742,7 +722,6 @@ def fetch_seed_entities(driver, keywords: list[str], mentioned_labels: list[str]
     return results
 
 def ask(driver, ai_client: OpenAI, question: str,
-        memory: list[tuple],
         query_id: str | None = None) -> dict:
     if query_id is None:
         query_id = "q" + uuid.uuid4().hex[:6]
@@ -786,10 +765,10 @@ def ask(driver, ai_client: OpenAI, question: str,
     extra_seeds  = [e for e in seed_entities if e.get("name") not in ranked_names]
     context_nodes = extra_seeds + ranked_nodes
 
-    # ── Bước 5: LLM tổng hợp câu trả lời (có memory + intent constraints) ────
+    # ── Bước 5: LLM tổng hợp câu trả lời (có intent constraints) ────
     answer = generate_answer(
         ai_client, question, context_nodes, traversal_paths,
-        intent=intent, memory=memory
+        intent=intent
     )
     print(f"\nA: {answer}")
 
@@ -833,11 +812,7 @@ def get_driver():
 def interactive_loop(driver, ai_client: OpenAI):
     print("\n🎓 Knowledge Graph Chatbot (NEU)")
     print(f"Pipeline: Intent Detection → Community → BFS (max={MAX_HOPS}) → PageRank → LLM")
-    print(f"Memory: lưu {MEMORY_SIZE} lượt hội thoại gần nhất")
-    print("Gõ câu hỏi. Nhập 'exit' để thoát. Nhập 'clear' để xoá lịch sử.\n")
-
-    # Bộ nhớ hội thoại: deque lưu tối đa MEMORY_SIZE lượt (question, answer)
-    memory: deque[tuple[str, str]] = deque(maxlen=MEMORY_SIZE)
+    print("Gõ câu hỏi. Nhập 'exit' để thoát.\n")
 
     counter = 1
     while True:
@@ -854,19 +829,11 @@ def interactive_loop(driver, ai_client: OpenAI):
             print("Tạm biệt!")
             break
 
-        if question.lower() in ("clear", "xóa", "xoa", "reset"):
-            memory.clear()
-            print("[Memory đã được xoá]\n")
-            continue
-
         qa_record = ask(
             driver, ai_client, question,
-            memory=list(memory),
             query_id=f"q{counter:03d}"
         )
 
-        # Lưu vào memory
-        memory.append((question, qa_record["generated_answer"]))
         counter += 1
 
 

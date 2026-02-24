@@ -1,0 +1,385 @@
+[
+  {
+    "id": "q001",
+    "query": "Học ngành công nghệ thông tin ra trường làm gì?",
+    "query_type": "single_hop",
+    "ground_truth_answer": "\"Cử nhân ngành CNTT có thể làm việc tại các doanh nghiệp, tổ chức hoạt động trong lĩnh vực Công nghệ thông tin và truyền thông; làm việc tại các bộ phận chức năng về vận hành hệ thống Công nghệ thông tin; làm việc tại các vị trí nghiên cứu và tổ chức thực hiện các dự án Công nghệ thông tin; làm việc tại vị trí chuyển giao công nghệ; các vị trí phân tích và xử lý dữ liệu; cử nhân ngành CNTT còn có thể giảng dạy tại các trường đại học, cao đẳng hoặc nghiên cứu tại các viện, trung tâm nghiên cứu\"",
+    "gold_entities": [
+      "CÔNG NGHỆ THÔNG TIN"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:89"
+    ],
+    "gold_path": [
+      "CÔNG NGHỆ THÔNG TIN"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q002",
+    "query": "Dạ em hiện tại đang là sinh viên năm 3 ngành HTTT, em có định hướng DA thì hiện tại em nên trang bị cho mình những kĩ năng gì ạ, em cảm ơn ạ.",
+    "query_type": "global",
+    "ground_truth_answer": "Kỹ năng chuyên môn (hard skills): \nSử dụng các công cụ thống kê và truy vấn: SQL, SPSS, STATA.\nNgôn ngữ lập trình: Python, R.\nCông cụ trực quan hóa: Tableau, Power BI, Google Data Studio, Excel.\nKiến thức về toán học, thống kê và khai phá dữ liệu (Data Mining).\nKỹ năng mềm (soft skills): * Kỹ năng quan sát, tư duy logic và phân tích.\nKỹ năng giao tiếp và diễn giải dữ liệu (Storytelling).\nGiải quyết vấn đề và làm việc nhóm.\nQuản lý thời gian và tổ chức công việc",
+    "gold_entities": [
+      "PHÂN TÍCH DỮ LIỆU",
+      "CHUYÊN VIÊN DỮ LIỆU"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:201",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:236"
+    ],
+    "gold_path": [],
+    "gold_hop_count": 0,
+    "expected_communities": [
+      "9",
+      "18"
+    ]
+  },
+  {
+    "id": "q003",
+    "query": "Lập trình game là tự học hay theo chuyên ngành nào thế có phải công nghệ đa phương tiện k ạ",
+    "query_type": "multi_hop",
+    "ground_truth_answer": "các ngành nghề liên quan đến công nghệ thông tin như Ngành công nghệ đa phương tiện, Ngành máy tính & khoa học thông tin, Ngành công nghệ thông tin,Ngành mỹ thuật đa phương tiện",
+    "gold_entities": [
+      "LẬP TRÌNH GAME",
+      "CÔNG NGHỆ ĐA PHƯƠNG TIỆN"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:311",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:312"
+    ],
+    "gold_path": [
+      "LẬP TRÌNH GAME",
+      "CÔNG NGHỆ ĐA PHƯƠNG TIỆN"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q004",
+    "query": "Em học lập trình nhúng cơ hội việc làm cao không ạ",
+    "query_type": "single_hop",
+    "ground_truth_answer": "\"Nhu cầu về hệ thống nhúng đang tăng lên khi ngày càng có nhiều ngành công nghiệp nhận ra giá trị của việc kết hợp các thiết bị thông minh và được kết nối vào sản phẩm và dịch vụ của họ. Hệ thống nhúng có ở khắp mọi nơi, từ ô tô và chăm sóc sức khỏe đến điện tử tiêu dùng và tự động hóa công nghiệp.\nHiện, lập trình nhúng đang được ứng dụng trong một số ngành nghề như sau:\nỨng dụng trong ngành điện tử, máy tính, viễn thông ngân hàng, v.vv.. Đây được xem là ứng dụng rộng rãi nhất của lập trình nhúng.\nỨng dụng vào các thiết bị kết nối mạng như Router, Gateway, v.vv..\nỨng dụng vào các thiết bị trong lĩnh vực y tế, ví dụ như máy thẩm thấu, máy điều hòa nhịp tim, v.vv..\nỨng dụng vào các loại thiết bị văn phòng như máy photocopy, máy in, máy scan, máy fax,v.vv..\nỨng dụng vào các thiết bị gia dụng như tủ lạnh, lò nướng, máy vi sóng, v.vv..\nMột số ứng dụng khác như các loại máy trả lời tự động, các dây chuyền sản xuất công nghiệp tự động, robot, v.vv..\n\"",
+    "gold_entities": [
+      "LẬP TRÌNH NHÚNG"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:319"
+    ],
+    "gold_path": [
+      "LẬP TRÌNH NHÚNG"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q005",
+    "query": "Mn cho em xin ý kiến ngành khoa học máy tính và công nghệ thông tin với ngành nào thì cơ hội tìm việc làm cao hơn ạ",
+    "query_type": "multi_hop",
+    "ground_truth_answer": "\"1. Cơ hội việc làm ngành khoa học máy tính\nSinh viên sau khi tốt nghiệp (Cử nhân Khoa học máy tính) có thể làm việc tại các vị trí phát triển phần mềm ứng dụng, hệ thống thông minh trong các tổ chức, doanh nghiệp chuyên thiết kế, gia công phần mềm ứng dụng, hệ thống thông minh.\nCử nhân Khoa học máy tính có thể hoạch định chính sách phát triển công nghệ thông tin, vận hành, bảo trì, đảm bảo hoạt động của các phần mềm, phần cứng máy tính, mạng máy tính, hệ thống thông minh, … cho các tổ chức doanh nghiệp ứng dụng công nghệ thông tin.\nCử nhân Khoa học máy tính có thể làm cán bộ nghiên cứu tại các Viện, trung tâm nghiên cứu.\nCử nhân Khoa học máy tính có thể là giảng viên giảng dạy tại các trường Đại học, cao đẳng, trung cấp, … ; hoặc có thể học tập, nâng cao trình độ để trở thành chuyên gia trong lĩnh vực Khoa học máy tính.\n2. Cơ hội việc làm ngành công nghệ thông tin\nCử nhân ngành CNTT có thể làm việc tại các doanh nghiệp, tổ chức hoạt động trong lĩnh vực Công nghệ thông tin và truyền thông; làm việc tại các bộ phận chức năng về vận hành hệ thống Công nghệ thông tin; làm việc tại các vị trí nghiên cứu và tổ chức thực hiện các dự án Công nghệ thông tin; làm việc tại vị trí chuyển giao công nghệ; các vị trí phân tích và xử lý dữ liệu; cử nhân ngành CNTT còn có thể giảng dạy tại các trường đại học, cao đẳng hoặc nghiên cứu tại các viện, trung tâm nghiên cứu.\n=> không thể kết luận ngành nào có cơ hội việc làm cao hơn\"",
+    "gold_entities": [
+      "KHOA HỌC MÁY TÍNH",
+      "CÔNG NGHỆ THÔNG TIN"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:105",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:89"
+    ],
+    "gold_path": [
+      "KHOA HỌC MÁY TÍNH",
+      "CÔNG NGHỆ THÔNG TIN"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q006",
+    "query": "Cho em hỏi giờ em muốn làm data engineer thì cẩn những gì vậy ạ với nghề đó có nhiều cơ hội kh ạ",
+    "query_type": "multi_hop",
+    "ground_truth_answer": "\"1. Kỹ năng\nKỹ năng chuyên môn (hard skills)\nHiểu rõ về các mô hình dữ liệu, thuật toán, kỹ thuật chuyển đổi dữ liệu.\nCó kinh nghiệm liên quan đến các giải pháp BI và ETL (trích xuất, chuyển đổi, tải dữ liệu).\nCó kinh nghiệm liên quan đến kho dữ liệu, các công cụ phân tích.\nCó kiến thức, sử dụng được những công cụ chuyên dụng như Hadoop, Kafka,…\nCần biết sử dụng các công cụ liên quan đến thiết kế, xây dựng kho dữ liệu.\nCần biết sử dụng SQL,…\nKỹ năng mềm (soft skills)\nKỹ năng phân tích logic: Kỹ năng phân tích logic luôn cần thiết trong các công việc cần sự chính xác và có tính liên kết với nhau. Data Engineer phải biết cách phân tích và tìm ra được ý nghĩa của những con số cũng như dữ liệu khô khan. Dựa vào đó, công ty có thể nhìn nhận được vấn đề để tìm ra hướng giải quyết phù hợp. \nKỹ năng thiết kế và trình bày báo cáo: Sau khi hoàn thành các công việc phân tích, bạn sẽ thu thập dữ liệu và lập bảng báo cáo trình bày lên cấp trên. Việc thiết kế và trình bày báo cáo phải mang tính dễ hiểu, dễ đưa ra các nhận định so sánh. Để giúp công việc trở nên thuận lợi hơn bạn có thể tự học hỏi và xem thêm các công cụ hỗ trợ thiết kế báo cáo.\nKỹ năng giao tiếp: Các con số từ bảng báo cáo nghiên cứu rất phức tạp và khó hiểu đối với mọi người. Để giúp cho mọi người dễ hiểu và nắm rõ các ý nghĩa bạn cần phải có kỹ năng giải thích, thuyết trình mang lại cái nhìn tổng quan cho những vấn đề nghiên cứu này.\n2. Nhu cầu thị trường\nĐây là vị trí được nhiều doanh nghiệp ưu tiên trong bộ phận công nghệ bởi họ nắm giữ vai trò quan trọng trong việc xây dựng, quản lý và tối ưu hệ thống dữ liệu – nền tảng để doanh nghiệp vận hành thông minh và ra quyết định chính xác.\nTrong bối cảnh AI và Machine Learning ngày càng phổ biến, dữ liệu trở thành “nguồn nhiên liệu” không thể thiếu cho mọi hoạt động. Tuy nhiên, để AI hoạt động hiệu quả, doanh nghiệp cần có hệ thống dữ liệu sạch, được xử lý và cấu trúc bài bản. Đây chính là lúc Data Engineer thể hiện giá trị của mình – họ là người kết nối giữa dữ liệu thô và trí tuệ nhân tạo, đảm bảo luồng dữ liệu vận hành ổn định, chính xác và sẵn sàng cho việc phân tích.\nKhông chỉ trong lĩnh vực công nghệ thông tin, nhu cầu tuyển dụng Data Engineer còn lan rộng sang nhiều ngành khác như ngân hàng, thương mại điện tử, y tế, giáo dục, logistics, và sản xuất thông minh. Các tập đoàn lớn đang không ngừng mở rộng đội ngũ kỹ sư dữ liệu để khai thác tối đa sức mạnh của Big Data và AI ứng dụng.\n3. Cơ hội thăng tiền\nData Engineer cũng có thể chuyển đổi sang các vị trí khác nhau như: Data Scientist, Data Architect, Machine Learning Engineer, v.vv..\n\"",
+    "gold_entities": [
+      "DATA ENGINEER"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:264"
+    ],
+    "gold_path": [
+      "DATA ENGINEER"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q007",
+    "query": "Nghề lập trình nhúng hiện nay có nhu cầu tuyển dụng cao không?",
+    "query_type": "",
+    "ground_truth_answer": "\"Nhu cầu về hệ thống nhúng đang tăng lên khi ngày càng có nhiều ngành công nghiệp nhận ra giá trị của việc kết hợp các thiết bị thông minh và được kết nối vào sản phẩm và dịch vụ của họ. Hệ thống nhúng có ở khắp mọi nơi, từ ô tô và chăm sóc sức khỏe đến điện tử tiêu dùng và tự động hóa công nghiệp.\nHiện, lập trình nhúng đang được ứng dụng trong một số ngành nghề như sau:\nỨng dụng trong ngành điện tử, máy tính, viễn thông ngân hàng, v.vv.. Đây được xem là ứng dụng rộng rãi nhất của lập trình nhúng.\nỨng dụng vào các thiết bị kết nối mạng như Router, Gateway, v.vv..\nỨng dụng vào các thiết bị trong lĩnh vực y tế, ví dụ như máy thẩm thấu, máy điều hòa nhịp tim, v.vv..\nỨng dụng vào các loại thiết bị văn phòng như máy photocopy, máy in, máy scan, máy fax,v.vv..\nỨng dụng vào các thiết bị gia dụng như tủ lạnh, lò nướng, máy vi sóng, v.vv..\nMột số ứng dụng khác như các loại máy trả lời tự động, các dây chuyền sản xuất công nghiệp tự động, robot, v.vv..\n\"",
+    "gold_entities": [],
+    "relevant_node_ids": [],
+    "gold_path": [],
+    "gold_hop_count": 0,
+    "expected_communities": []
+  },
+  {
+    "id": "q008",
+    "query": "Em mạnh về phân tích dữ liệu nhưng không thích lập trình thì phù hợp nghề nào?",
+    "query_type": "global",
+    "ground_truth_answer": "Nghề yêu cầu kỹ năng phân tích dữ liệu nhưng không yêu cầu về kỹ năng lập trình hoặc kỹ năng lập trình cơ bản => Business analyst, marketing analystics",
+    "gold_entities": [
+      "PHÂN TÍCH DỮ LIỆU 1",
+      "PHÂN TÍCH DỮ LIỆU 2"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:594",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:607"
+    ],
+    "gold_path": [],
+    "gold_hop_count": 0,
+    "expected_communities": [
+      "1",
+      "6",
+      "7",
+      "9",
+      "10",
+      "14",
+      "16",
+      "19",
+      "20",
+      "21"
+    ]
+  },
+  {
+    "id": "q009",
+    "query": "Ngành nào có cơ hội việc làm cao nhất",
+    "query_type": "global",
+    "ground_truth_answer": "dựa trên đề án tuyển sinh năm 2024, ngành có tỷ lệ sinh viên có việc làm sau khi tốt nghiệp cao nhất (100%) là logistics và quản lý chuỗi cung ứng, Luật, Quản lý tài nguyên và môi trường",
+    "gold_entities": [],
+    "relevant_node_ids": [],
+    "gold_path": [],
+    "gold_hop_count": 0,
+    "expected_communities": []
+  },
+  {
+    "id": "q010",
+    "query": "Nghề lập trình game có áp lực không",
+    "query_type": "single_hop",
+    "ground_truth_answer": "\"Không có nội dung nào mô tả nghề lập trình game là áp lực \nSau đây là thông tin về những công việc chính của lập trình game:\nThực hiện sáng tạo các ý tưởng hoặc câu chuyện cho game.\nXây dựng các nhân vật bao gồm trang phục, tính cách, hình dáng,… phù hợp với cốt truyện đã xây dựng trước đó.\nLên các kịch bản về tình huống có thể xảy ra trong trò chơi.\nThiết kế bố cục game, thiết kế nhân vật, bối cảnh trong game.\nLập trình cách thức game sẽ hoạt động, về các kế hoạch, cấp độ có trong game.\nLập trình bằng các ngôn ngữ theo mỗi doanh nghiệp khác nhau.\"",
+    "gold_entities": [
+      "LẬP TRÌNH GAME"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:311"
+    ],
+    "gold_path": [
+      "LẬP TRÌNH GAME"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q011",
+    "query": "Làm Data Analyst thì có cần học giỏi toán không",
+    "query_type": "global",
+    "ground_truth_answer": "Data Analyst có yêu cầu kiến thức về toán, thống kê, và khai phá dữ liệu, nhưng trong tài liệu không nhắc đến là mình có cần học giỏi toán hay không",
+    "gold_entities": [
+      "PHÂN TÍCH DỮ LIỆU 1",
+      "PHÂN TÍCH DỮ LIỆU 2",
+      "CHUYÊN VIÊN PHÂN TÍCH DỮ LIỆU"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:594",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:607",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:252"
+    ],
+    "gold_path": [],
+    "gold_hop_count": 0,
+    "expected_communities": [
+      "7",
+      "10",
+      "16",
+      "19",
+      "22"
+    ]
+  },
+  {
+    "id": "q012",
+    "query": "học môn gì để có thể ra trường làm lập trình viên",
+    "query_type": "multi_hop",
+    "ground_truth_answer": "Các lập trình viên có khả năng làm việc trên nhiều  ngôn ngữ lập trình, trong đó chủ yếu là lập trình web Java, C++, php, Asp, ASP.Net, Visual Basic.Net và C# để xây dựng, làm ra các website.\n+ Lập trình Java: \n+ C++:",
+    "gold_entities": [
+      "LẬP TRÌNH VIÊN",
+      "KHOA HỌC MÁY TÍNH",
+      "CÔNG NGHỆ THÔNG TIN"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:119",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:105",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:89"
+    ],
+    "gold_path": [
+      "LẬP TRÌNH VIÊN",
+      "KHOA HỌC MÁY TÍNH",
+      "CÔNG NGHỆ THÔNG TIN"
+    ],
+    "gold_hop_count": 2,
+    "expected_communities": []
+  },
+  {
+    "id": "q013",
+    "query": "Nghề Data Analyst có yêu cầu kỹ năng giao tiếp không?",
+    "query_type": "global",
+    "ground_truth_answer": "Có",
+    "gold_entities": [
+      "CHUYÊN VIÊN PHÂN TÍCH DỮ LIỆU",
+      "CÔNG NGHỆ THÔNG TIN",
+      "KỸ SƯ PHẦN MỀM",
+      "KỸ NĂNG GIAO TIẾP"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:252",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:89",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:303",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:248"
+    ],
+    "gold_path": [],
+    "gold_hop_count": 0,
+    "expected_communities": [
+      "5",
+      "9",
+      "14",
+      "15",
+      "16"
+    ]
+  },
+  {
+    "id": "q014",
+    "query": "Mức lương Lập trình game và Lập trình nhúng nghề nào cao hơn?",
+    "query_type": "global",
+    "ground_truth_answer": "\"Mức lương của lập trình nhứng như này Để tìm kiếm nhân tài, những nhà tuyển dụng sẵn sàng chi trả mức lương khủng để sở hữu được các ứng viên chất lượng. Theo Salary Expert, mức lương trung bình của một kỹ sư lập trình nhúng ở Việt Nam là 604 triệu đồng/năm, tương ứng 50 triệu đồng/năm. Với kỹ sư có kinh nghiệm 1-3 năm, khởi điểm lương đạt 429 triệu đồng/năm, tương ứng 35 triệu đồng/tháng. Mặt khác, một kỹ sư phần mềm nhúng cấp có kinh nghiệm trên 8 năm, mức lương có thể đạt 762 triệu đồng/năm, tương ứng 63 triệu đồng/tháng. Mức lương của lập trình game như này : Studio lớn: Các công ty lớn và nổi tiếng như VNG, Gameloft, Glass Egg thường trả lương cao hơn, mức lương khởi điểm cho vị trí junior có thể từ 15 - 20 triệu đồng/tháng. Studio nhỏ hoặc indie: Các công ty nhỏ thường trả mức lương thấp hơn, nhưng đổi lại cho phép lập trình viên có thêm nhiều cơ hội phát triển sáng tạo.\n=> mức lương lập trình nhúng cao hơn mặt bằng chung lập trình game\"",
+    "gold_entities": [
+      "LẬP TRÌNH GAME",
+      "LẬP TRÌNH NHÚNG"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:311",
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:319"
+    ],
+    "gold_path": [],
+    "gold_hop_count": 0,
+    "expected_communities": [
+      "9",
+      "7"
+    ]
+  },
+  {
+    "id": "q015",
+    "query": "Ai dạy môn lập trình java?",
+    "query_type": "single-hop",
+    "ground_truth_answer": "Môn LẬP TRÌNH JAVA (mã môn: CNTT1153) được giảng dạy bởi các giảng viên sau:\n1. THS. PHẠM THẢO\n2. TS. PHẠM XUÂN LÂM",
+    "gold_entities": [
+      "LẬP TRÌNH JAVA"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:14"
+    ],
+    "gold_path": [
+      "LẬP TRÌNH JAVA"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q016",
+    "query": "Tuần 4 trong kế hoạch học của môn Lập trình web học gì?",
+    "query_type": "single-hop",
+    "ground_truth_answer": "Trong tuần 4 của môn LẬP TRÌNH WEB (mã môn: CNTT1188), bạn sẽ học về các khái niệm và kỹ thuật liên quan đến thiết kế và phát triển ứng dụng web. Môn học này giúp bạn nắm vững các công nghệ và công cụ cần thiết để xây dựng các trang web và ứng dụng trực tuyến hiệu quả.",
+    "gold_entities": [
+      "LẬP TRÌNH WEB"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:112"
+    ],
+    "gold_path": [
+      "LẬP TRÌNH WEB"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q017",
+    "query": "Ngành Khoa học máy tính gồm những môn gì?",
+    "query_type": "single-hop",
+    "ground_truth_answer": "Danh sách các môn học ngành KHOA HỌC MÁY TÍNH (mã ngành: 7480101) đã được làm sạch:\nĐẠI SỐ (mã môn: TOCB1101)\nCHỦ NGHĨA XÃ HỘI KHOA HỌC (mã môn: LLNL1107)\nNHẬP MÔN CÔNG NGHỆ THÔNG TIN (mã môn: CNTT1116)\nTIẾNG ANH CHUYÊN NGÀNH (mã môn: CNTT1192)\nVẬT LÝ ĐẠI CƯƠNG (mã môn: CNTT1191)\nHỆ QUẢN TRỊ CƠ SỞ DỮ LIỆU (mã môn: CNTT1152)\nAN TOÀN VÀ BẢO MẬT THÔNG TIN (mã môn: CNTT1168)\n......",
+    "gold_entities": [
+      "KHOA HỌC MÁY TÍNH"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:105"
+    ],
+    "gold_path": [
+      "KHOA HỌC MÁY TÍNH"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q018",
+    "query": "Môn Trí tuệ nhân tạo dạy những kiến thức gì?",
+    "query_type": "single-hop",
+    "ground_truth_answer": "Môn TRÍ TUỆ NHÂN TẠO (mã môn: CNTT1140) cung cấp cho bạn những kiến thức về các phương pháp và kỹ thuật trong lĩnh vực trí tuệ nhân tạo. Bạn sẽ được học cách xây dựng các hệ thống có khả năng học hỏi và ra quyết định dựa trên dữ liệu, cũng như các ứng dụng thực tiễn của trí tuệ nhân tạo trong nhiều lĩnh vực khác nhau.\nMôn học này cũng giúp phát triển các kỹ năng quan trọng như phân tích và thiết kế hệ thống, lập trình, và quản lý dự án công nghệ thông tin. Những kỹ năng này sẽ hỗ trợ bạn trong việc theo đuổi các nghề nghiệp liên quan đến công nghệ thông tin và trí tuệ nhân tạo.",
+    "gold_entities": [
+      "TRÍ TUỆ NHÂN TẠO"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:22"
+    ],
+    "gold_path": [
+      "TRÍ TUỆ NHÂN TẠO"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q019",
+    "query": "Ngành Công nghệ thông tin học về lĩnh vực nào?",
+    "query_type": "single-hop",
+    "ground_truth_answer": "Ngành Công nghệ thông tin (mã ngành: 7480201) học về lĩnh vực ứng dụng công nghệ thông tin trong quản lý và phát triển hệ thống thông tin. Một số môn học tiêu biểu trong chương trình đào tạo bao gồm:\nNhập môn Công nghệ thông tin (mã môn: CNTT1116)\nKhóa luận tốt nghiệp (mã môn: CNTT1194)\nPhát triển ứng dụng di động (mã môn: CNTT1157)\nHệ quản trị cơ sở dữ liệu (mã môn: CNTT1152)\nNgành này cũng hướng đến các nghề nghiệp như kỹ sư phần mềm và lập trình viên.",
+    "gold_entities": [
+      "CÔNG NGHỆ THÔNG TIN"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:89"
+    ],
+    "gold_path": [
+      "CÔNG NGHỆ THÔNG TIN"
+    ],
+    "gold_hop_count": 1,
+    "expected_communities": []
+  },
+  {
+    "id": "q020",
+    "query": "Nghề Tester yêu cầu những kỹ năng gì và phù hợp với sinh viên ngành nào?",
+    "query_type": "global",
+    "ground_truth_answer": "Nghề Tester yêu cầu một số kỹ năng quan trọng như:\nTỉ mỉ, chú ý đến chi tiết.\nKỹ năng làm việc nhóm.\nKỹ năng giao tiếp.\nHiểu biết về đặc thù ngành nghề kinh doanh của doanh nghiệp.\nNắm vững vòng đời phát triển hệ thống.\nCó tư duy phân tích.\nThành thạo các công cụ kiểm thử.",
+    "gold_entities": [
+      "TESTER"
+    ],
+    "relevant_node_ids": [
+      "4:cf4ca2e2-0715-4f09-bc7e-42ae91807507:340"
+    ],
+    "gold_path": [],
+    "gold_hop_count": 0,
+    "expected_communities": [
+      "0",
+      "2",
+      "7",
+      "9",
+      "10",
+      "13",
+      "14",
+      "16",
+      "18"
+    ]
+  }
+]

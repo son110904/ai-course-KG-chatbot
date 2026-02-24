@@ -8,3 +8,6 @@ python-docx
 streamlit
 neo4j
 minio
+fastapi
+uvicorn
+python-multipart
