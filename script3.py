@@ -144,9 +144,6 @@ QUY TẮC QUAN TRỌNG:
 
 RÀNG BUỘC THEO LOẠI CÂU HỎI:
 {constraint}
-
-LỊCH SỬ HỘI THOẠI GẦN NHẤT (3 lượt):
-{memory}
 """
 
 # ══════════════════════════════════════════════════════════════════════════════
