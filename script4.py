@@ -99,8 +99,7 @@ def run_pipeline_for_sample(driver, ai_client: OpenAI, sample: dict) -> dict:
       traversal_path, communities_covered, context_text
     """
     query_id = sample["id"]
-    memory = {}  # evaluation mode → không dùng conversation memory
-    qa = ask(driver, ai_client, sample["query"], memory=memory, query_id=query_id)
+    qa = ask(driver, ai_client, sample["query"], query_id=query_id)
 
     # Build context_text từ retrieved_nodes
     context_text = "\n\n".join(
