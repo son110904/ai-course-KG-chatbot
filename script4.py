@@ -127,68 +127,158 @@ def run_pipeline_for_sample(driver, ai_client: OpenAI, sample: dict) -> dict:
 # BƯỚC 2: METRICS  (theo core_metrics.py của framework)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def compute_precision_recall_f1(retrieved_ids: list, relevant_ids: list, k: int) -> dict:
-    retrieved_ids = retrieved_ids[:k]
-    retrieved_set = set(retrieved_ids)
-    relevant_set  = set(relevant_ids)
+def _normalize(text: str) -> str:
+    """Chuẩn hóa tên thực thể để so sánh: lowercase + strip."""
+    return text.lower().strip()
 
-    if not retrieved_set and not relevant_set:
-        return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
-    if not retrieved_set or not relevant_set:
-        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
-    tp        = len(retrieved_set & relevant_set)
-    precision = tp / len(retrieved_set)
-    recall    = tp / len(relevant_set)
+def _name_match(a: str, b: str) -> bool:
+    """
+    So sánh mềm giữa 2 tên thực thể:
+    - Exact match sau normalize
+    - Hoặc một cái chứa cái kia (substring match)
+    """
+    a, b = _normalize(a), _normalize(b)
+    return a == b or a in b or b in a
+
+
+def _extract_retrieved_names(retrieved_nodes: list, k: int | None = None) -> list[str]:
+    """
+    Lấy danh sách tên thực thể từ retrieved_nodes[:k].
+    Ưu tiên field 'entities', fallback parse 'content' JSON.
+    """
+    nodes = retrieved_nodes[:k] if k is not None else retrieved_nodes
+    names = []
+    for node in nodes:
+        for ent in node.get("entities", []):
+            if ent:
+                names.append(ent)
+        # Fallback: parse content JSON lấy thêm name/code
+        if not node.get("entities"):
+            try:
+                content_data = json.loads(node.get("content", "{}"))
+                if content_data.get("name"):
+                    names.append(content_data["name"])
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return names
+
+
+def compute_precision_recall_f1(retrieved_nodes: list, relevant_names: list, k: int) -> dict:
+    """
+    Precision/Recall/F1 dựa trên name matching thay vì node_id matching.
+
+    retrieved_nodes[:k] — lấy entities từ top-K nodes
+    relevant_names      — danh sách tên thực thể gold (từ ground truth)
+
+    True Positive: retrieved entity nào khớp (name_match) với ít nhất 1 gold entity.
+    """
+    if not relevant_names:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0,
+                "note": "relevant_names rỗng — kiểm tra ground truth dataset"}
+
+    retrieved_names = _extract_retrieved_names(retrieved_nodes, k=k)
+
+    if not retrieved_names:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0,
+                "retrieved_count": 0, "relevant_count": len(relevant_names)}
+
+    # Đếm retrieved entities khớp với gold (mỗi gold chỉ tính 1 lần)
+    matched_gold = set()
+    matched_retrieved_count = 0
+    for r_name in retrieved_names:
+        for i, g_name in enumerate(relevant_names):
+            if i not in matched_gold and _name_match(r_name, g_name):
+                matched_gold.add(i)
+                matched_retrieved_count += 1
+                break
+
+    tp        = matched_retrieved_count
+    precision = tp / len(retrieved_names)
+    recall    = tp / len(relevant_names)
     f1        = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+
     return {
         "precision": round(precision, 4),
         "recall":    round(recall,    4),
         "f1":        round(f1,        4),
         "true_positives":  tp,
-        "retrieved_count": len(retrieved_set),
-        "relevant_count":  len(relevant_set),
+        "retrieved_count": len(retrieved_names),
+        "relevant_count":  len(relevant_names),
     }
 
 
-def compute_mrr(retrieved_ids: list, relevant_ids: list) -> float:
-    relevant_set = set(relevant_ids)
-    for rank, nid in enumerate(retrieved_ids, 1):
-        if nid in relevant_set:
-            return round(1.0 / rank, 4)
+def compute_mrr(retrieved_nodes: list, relevant_names: list) -> float:
+    """
+    MRR dựa trên name matching: rank của retrieved node đầu tiên khớp gold.
+    """
+    if not relevant_names:
+        return 0.0
+    for rank, node in enumerate(retrieved_nodes, 1):
+        node_names = node.get("entities", [])
+        if not node_names:
+            try:
+                content_data = json.loads(node.get("content", "{}"))
+                node_names = [content_data.get("name", "")]
+            except (json.JSONDecodeError, TypeError):
+                node_names = []
+        for n_name in node_names:
+            if any(_name_match(n_name, g) for g in relevant_names):
+                return round(1.0 / rank, 4)
     return 0.0
 
 
-def compute_entity_coverage(gold_entities: list, retrieved_entities: list) -> dict:
+def compute_entity_coverage(gold_entities: list, retrieved_nodes: list) -> dict:
+    """
+    Entity Coverage: tỷ lệ gold_entities được tìm thấy trong retrieved_nodes.
+    Dùng name_match thay vì exact string match.
+    """
     if not gold_entities:
-        return {"entity_coverage": 1.0, "covered": [], "missing": []}
-    gold_set      = {e.lower().strip() for e in gold_entities}
-    retrieved_set = {e.lower().strip() for e in retrieved_entities}
-    covered = gold_set & retrieved_set
-    missing = gold_set - retrieved_set
-    score   = len(covered) / len(gold_set)
+        return {"entity_coverage": 1.0, "covered_entities": [], "missing_entities": [],
+                "note": "gold_entities rỗng"}
+
+    all_retrieved = _extract_retrieved_names(retrieved_nodes)
+
+    covered = []
+    missing = []
+    for gold in gold_entities:
+        if any(_name_match(gold, r) for r in all_retrieved):
+            covered.append(gold)
+        else:
+            missing.append(gold)
+
+    score = len(covered) / len(gold_entities)
     return {
         "entity_coverage":  round(score, 4),
-        "covered_entities": list(covered),
-        "missing_entities": list(missing),
+        "covered_entities": covered,
+        "missing_entities": missing,
         "threshold_ok":     score >= 0.8,
     }
 
 
 def compute_path_relevance(traversal_path: list, gold_path: list) -> float | None:
     """
-    Path Relevance: tỷ lệ gold_path entities xuất hiện trong traversal.
+    Path Relevance: tỷ lệ gold_path entities xuất hiện trong traversal (name_match).
     Trả về None nếu gold_path rỗng (global query).
     """
     if not gold_path:
         return None
-    retrieved_entities = set()
+
+    retrieved_entities = []
     for hop in traversal_path:
-        retrieved_entities.add(hop.get("from", "").lower())
-        retrieved_entities.add(hop.get("to",   "").lower())
-    gold_set = {e.lower() for e in gold_path}
-    overlap  = len(retrieved_entities & gold_set)
-    return round(overlap / len(gold_set), 4)
+        if hop.get("from"):
+            retrieved_entities.append(hop["from"])
+        if hop.get("to"):
+            retrieved_entities.append(hop["to"])
+
+    if not retrieved_entities:
+        return 0.0
+
+    matched = sum(
+        1 for gold in gold_path
+        if any(_name_match(gold, r) for r in retrieved_entities)
+    )
+    return round(matched / len(gold_path), 4)
 
 
 def compute_path_depth(graph: nx.Graph | None,
@@ -206,20 +296,42 @@ def compute_path_depth(graph: nx.Graph | None,
         return None
 
 
-def compute_comprehensiveness(generated_answer: str,
+def compute_comprehensiveness(retrieved_nodes: list,
                                expected_communities: list) -> float | None:
     """
-    Comprehensiveness: keyword matching — community keyword có trong answer không.
-    Trả về None nếu expected_communities rỗng.
+    Comprehensiveness v2: so sánh community_id từ retrieved_nodes với expected_communities.
+
+    Logic:
+      - expected_communities: list community ID (int/str) từ ground truth
+      - retrieved_nodes: mỗi node có field "community_id" hoặc trong content JSON
+      - Score = số community ID khớp / tổng community ID cần cover
+
+    Trả về None nếu expected_communities rỗng (không phải global query).
     """
     if not expected_communities:
         return None
-    answer_lower = generated_answer.lower()
-    covered = [
-        c for c in expected_communities
-        if c.replace("_", " ").lower().split()[0] in answer_lower
-    ]
-    return round(len(covered) / len(expected_communities), 4)
+
+    expected_set = set(str(c) for c in expected_communities)
+
+    retrieved_cids = set()
+    for node in retrieved_nodes:
+        # Ưu tiên field trực tiếp
+        cid = node.get("community_id")
+        if cid is None:
+            # Fallback: parse content JSON
+            try:
+                content_data = json.loads(node.get("content", "{}"))
+                cid = content_data.get("community_id")
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if cid is not None:
+            retrieved_cids.add(str(cid))
+
+    covered = expected_set & retrieved_cids
+    missing = expected_set - retrieved_cids
+    score   = len(covered) / len(expected_set)
+
+    return round(score, 4)
 
 
 def compute_faithfulness(generated_answer: str, context_text: str) -> float:
@@ -246,38 +358,38 @@ def evaluate_single_sample(sample: dict, result: dict,
                             graph: nx.Graph | None, k: int) -> dict:
     """
     Tính tất cả metrics cho 1 sample.
-    Mapping theo framework:
-        relevant_node_ids  ↔  retrieved_nodes[].node_id  → Precision/Recall/MRR
-        gold_entities      ↔  retrieved_nodes[].entities → Entity Coverage
-        gold_path          ↔  traversal_path             → Path Relevance
-        gold_path + graph  ↔  gold_hop_count             → Path Depth
-        expected_communities ↔ generated_answer          → Comprehensiveness
-        ground_truth_answer  ↔ context_text              → Faithfulness
+
+    Mapping:
+        relevant_names (gold)   ↔  retrieved_nodes[].entities  → Precision/Recall/MRR (name_match)
+        gold_entities           ↔  retrieved_nodes[].entities  → Entity Coverage (name_match)
+        gold_path               ↔  traversal_path              → Path Relevance (name_match)
+        gold_path + graph       ↔  gold_hop_count              → Path Depth
+        expected_communities    ↔  retrieved_nodes[].community_id → Comprehensiveness
+        generated_answer        ↔  context_text                → Faithfulness (token overlap)
     """
-    retrieved_ids = [n["node_id"] for n in result.get("retrieved_nodes", [])]
-    retrieved_entities = []
-    for n in result.get("retrieved_nodes", []):
-        retrieved_entities.extend(n.get("entities", []))
+    retrieved_nodes = result.get("retrieved_nodes", [])
+    gold_path       = sample.get("gold_path", [])
 
-    prf = compute_precision_recall_f1(
-        retrieved_ids, sample.get("relevant_node_ids", []), k=k
-    )
-    ec  = compute_entity_coverage(
-        sample.get("gold_entities", []), retrieved_entities
+    # relevant_names: ưu tiên "relevant_node_ids" (có thể là tên thực thể),
+    # fallback "gold_entities"
+    relevant_names = (
+        sample.get("relevant_node_ids") or
+        sample.get("gold_entities") or []
     )
 
-    gold_path = sample.get("gold_path", [])
+    prf = compute_precision_recall_f1(retrieved_nodes, relevant_names, k=k)
+    ec  = compute_entity_coverage(sample.get("gold_entities", []), retrieved_nodes)
 
     return {
         "query_id":    sample["id"],
         "query":       sample["query"],
         "query_type":  sample.get("query_type", "unknown"),
 
-        # Standard IR
+        # Standard IR (name-based)
         "precision":   prf["precision"],
         "recall":      prf["recall"],
         "f1":          prf["f1"],
-        "mrr":         compute_mrr(retrieved_ids, sample.get("relevant_node_ids", [])),
+        "mrr":         compute_mrr(retrieved_nodes, relevant_names),
 
         # Graph-specific
         "entity_coverage": ec["entity_coverage"],
@@ -292,17 +404,17 @@ def evaluate_single_sample(sample: dict, result: dict,
 
         # Global
         "comprehensiveness": compute_comprehensiveness(
-            result.get("generated_answer", ""),
+            retrieved_nodes,
             sample.get("expected_communities", [])
         ),
 
-        # Faithfulness (heuristic)
+        # Faithfulness (token overlap)
         "faithfulness": compute_faithfulness(
             result.get("generated_answer", ""),
             result.get("context_text", "")
         ),
 
-        # Debug info
+        # Debug
         "entity_coverage_detail": ec,
         "prf_detail": prf,
     }

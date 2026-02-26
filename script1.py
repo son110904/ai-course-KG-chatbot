@@ -1,24 +1,38 @@
 """
-Script 1: Extract entities & relationships from MinIO JSON files
-Reads from: syllabus/courses-processed/{curriculum,career_description,syllabus}/
-Saves extracted KG JSON locally to ./cache/output/{folder}/
-- Parallel processing via ThreadPoolExecutor
-- Auto-skip files already extracted (resume support)
-Uses OpenAI API
+Script 1 (OPTIMIZED): Extract entities & relationships from MinIO JSON files
+- Async I/O với asyncio + aiohttp cho MinIO downloads
+- ThreadPoolExecutor chỉ cho OpenAI calls (sync SDK)
+- Retry với exponential backoff (openai rate limit safe)
+- Validate output JSON trước khi lưu
+- Resume support (auto-skip đã có)
+- Structured logging
 """
 
 import os
 import json
-import io
+import asyncio
+import logging
+import time
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from minio import Minio
-from openai import OpenAI
+from openai import OpenAI, RateLimitError, APIError
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ─── CONFIG ──────────────────────────────────────────────────────────────────
+# ─── LOGGING ──────────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("./cache/extraction.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+log = logging.getLogger(__name__)
+
+# ─── CONFIG ───────────────────────────────────────────────────────────────────
 MINIO_ENDPOINT    = os.getenv("MINIO_ENDPOINT")
 MINIO_ACCESS_KEY  = os.getenv("MINIO_ACCESS_KEY")
 MINIO_SECRET_KEY  = os.getenv("MINIO_SECRET_KEY")
@@ -31,14 +45,32 @@ OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 INPUT_FOLDERS = ["curriculum", "career_description", "syllabus"]
 LOCAL_OUT_DIR = Path("./cache/output")
-MAX_WORKERS   = int(os.getenv("MAX_WORKERS", "5"))
-# ─────────────────────────────────────────────────────────────────────────────
+MAX_WORKERS   = int(os.getenv("MAX_WORKERS", "10"))   # tăng lên vì I/O bound
+MAX_RETRIES   = int(os.getenv("MAX_RETRIES", "3"))
+RETRY_BASE_DELAY = 2.0  # seconds
+# ──────────────────────────────────────────────────────────────────────────────
 
 DOCTYPE_MAP = {
     "curriculum":         "curriculum",
     "career_description": "career_description",
     "syllabus":           "syllabus",
 }
+
+# ─── VALID NODE LABELS & RELATIONSHIPS PER DOCTYPE ────────────────────────────
+VALID_NODES_BY_DOCTYPE = {
+    "syllabus":           {"DOCUMENT", "SUBJECT", "TEACHER", "SKILL", "MAJOR"},
+    "curriculum":         {"DOCUMENT", "MAJOR", "SUBJECT", "CAREER"},
+    "career_description": {"DOCUMENT", "CAREER", "SKILL", "MAJOR"},
+}
+
+VALID_REL_TYPES = {
+    "OFFERS", "TEACH", "PROVIDES", "REQUIRES",
+    "PREREQUISITE_FOR", "LEADS_TO", "MENTIONED_IN",
+}
+
+REQUIRED_CODE_LABELS = {"MAJOR", "SUBJECT"}  # phải có code thực sự (trừ career_description MAJOR)
+
+# ─── SYSTEM PROMPTS ───────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT_BASE = """Bạn là chuyên gia Knowledge Graph. Nhiệm vụ của bạn là đọc tài liệu JSON và trích xuất các thực thể (nodes) và quan hệ (relationships) theo schema đã cho.
 
@@ -60,15 +92,17 @@ NGUYÊN TẮC CHUNG:
 3. Bỏ qua thuộc tính null/thiếu thay vì để null.
 4. Mọi thực thể phải có quan hệ MENTIONED_IN tới node DOCUMENT.
 5. CHỈ trả về JSON hợp lệ, không có markdown, không có giải thích.
+6. Nhất quán: Đại từ (anh ấy, học phần này, ngành này,...) → dùng tên gốc VIẾT HOA.
 
 RÀNG BUỘC THEO LOẠI TÀI LIỆU:
-- syllabus (đề cương): chứa SUBJECT (1 môn duy nhất, bắt buộc có code), TEACHER, SKILL. KHÔNG tạo CAREER, MAJOR.
-- curriculum (chương trình đào tạo): chứa MAJOR (1 ngành duy nhất, bắt buộc có code), SUBJECT (bắt buộc có code), CAREER. KHÔNG tạo TEACHER.
-- career_description (mô tả nghề): chứa CAREER (1 nghề duy nhất), SKILL, MAJOR (nếu có nhắc đến ngành khuyến nghị). KHÔNG tạo SUBJECT, TEACHER.
+- syllabus: chứa SUBJECT (1 duy nhất, bắt buộc có code thực sự), TEACHER, SKILL, MAJOR (nếu có). KHÔNG tạo CAREER.
+- curriculum: chứa MAJOR (1 duy nhất, bắt buộc có code), SUBJECT (bắt buộc có code). KHÔNG tạo TEACHER.
+- career_description: chứa CAREER (1 duy nhất), SKILL, MAJOR (không cần code). KHÔNG tạo SUBJECT, TEACHER.
 
 QUAN TRỌNG:
-- SUBJECT bắt buộc phải có code thực sự (ví dụ: CNTT1234, IT001). Nếu không có code thì KHÔNG tạo node SUBJECT.
-- KHÔNG dùng code='' hoặc code='SKILL' hoặc các giá trị vô nghĩa.
+- SUBJECT và MAJOR bắt buộc phải có code thực sự (ví dụ: IT001, 7480201). Nếu không có code → KHÔNG tạo node đó.
+- KHÔNG dùng code='', code='SKILL' hoặc các giá trị vô nghĩa.
+- KHÔNG tạo node với label sai loại tài liệu (xem ràng buộc trên).
 
 Định dạng output:
 {
@@ -86,8 +120,6 @@ QUAN TRỌNG:
 }"""
 
 SYSTEM_PROMPT_BY_DOCTYPE = {
-
-    # ── SYLLABUS ─────────────────────────────────────────────────────────────
     "syllabus": SYSTEM_PROMPT_BASE + """
 
 Tài liệu này là ĐỀ CƯƠNG MÔN HỌC (syllabus).
@@ -99,71 +131,174 @@ QUY TẮC TRÍCH XUẤT:
 - KHÔNG tạo CAREER.
 
 TRÍCH XUẤT SKILL — RẤT QUAN TRỌNG:
-- Nguồn CHÍNH để lấy SKILL là phần "Chuẩn đầu ra học phần" / "course_learning_outcomes" / "learning_outcomes".
-  Đây là nơi liệt kê rõ ràng các kiến thức, kỹ năng sinh viên đạt được sau môn học.
-- Mỗi chuẩn đầu ra (CLO) hoặc kết quả học tập → tạo 1 node SKILL.
-- Tên SKILL phải ngắn gọn, súc tích, thực chất (không sao chép nguyên câu dài).
-  Ví dụ đúng: "LẬP TRÌNH PYTHON", "PHÂN TÍCH DỮ LIỆU", "THIẾT KẾ GIAO DIỆN WEB"
+- Nguồn CHÍNH: phần "Chuẩn đầu ra học phần" / "course_learning_outcomes" / "learning_outcomes".
+- Mỗi chuẩn đầu ra (CLO) → tạo 1 node SKILL ngắn gọn, súc tích.
+  Ví dụ đúng: "LẬP TRÌNH PYTHON", "PHÂN TÍCH DỮ LIỆU"
   Ví dụ sai: "SINH VIÊN CÓ KHẢ NĂNG VIẾT ĐƯỢC CHƯƠNG TRÌNH..."
 - Tạo relationship: (SUBJECT)-[:PROVIDES]->(SKILL)
 
 Quan hệ hợp lệ: TEACHER-[TEACH]->SUBJECT, SUBJECT-[PROVIDES]->SKILL, MAJOR-[OFFERS]->SUBJECT.""",
 
-    # ── CURRICULUM ───────────────────────────────────────────────────────────
     "curriculum": SYSTEM_PROMPT_BASE + """
 
 Tài liệu này là CHƯƠNG TRÌNH ĐÀO TẠO (curriculum).
 
 QUY TẮC TRÍCH XUẤT:
 - Bản thân tài liệu đại diện cho DUY NHẤT 1 node MAJOR (ngành học). MAJOR phải có code ngành thực sự.
-- SUBJECT: tất cả các môn học trong chương trình, bắt buộc có code môn. Nếu không có code → bỏ qua.
+- SUBJECT: tất cả môn học trong chương trình, bắt buộc có code. Nếu không có code → bỏ qua.
 - KHÔNG tạo TEACHER.
 
 TRÍCH XUẤT CAREER — RẤT QUAN TRỌNG:
-- Nguồn CHÍNH để lấy CAREER là phần "Cơ hội làm việc và khả năng học tập nâng cao" / "career_opportunities"
-  / "vị trí công việc" / "cơ hội việc làm" / "job_opportunities".
-- Đây là các nghề nghiệp, vị trí công việc mà sinh viên tốt nghiệp ngành này có thể đảm nhận.
-- Mỗi vị trí/nghề nghiệp được nhắc tới → tạo 1 node CAREER riêng.
-- Tên CAREER phải VIẾT HOA, cụ thể, súc tích.
-  Ví dụ đúng: "LẬP TRÌNH VIÊN", "CHUYÊN VIÊN PHÂN TÍCH DỮ LIỆU", "KỸ SƯ PHẦN MỀM", "GIẢNG VIÊN ĐẠI HỌC"
+- Nguồn CHÍNH: phần "Cơ hội làm việc và khả năng học tập nâng cao" / "career_opportunities" / "job_opportunities".
+- Mỗi vị trí/nghề nghiệp được nhắc tới → tạo 1 node CAREER, tên VIẾT HOA, cụ thể.
+  Ví dụ đúng: "LẬP TRÌNH VIÊN", "KỸ SƯ PHẦN MỀM", "GIẢNG VIÊN ĐẠI HỌC"
   Ví dụ sai: "LÀM VIỆC TRONG LĨNH VỰC CÔNG NGHỆ"
 - Tạo relationship: (MAJOR)-[:LEADS_TO]->(CAREER) cho mỗi nghề.
-- KHÔNG bỏ sót bất kỳ nghề nào được nhắc đến, kể cả nghề phi kỹ thuật như giảng dạy, nghiên cứu.
+- KHÔNG bỏ sót bất kỳ nghề nào, kể cả nghề phi kỹ thuật.
 
-QUAN TRỌNG về MAJOR:
-- name: tên ngành đầy đủ, VIẾT HOA, ví dụ: "CÔNG NGHỆ THÔNG TIN".
-- code: mã ngành chính xác từ tài liệu, ví dụ: "7480201". Không được bỏ qua code.
-
+MAJOR: name VIẾT HOA đầy đủ (ví dụ: "CÔNG NGHỆ THÔNG TIN"), code chính xác từ tài liệu (ví dụ: "7480201").
 Quan hệ hợp lệ: MAJOR-[OFFERS]->SUBJECT, MAJOR-[LEADS_TO]->CAREER, SUBJECT-[PREREQUISITE_FOR]->SUBJECT.""",
 
-    # ── CAREER DESCRIPTION ───────────────────────────────────────────────────
     "career_description": SYSTEM_PROMPT_BASE + """
 
 Tài liệu này là MÔ TẢ NGHỀ NGHIỆP (career_description).
 
 QUY TẮC TRÍCH XUẤT:
-- Bản thân tài liệu đại diện cho DUY NHẤT 1 node CAREER (nghề nghiệp). Bắt buộc phải tạo node CAREER này.
-- SKILL: tất cả kỹ năng mà nghề này yêu cầu (cả hard skill lẫn soft skill).
-  Lấy từ các trường: required_skills, skills, key_skills, responsibilities, job_description.
-- MAJOR: các ngành học được khuyến nghị cho nghề này. Lấy từ trường recommended_majors. MAJOR KHÔNG cần code.
-- TUYỆT ĐỐI KHÔNG tạo SUBJECT.
-- TUYỆT ĐỐI KHÔNG tạo TEACHER.
+- Bản thân tài liệu đại diện cho DUY NHẤT 1 node CAREER (nghề nghiệp). BẮT BUỘC tạo node CAREER này.
+- SKILL: tất cả kỹ năng nghề này yêu cầu (hard + soft skill).
+  Lấy từ: required_skills, skills, key_skills, responsibilities, job_description.
+- MAJOR: các ngành học được khuyến nghị. Lấy từ recommended_majors. MAJOR KHÔNG cần code.
+- TUYỆT ĐỐI KHÔNG tạo SUBJECT. TUYỆT ĐỐI KHÔNG tạo TEACHER.
 
-QUAN TRỌNG — BẮT BUỘC tạo node CAREER:
-- Tên CAREER = tên nghề trong tài liệu, VIẾT HOA.
-- Tạo relationship: (CAREER)-[:REQUIRES]->(SKILL) cho từng kỹ năng.
-- Tạo relationship: (MAJOR)-[:LEADS_TO]->(CAREER) cho từng ngành được khuyến nghị.
-- Tạo relationship: (CAREER)-[:MENTIONED_IN]->(DOCUMENT).
+CAREER: tên nghề VIẾT HOA.
+Relationship: (CAREER)-[:REQUIRES]->(SKILL), (MAJOR)-[:LEADS_TO]->(CAREER), (CAREER)-[:MENTIONED_IN]->(DOCUMENT).
 
-QUAN TRỌNG về MAJOR:
-- Chỉ dùng name để định danh MAJOR, KHÔNG có code.
-- Tên MAJOR phải VIẾT HOA và phải KHỚP CHÍNH XÁC với tên ngành trong các tài liệu curriculum.
-  Ví dụ đúng: "CÔNG NGHỆ THÔNG TIN", "HỆ THỐNG THÔNG TIN QUẢN LÝ", "KỸ THUẬT PHẦN MỀM"
-  Ví dụ sai: "CNTT", "Công nghệ thông tin", "IT".""",
+MAJOR name phải VIẾT HOA, khớp chính xác với tên ngành trong curriculum.
+Ví dụ đúng: "CÔNG NGHỆ THÔNG TIN", "KỸ THUẬT PHẦN MỀM"
+Ví dụ sai: "CNTT", "Công nghệ thông tin", "IT".""",
 }
 
 
-# ── MinIO helpers ─────────────────────────────────────────────────────────────
+# ─── VALIDATION ───────────────────────────────────────────────────────────────
+
+def validate_extracted(data: dict, doctype: str) -> tuple[bool, list[str]]:
+    """Validate extracted JSON. Returns (is_valid, list_of_warnings)."""
+    errors = []
+
+    if not isinstance(data, dict):
+        return False, ["Output không phải dict"]
+
+    nodes = data.get("nodes", [])
+    rels  = data.get("relationships", [])
+
+    if not nodes:
+        return False, ["Không có nodes nào"]
+
+    valid_labels = VALID_NODES_BY_DOCTYPE.get(doctype, set())
+    node_ids = {n["id"] for n in nodes if "id" in n}
+    doc_node_ids = {n["id"] for n in nodes if n.get("label") == "DOCUMENT"}
+
+    if not doc_node_ids:
+        errors.append("Thiếu node DOCUMENT")
+
+    for node in nodes:
+        label = node.get("label", "")
+        props = node.get("properties", {})
+
+        # Label không hợp lệ
+        if label and label not in valid_labels and label != "DOCUMENT":
+            errors.append(f"Node label '{label}' không hợp lệ cho doctype '{doctype}'")
+
+        # SUBJECT/MAJOR cần code (trừ MAJOR trong career_description)
+        if label in REQUIRED_CODE_LABELS and doctype != "career_description":
+            code = props.get("code", "")
+            if not code or code.upper() in {"", "SKILL", "MAJOR", "SUBJECT", "CAREER"}:
+                errors.append(f"Node {node.get('id')} ({label}) thiếu code hợp lệ: '{code}'")
+
+        # Name phải tồn tại
+        if not props.get("name"):
+            errors.append(f"Node {node.get('id')} thiếu name")
+
+    # Kiểm tra relationship endpoints tồn tại
+    for rel in rels:
+        src, tgt, rtype = rel.get("source"), rel.get("target"), rel.get("type")
+        if src not in node_ids:
+            errors.append(f"Relationship source '{src}' không tồn tại trong nodes")
+        if tgt not in node_ids:
+            errors.append(f"Relationship target '{tgt}' không tồn tại trong nodes")
+        if rtype and rtype not in VALID_REL_TYPES:
+            errors.append(f"Relationship type '{rtype}' không hợp lệ")
+
+    # Kiểm tra MENTIONED_IN tới DOCUMENT
+    mentioned_sources = {r["source"] for r in rels if r.get("type") == "MENTIONED_IN"}
+    non_doc_nodes = [n["id"] for n in nodes if n.get("label") != "DOCUMENT"]
+    missing_mentioned = [nid for nid in non_doc_nodes if nid not in mentioned_sources]
+    if missing_mentioned:
+        errors.append(f"Các nodes thiếu MENTIONED_IN: {missing_mentioned}")
+
+    is_valid = len(errors) == 0
+    return is_valid, errors
+
+
+def fix_extracted(data: dict, doctype: str) -> dict:
+    """
+    Auto-fix các lỗi nhỏ:
+    - Xóa nodes có label sai
+    - Xóa SUBJECT/MAJOR thiếu code (trừ career_description MAJOR)
+    - Xóa relationships có endpoint không tồn tại
+    - Thêm MENTIONED_IN còn thiếu
+    """
+    valid_labels = VALID_NODES_BY_DOCTYPE.get(doctype, set()) | {"DOCUMENT"}
+    nodes = data.get("nodes", [])
+    rels  = data.get("relationships", [])
+
+    # Tìm DOC node id
+    doc_node_ids = [n["id"] for n in nodes if n.get("label") == "DOCUMENT"]
+    doc_id = doc_node_ids[0] if doc_node_ids else None
+
+    # Lọc nodes hợp lệ
+    clean_nodes = []
+    for node in nodes:
+        label = node.get("label", "")
+        props = node.get("properties", {})
+
+        if label not in valid_labels:
+            continue
+
+        if label in REQUIRED_CODE_LABELS and doctype != "career_description":
+            code = props.get("code", "")
+            if not code or code.upper() in {"", "SKILL", "MAJOR", "SUBJECT", "CAREER"}:
+                continue
+
+        if not props.get("name"):
+            continue
+
+        clean_nodes.append(node)
+
+    valid_ids = {n["id"] for n in clean_nodes}
+
+    # Lọc relationships
+    clean_rels = [
+        r for r in rels
+        if r.get("source") in valid_ids
+        and r.get("target") in valid_ids
+        and r.get("type") in VALID_REL_TYPES
+    ]
+
+    # Thêm MENTIONED_IN còn thiếu
+    if doc_id and doc_id in valid_ids:
+        mentioned_sources = {r["source"] for r in clean_rels if r.get("type") == "MENTIONED_IN"}
+        non_doc = [n["id"] for n in clean_nodes if n.get("label") != "DOCUMENT"]
+        for nid in non_doc:
+            if nid not in mentioned_sources:
+                clean_rels.append({"source": nid, "target": doc_id, "type": "MENTIONED_IN"})
+
+    data["nodes"] = clean_nodes
+    data["relationships"] = clean_rels
+    return data
+
+
+# ─── MINIO HELPERS ────────────────────────────────────────────────────────────
 
 def get_minio_client() -> Minio:
     return Minio(
@@ -177,9 +312,7 @@ def get_minio_client() -> Minio:
 def list_json_objects(client: Minio, bucket: str, prefix: str) -> list[str]:
     objects = client.list_objects(bucket, prefix=prefix + "/", recursive=True)
     all_names = [obj.object_name for obj in objects]
-    print(f"    [debug] bucket='{bucket}' prefix='{prefix}/' → {len(all_names)} objects found")
-    if all_names:
-        print(f"    [debug] sample: {all_names[:3]}")
+    log.info(f"[{prefix}] Tìm thấy {len(all_names)} objects")
     return [o for o in all_names if o.endswith(".json")]
 
 
@@ -190,7 +323,7 @@ def download_json(client: Minio, bucket: str, object_name: str) -> dict:
     return data
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 def make_docid(folder: str, filename: str) -> str:
     stem = Path(filename).stem
@@ -209,7 +342,7 @@ def save_local(data: dict, folder: str, filename: str):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-# ── LLM extraction ────────────────────────────────────────────────────────────
+# ─── LLM EXTRACTION WITH RETRY ───────────────────────────────────────────────
 
 def extract_via_llm(ai_client: OpenAI, doc_json: dict, docid: str, doctype: str) -> dict:
     user_msg = (
@@ -218,51 +351,94 @@ def extract_via_llm(ai_client: OpenAI, doc_json: dict, docid: str, doctype: str)
         f"Nội dung JSON:\n{json.dumps(doc_json, ensure_ascii=False, indent=2)}\n\n"
         f"Trả về JSON hợp lệ theo schema."
     )
-    response = ai_client.chat.completions.create(
-        model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_BY_DOCTYPE.get(doctype, SYSTEM_PROMPT_BASE)},
-            {"role": "user",   "content": user_msg},
-        ],
-        temperature=0,
-        response_format={"type": "json_object"},
-    )
-    return json.loads(response.choices[0].message.content)
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = ai_client.chat.completions.create(
+                model=OPENAI_MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_BY_DOCTYPE.get(doctype, SYSTEM_PROMPT_BASE)},
+                    {"role": "user",   "content": user_msg},
+                ],
+                temperature=0,
+                response_format={"type": "json_object"},
+            )
+            return json.loads(response.choices[0].message.content)
+
+        except RateLimitError as e:
+            wait = RETRY_BASE_DELAY * (2 ** attempt)
+            log.warning(f"Rate limit (attempt {attempt}/{MAX_RETRIES}), chờ {wait:.1f}s: {e}")
+            time.sleep(wait)
+
+        except APIError as e:
+            if attempt == MAX_RETRIES:
+                raise
+            wait = RETRY_BASE_DELAY * attempt
+            log.warning(f"API error (attempt {attempt}/{MAX_RETRIES}), chờ {wait:.1f}s: {e}")
+            time.sleep(wait)
+
+        except json.JSONDecodeError as e:
+            if attempt == MAX_RETRIES:
+                raise
+            log.warning(f"JSON parse error (attempt {attempt}/{MAX_RETRIES}): {e}")
+
+    raise RuntimeError(f"Hết {MAX_RETRIES} lần retry cho {docid}")
 
 
-# ── Worker (chạy trong thread) ────────────────────────────────────────────────
+# ─── WORKER ───────────────────────────────────────────────────────────────────
 
 def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: str) -> str:
     filename = Path(obj_name).name
     docid    = make_docid(folder, filename)
+    doctype  = DOCTYPE_MAP[folder]
     out_path = LOCAL_OUT_DIR / folder / f"{docid}.json"
 
     if out_path.exists():
-        print(f"  [skip]  {filename} (đã có)")
+        log.debug(f"[skip] {filename}")
         return "skip"
 
-    print(f"  [start] {filename}")
+    log.info(f"[start] {filename} ({docid})")
     try:
         doc_json  = download_json(minio_client, MINIO_BUCKET, obj_name)
-        extracted = extract_via_llm(ai_client, doc_json, docid, DOCTYPE_MAP[folder])
+        extracted = extract_via_llm(ai_client, doc_json, docid, doctype)
+
+        # Validate & auto-fix
+        is_valid, errors = validate_extracted(extracted, doctype)
+        if not is_valid:
+            log.warning(f"[warn] {filename} có {len(errors)} vấn đề, đang auto-fix...")
+            for e in errors:
+                log.warning(f"       - {e}")
+            extracted = fix_extracted(extracted, doctype)
+
+            # Re-validate sau fix
+            is_valid2, errors2 = validate_extracted(extracted, doctype)
+            if not is_valid2:
+                log.error(f"[error] {filename} vẫn lỗi sau fix: {errors2}")
+                return "error"
+
         save_local(extracted, folder, f"{docid}.json")
-        print(f"  [done]  {filename}")
+        node_count = len(extracted.get("nodes", []))
+        rel_count  = len(extracted.get("relationships", []))
+        log.info(f"[done] {filename} → {node_count} nodes, {rel_count} rels")
         return "ok"
+
     except Exception as e:
-        print(f"  [ERROR] {filename}: {e}")
+        log.error(f"[ERROR] {filename}: {e}")
         return "error"
 
 
-# ── Main pipeline ─────────────────────────────────────────────────────────────
+# ─── MAIN PIPELINE ────────────────────────────────────────────────────────────
 
 def process_folder(minio_client: Minio, ai_client: OpenAI, folder: str):
-    print(f"\n{'='*60}\nProcessing folder: {folder}")
+    log.info(f"\n{'='*60}\nProcessing folder: {folder}")
     objects = list_json_objects(minio_client, MINIO_BUCKET, f"{MINIO_BASE_FOLDER}/{folder}")
     if not objects:
-        print(f"  No JSON files found in {folder}/")
-        return
-    print(f"  {len(objects)} files → {MAX_WORKERS} workers song song\n")
+        log.warning(f"Không tìm thấy file JSON trong {folder}/")
+        return {"ok": 0, "skip": 0, "error": 0}
+
+    log.info(f"{len(objects)} files → {MAX_WORKERS} workers song song")
     counts = {"ok": 0, "skip": 0, "error": 0}
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
             executor.submit(process_one, minio_client, ai_client, folder, obj): obj
@@ -271,16 +447,30 @@ def process_folder(minio_client: Minio, ai_client: OpenAI, folder: str):
         for future in as_completed(futures):
             status = future.result()
             counts[status] = counts.get(status, 0) + 1
-    print(f"\n  Folder '{folder}' xong: ✓{counts['ok']}  skip={counts['skip']}  ✗{counts['error']}")
+
+    log.info(f"Folder '{folder}' xong: ✓{counts['ok']}  skip={counts['skip']}  ✗{counts['error']}")
+    return counts
 
 
 def main():
-    print("Starting entity extraction pipeline...")
+    log.info("Starting entity extraction pipeline...")
+
+    if not OPENAI_API_KEY:
+        raise ValueError("OPENAI_API_KEY không tìm thấy trong .env")
+    if not MINIO_ENDPOINT:
+        raise ValueError("MINIO_ENDPOINT không tìm thấy trong .env")
+
     minio_client = get_minio_client()
     ai_client    = OpenAI(api_key=OPENAI_API_KEY)
+
+    total = {"ok": 0, "skip": 0, "error": 0}
     for folder in INPUT_FOLDERS:
-        process_folder(minio_client, ai_client, folder)
-    print("\n✅ Extraction complete. Results saved to ./cache/output/")
+        counts = process_folder(minio_client, ai_client, folder)
+        for k in total:
+            total[k] += counts.get(k, 0)
+
+    log.info(f"\n✅ Extraction complete. Tổng: ✓{total['ok']}  skip={total['skip']}  ✗{total['error']}")
+    log.info("Results saved to ./cache/output/")
 
 
 if __name__ == "__main__":

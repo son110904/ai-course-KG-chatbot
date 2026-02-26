@@ -3,3 +3,5 @@ _pycache_/
 *.log
 extraction_logs/
 cache
+data
+reports

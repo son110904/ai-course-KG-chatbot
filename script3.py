@@ -1,7 +1,6 @@
 """
 Script 3: Knowledge Graph Q&A Chatbot
 Fixes v2:
-  - Memory: lưu 3 lượt hội thoại gần nhất, đưa vào context LLM
   - Intent detection: phân loại thực thể đề cập / thực thể được hỏi
   - Relationship constraints per query type: ràng buộc đường truy xuất theo loại câu hỏi
   - Negation handling: nhận diện "ko / k / không / chẳng / kém / chưa giỏi" → lọc thực thể phủ định
@@ -41,9 +40,9 @@ NEGATION_SYNONYMS = {
 }
 
 SCHEMA_DESC = """
-Nodes: MAJOR{name,code,community_id,pagerank}, SUBJECT{name,code,community_id,pagerank},
-       SKILL{name,community_id,pagerank}, CAREER{name,community_id,pagerank},
-       TEACHER{name,community_id}, DOCUMENT{name,docid,doctype}
+Nodes: MAJOR{name,code,pagerank}, SUBJECT{name,code,pagerank},
+       SKILL{name,pagerank}, CAREER{name,pagerank},
+       TEACHER{name}, DOCUMENT{name,docid,doctype}
 Relationships:
   (MAJOR)-[:OFFERS]->(SUBJECT)
   (TEACHER)-[:TEACH]->(SUBJECT)
@@ -53,6 +52,9 @@ Relationships:
   (MAJOR)-[:LEADS_TO]->(CAREER)
   (*)-[:MENTIONED_IN]->(DOCUMENT)
 All name values are UPPERCASE Vietnamese.
+
+Community ID mapping (tự động gán theo node type, không cần Louvain):
+  TEACHER → 0, SKILL → 1, CAREER → 2, MAJOR → 3, SUBJECT → 4
 """
 
 # ── Ràng buộc quan hệ theo loại câu hỏi ──────────────────────────────────────
@@ -68,7 +70,7 @@ RELATIONSHIP_CONSTRAINTS = {
     ("CAREER", "SKILL"): (
         "Đường truy xuất: CAREER -[:REQUIRES]-> SKILL và SUBJECT -[:PROVIDES]-> SKILL.\n"
         "Trả lời: kỹ năng cần thiết cho nghề đó + môn học cung cấp kỹ năng tương ứng.\n"
-        "Kèm mã môn học nếu có."
+        "Kèm mã môn học."
     ),
     # Đề cập MAJOR → hỏi SKILL
     ("MAJOR", "SKILL"): (
@@ -129,59 +131,88 @@ RELATIONSHIP_CONSTRAINTS = {
 
 # ── Prompt hệ thống chính cho generate_answer ─────────────────────────────────
 ANSWER_SYSTEM_BASE = """Bạn là trợ lý tư vấn học thuật cho Đại học Kinh tế Quốc dân (NEU).
-Tổng hợp câu trả lời rõ ràng, tự nhiên bằng tiếng Việt từ kết quả Knowledge Graph đã xếp hạng.
 
 {schema}
 
-QUY TẮC QUAN TRỌNG:
-1. Trả lời ĐÚNG TRỌNG TÂM câu hỏi. Không thêm thông tin không được hỏi đến.
-2. Không dùng câu "ngoài ra..." để mở rộng ngoài phạm vi câu hỏi.
-3. Nếu dữ liệu không đủ để trả lời → nói rõ "Dữ liệu hiện tại chưa đủ để tư vấn về [chủ đề], bạn có thể liên hệ phòng đào tạo để biết thêm."
-4. KHÔNG bịa thông tin không có trong Knowledge Graph.
-5. Luôn kèm mã ngành (MAJOR.code) và mã môn học (SUBJECT.code) khi có trong dữ liệu.
-6. Khi người dùng đề cập thực thể mà họ KHÔNG giỏi / không thích → loại bỏ thực thể đó khỏi câu trả lời.
-7. Ngôn ngữ tự nhiên, thân thiện — KHÔNG máy móc, lý thuyết.
+==================================================
+LUẬT TUYỆT ĐỐI — VI PHẠM LÀ SAI:
+==================================================
+A. CHỈ dùng đúng tên/code/thông tin có trong phần [DỮ LIỆU GRAPH] bên dưới.
+B. TUYỆT ĐỐI KHÔNG thêm bất kỳ kỹ năng, môn học, nghề nghiệp nào từ kiến thức bên ngoài.
+C. TUYỆT ĐỐI KHÔNG liệt kê các mục chung chung như "kỹ năng giao tiếp", "tư duy logic",
+   "quản lý thời gian" nếu chúng KHÔNG xuất hiện tên đúng trong [DỮ LIỆU GRAPH].
+D. Mọi tên SKILL/SUBJECT/CAREER/MAJOR phải lấy nguyên văn từ [DỮ LIỆU GRAPH].
+E. Mọi mã môn (code) phải lấy nguyên văn từ field "code" trong [DỮ LIỆU GRAPH].
+F. Nếu [DỮ LIỆU GRAPH] không có node nào phù hợp → trả lời:
+   "Dữ liệu hiện tại chưa đủ để tư vấn về [chủ đề]. Bạn có thể liên hệ phòng đào tạo."
+   KHÔNG được tự bổ sung thêm gì khác.
+
+ĐỊNH DẠNG KẾT QUẢ:
+- Ngôn ngữ tự nhiên, thân thiện, tiếng Việt.
+- Khi nhắc môn học: "Tên môn (mã môn)" — ví dụ: "Toán cho các nhà kinh tế (TCB1110)".
+- Khi nhắc ngành: "Tên ngành (mã ngành)" — ví dụ: "Công nghệ thông tin (7480201)".
+- Khi người dùng phủ định (không giỏi X) → bỏ X khỏi câu trả lời.
+- KHÔNG hỏi ngược lại người dùng ở cuối câu trả lời.
 
 RÀNG BUỘC THEO LOẠI CÂU HỎI:
 {constraint}
 """
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 0: SETUP — Chạy Community Detection + PageRank (offline, 1 lần)
+# BƯỚC 0: SETUP — Gán Community ID cố định + Tính PageRank (chạy mỗi khi graph thay đổi)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def setup_graph_algorithms(driver):
     """
-    Global Community Detection (Louvain) + PageRank
-    Chạy trên toàn bộ graph (không chia theo label).
-    Phù hợp cho GraphRAG reasoning đa thực thể.
+    Gán community_id cố định theo node type (KHÔNG dùng Louvain phức tạp):
+      TEACHER → 0, SKILL → 1, CAREER → 2, MAJOR → 3, SUBJECT → 4
+    
+    Tính PageRank bằng NetworkX (Python) → ghi lên Neo4j.
+    
+    ⚠️  QUAN TRỌNG: Chạy lại script này mỗi khi graph được cập nhật/thay đổi
+        để đảm bảo PageRank luôn mới nhất.
     """
-
     try:
         import networkx as nx
-        from networkx.algorithms.community import louvain_communities
     except ImportError:
-        print("Cài networkx: pip install networkx")
+        print("  Cài networkx: pip install networkx")
         return
 
-    print("\n[Setup] Pull graph từ Neo4j → tính Global Louvain + PageRank...")
+    print("\n[Setup] Gán community_id cố định + tính PageRank bằng NetworkX...")
+
+    # Mapping cố định: node type → community_id
+    TYPE_TO_COMMUNITY = {
+        "TEACHER": 0,
+        "SKILL":   1,
+        "CAREER":  2,
+        "MAJOR":   3,
+        "SUBJECT": 4,
+    }
 
     G = nx.Graph()
 
-    # ─── 1. Pull nodes ───────────────────────────────────
     with driver.session() as session:
+        # Gán community_id cố định theo type
+        print("  Gán community_id theo node type...")
+        for node_type, cid in TYPE_TO_COMMUNITY.items():
+            result = session.run(f"""
+                MATCH (n:{node_type})
+                SET n.community_id = {cid}
+                RETURN count(n) AS cnt
+            """)
+            count = result.single()["cnt"]
+            print(f"    {node_type}: {count} nodes → community_id={cid}")
 
+        # Pull graph để tính PageRank
         nodes = session.run("""
             MATCH (n)
             WHERE n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER
             RETURN n.name AS name
         """).data()
-
         for row in nodes:
             if row["name"]:
                 G.add_node(row["name"])
 
-        # ─── 2. Pull relationships ────────────────────────
         rels = session.run("""
             MATCH (a)-[r]->(b)
             WHERE (a:MAJOR OR a:SUBJECT OR a:SKILL OR a:CAREER OR a:TEACHER)
@@ -189,57 +220,35 @@ def setup_graph_algorithms(driver):
               AND a.name IS NOT NULL AND b.name IS NOT NULL
             RETURN a.name AS src, b.name AS tgt
         """).data()
-
         for row in rels:
             G.add_edge(row["src"], row["tgt"])
 
-    print(f"Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+    print(f"  Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
-    # ─── 3. Global Louvain ───────────────────────────────
-    print("Chạy Global Louvain community detection...")
-    communities = louvain_communities(G, seed=42)
-
-    node_community = {}
-    for cid, community in enumerate(communities):
-        for node in community:
-            node_community[node] = cid
-
-    print(f"Tìm thấy {len(communities)} communities")
-
-    # ─── 4. PageRank ─────────────────────────────────────
-    print("Chạy PageRank...")
+    print("  Tính PageRank (alpha=0.85)...")
     pagerank = nx.pagerank(G, alpha=0.85, max_iter=100)
 
-    # ─── 5. Ghi lại Neo4j ───────────────────────────────
-    print("Ghi community_id + pagerank lên Neo4j...")
-
+    print("  Ghi pagerank lên Neo4j...")
     with driver.session() as session:
         BATCH_SIZE = 500
-        items = list(node_community.items())
-
+        items = list(pagerank.items())
         for i in range(0, len(items), BATCH_SIZE):
             batch = [
-                {
-                    "name": name,
-                    "cid": cid,
-                    "pr": round(pagerank.get(name, 0.0), 8)
-                }
-                for name, cid in items[i:i+BATCH_SIZE]
+                {"name": name, "pr": round(pr, 8)}
+                for name, pr in items[i:i+BATCH_SIZE]
             ]
-
             session.run("""
                 UNWIND $batch AS row
                 MATCH (n) WHERE n.name = row.name
-                SET n.community_id = row.cid,
-                    n.pagerank      = row.pr
+                SET n.pagerank = row.pr
             """, batch=batch)
 
-    print(f"Đã ghi {len(node_community)} nodes")
-    print("[Setup] Xong.\n")
+    print(f"  Đã ghi PageRank cho {len(pagerank)} nodes")
+    print("[Setup] Xong. Gợi ý: Chạy lại script này nếu graph được cập nhật.\n")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MỚI: EXTRACT QUERY INTENT — Phân loại ý định câu hỏi
+# EXTRACT QUERY INTENT — Phân loại ý định câu hỏi
 # ══════════════════════════════════════════════════════════════════════════════
 
 def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
@@ -258,9 +267,6 @@ def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
         "CAREER (nghề nghiệp / vị trí việc làm), TEACHER (giảng viên)\n\n"
         "Từ đồng nghĩa phủ định: ko, k, không, chẳng, kém, yếu, dở, chưa giỏi, "
         "không giỏi, không thích, không muốn, không biết\n\n"
-        "PHÂN BIỆT QUAN TRỌNG:\n"
-        "  - Hỏi 'môn học / môn nào / học môn gì' → asked_label: 'SUBJECT'\n"
-        "  - Hỏi 'ngành nào / học ngành gì / chuyên ngành' → asked_label: 'MAJOR'\n"
         "QUAN TRỌNG - Chuẩn hóa keyword về tiếng Việt theo graph:\n"
         "  data analyst → chuyên viên phân tích dữ liệu\n"
         "  software engineer / developer → lập trình viên, kỹ sư phần mềm\n"
@@ -282,9 +288,6 @@ def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
         '  Câu: "Ko giỏi toán thì theo nghề lập trình viên được không?" '
         '→ negated_keywords: ["toán"], mentioned_labels: ["CAREER"]\n'
         '  Câu: "CNTT hay KTPM phù hợp hơn?" → is_comparison: true, mentioned_labels: ["MAJOR"]\n'
-        '  Câu: "Học môn gì để làm lập trình viên?" → mentioned_labels: ["CAREER"], asked_label: "SUBJECT"\n'
-        '  Câu: "Môn nào giúp tôi trở thành data analyst?" → mentioned_labels: ["CAREER"], asked_label: "SUBJECT"\n'
-        '  Câu: "Cần học những môn gì cho nghề kế toán?" → mentioned_labels: ["CAREER"], asked_label: "SUBJECT"\n'
     )
 
     response = ai_client.chat.completions.create(
@@ -342,25 +345,44 @@ def get_relationship_constraint(intent: dict) -> str:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 1: COMMUNITY DETECTION
+# BƯỚC 1: COMMUNITY MAPPING (cố định theo node type)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def find_relevant_communities(driver, keywords: list[str]) -> list[int]:
-    if not keywords:
-        return []
+def get_community_for_node_type(node_type: str) -> int:
+    """Lấy community_id cố định theo node type."""
+    TYPE_TO_COMMUNITY = {
+        "TEACHER": 0,
+        "SKILL":   1,
+        "CAREER":  2,
+        "MAJOR":   3,
+        "SUBJECT": 4,
+    }
+    return TYPE_TO_COMMUNITY.get(node_type, -1)
+
+
+def find_relevant_communities(driver, keywords):
+    """
+    Tìm các community_id liên quan đến từ khóa.
+    Sửa lỗi: Sử dụng WITH để gom nhóm pagerank trước khi sắp xếp.
+    """
+    community_ids = set()
     with driver.session() as session:
-        community_ids = set()
         for kw in keywords:
-            result = session.run("""
+            kw = kw.upper()
+            # Câu lệnh Cypher đã fix lỗi 42N44
+            query = """
                 MATCH (n)
-                WHERE (n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER)
-                  AND toLower(n.name) CONTAINS toLower($kw)
-                  AND n.community_id IS NOT NULL
-                RETURN DISTINCT n.community_id AS cid
-                LIMIT 5
-            """, kw=kw)
-            for rec in result:
-                community_ids.add(rec["cid"])
+                WHERE n.name CONTAINS $kw 
+                   OR (n.code IS NOT NULL AND n.code CONTAINS $kw)
+                WITH n.community_id AS cid, max(n.pagerank) AS max_rank
+                WHERE cid IS NOT NULL
+                RETURN cid
+                ORDER BY max_rank DESC
+                LIMIT 3
+            """
+            result = session.run(query, kw=kw)
+            for record in result:
+                community_ids.add(record["cid"])
     return list(community_ids)
 
 
@@ -399,6 +421,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['LEADS_TO'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
     ("CAREER", "SKILL"): """
@@ -409,6 +432,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['REQUIRES'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
     ("MAJOR", "SKILL"): """
@@ -417,6 +441,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['OFFERS','PROVIDES'] AS rel_types, [start.name, sub.name, n.name] AS node_names, 2 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
     ("SKILL", "MAJOR"): """
@@ -425,6 +450,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['OFFERS','PROVIDES'] AS rel_types, [n.name, sub.name, start.name] AS node_names, 2 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
     ("SKILL", "CAREER"): """
@@ -433,6 +459,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['REQUIRES'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
     ("CAREER", "SUBJECT"): """
@@ -441,6 +468,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['REQUIRES','PROVIDES'] AS rel_types, [start.name, sk.name, n.name] AS node_names, 2 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
     ("MAJOR", "SUBJECT"): """
@@ -449,6 +477,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['OFFERS'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
     ("SKILL", "SUBJECT"): """
@@ -457,6 +486,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['PROVIDES'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
     ("SUBJECT", "SKILL"): """
@@ -465,6 +495,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['PROVIDES'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
     ("CAREER", "MAJOR"): """
@@ -473,6 +504,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                n.pagerank AS pagerank, n.community_id AS community_id,
                ['LEADS_TO'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        ORDER BY n.pagerank DESC
         LIMIT 30
     """,
 }
@@ -514,6 +546,7 @@ def multihop_traversal(driver, keywords: list[str],
                 WHERE (seed:MAJOR OR seed:SUBJECT OR seed:SKILL OR seed:CAREER OR seed:TEACHER)
                   AND toLower(seed.name) CONTAINS toLower($kw)
                 RETURN seed
+                ORDER BY seed.pagerank DESC
                 LIMIT 3
             """
             seeds = [rec["seed"] for rec in session.run(seed_query, kw=kw)]
@@ -670,18 +703,13 @@ def generate_answer(ai_client: OpenAI, question: str,
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": (
                 f"Câu hỏi: {question}\n\n"
-                f"Kết quả Knowledge Graph (đã xếp hạng PageRank):\n{context}"
+                f"[DỮ LIỆU GRAPH — chỉ được dùng thông tin trong này]:\n{context}"
                 f"{no_data_hint}\n\n"
-                "Hướng dẫn trả lời:\n"
-                "- Dùng TẤT CẢ thông tin có trong kết quả trên để trả lời.\n"
-                "- Nếu có node SUBJECT với code (mã môn) → nhắc đến tên môn và mã môn.\n"
-                "- Nếu có node CAREER → nhắc đến nghề nghiệp cụ thể.\n"
-                "- Nếu có node SKILL → liệt kê kỹ năng.\n"
-                "- KHÔNG nói 'dữ liệu chưa đủ' nếu đã có nodes trong kết quả.\n"
-                "- Trả lời tự nhiên bằng tiếng Việt, kèm mã ngành/mã môn khi có:"
+                "Hãy trả lời câu hỏi trên, CHỈ dùng đúng tên/code từ [DỮ LIỆU GRAPH]. "
+                "KHÔNG thêm bất kỳ thông tin nào từ kiến thức bên ngoài:"
             )},
         ],
-        temperature=0.3,
+        temperature=0,
     )
     return response.choices[0].message.content.strip()
 
@@ -709,6 +737,7 @@ def fetch_seed_entities(driver, keywords: list[str], mentioned_labels: list[str]
                 RETURN n.name AS name, labels(n)[0] AS label,
                        n.code AS code, n.pagerank AS pagerank,
                        n.community_id AS community_id
+                ORDER BY n.pagerank DESC
                 LIMIT 3
             """, kw=kw).data()
             for r in rows:
@@ -805,7 +834,7 @@ def get_driver():
     return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
 
 
-# ── Interactive loop ───────────────────────────────────────────────────────────
+# ── Interactive loop ──────────────────────────────────────────────────────────
 
 def interactive_loop(driver, ai_client: OpenAI):
     print("\n🎓 Knowledge Graph Chatbot (NEU)")
@@ -827,10 +856,7 @@ def interactive_loop(driver, ai_client: OpenAI):
             print("Tạm biệt!")
             break
 
-        ask(
-            driver, ai_client, question,
-            query_id=f"q{counter:03d}"
-        )
+        ask(driver, ai_client, question, query_id=f"q{counter:03d}")
         counter += 1
 
 
@@ -840,9 +866,15 @@ def main():
     driver    = get_driver()
 
     try:
-        print("\nBạn có muốn chạy Community Detection + PageRank không?")
-        print("(Chỉ cần chạy 1 lần sau khi load dữ liệu lên Neo4j)")
-        ans = input("Nhập 'yes' để chạy, Enter để bỏ qua: ").strip().lower()
+        print("\n" + "="*70)
+        print("⚙️  SETUP: Gán Community ID + Tính PageRank")
+        print("="*70)
+        print("Hướng dẫn:")
+        print("  • Chạy 'yes' lần ĐẦU TIÊN khi khởi động (setup graph)")
+        print("  • Chạy 'yes' LẠI mỗi khi graph thay đổi (thêm/xóa nodes)")
+        print("  • Nếu không chạy setup → kết quả ranking sẽ không chính xác")
+        print("="*70)
+        ans = input("\nNhập 'yes' để chạy setup, Enter để bỏ qua: ").strip().lower()
         if ans == "yes":
             setup_graph_algorithms(driver)
 
