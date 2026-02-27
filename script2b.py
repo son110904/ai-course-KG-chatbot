@@ -1,5 +1,5 @@
 """
-Script 2b: 
+Script 2b:
   PHẦN 1 — Xóa MAJOR nodes trùng (code = name) bằng Cypher thuần — không cần APOC.
   Chiến lược:
     1. Tìm cặp: MAJOR có code hợp lệ (bắt đầu bằng số) ↔ MAJOR cùng name nhưng code = name
@@ -8,10 +8,13 @@ Script 2b:
 
   PHẦN 2 — Gắn thuộc tính major_codes vào CAREER nodes.
   Chiến lược:
-    - Mỗi CAREER có quan hệ LEADS_TO từ các MAJOR (hướng: MAJOR -[LEADS_TO]-> CAREER
-      HOẶC CAREER -[SUITABLE_FOR]-> MAJOR, tuỳ schema thực tế — script tự detect).
+    - Mỗi CAREER có quan hệ LEADS_TO từ các MAJOR (hướng: MAJOR -[:LEADS_TO]-> CAREER).
     - Thu thập tất cả mã ngành hợp lệ (code =~ '^\\d+') của các MAJOR liên quan.
     - SET career.major_codes = [list mã ngành đó].
+
+Relationship names đồng bộ với script 1, 2, 3:
+  MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT
+  MAJOR -[:LEADS_TO]->             CAREER
 """
 
 import os
@@ -39,7 +42,7 @@ def step0_diagnose(session):
     result = session.run("""
         MATCH (m:MAJOR)
         RETURN m.name AS name, m.code AS code, elementId(m) AS node_id,
-               CASE 
+               CASE
                  WHEN m.code IS NULL THEN "NO CODE"
                  WHEN m.code =~ '^\\d+' THEN "VALID_CODE"
                  WHEN m.code = m.name THEN "CODE_IS_NAME (duplicate)"
@@ -52,7 +55,6 @@ def step0_diagnose(session):
         code_str = f"code={r['code']}" if r['code'] else "NO CODE"
         print(f"  id={r['node_id']}  {r['name']}  ({code_str})  [{r['status']}]")
 
-    # Tìm các tên bị trùng
     dupes = session.run("""
         MATCH (m:MAJOR)
         WITH m.name AS name, collect(m) AS nodes, count(m) AS cnt
@@ -73,18 +75,18 @@ def step1_reconnect_relationships(session):
     Với mỗi cặp (has_code, no_code) cùng name:
     Tạo lại TẤT CẢ relationships của node no_code → trỏ vào has_code.
 
-    Xử lý từng loại relationship riêng vì Cypher không cho phép
-    dynamic relationship type trong MERGE.
+    Relationship types đồng bộ với script 2 & 3:
+      MAJOR_OFFERS_SUBJECT (thay vì OFFERS)
+      LEADS_TO
     """
     print("\n[Step 1] Chuyển relationships từ node code=name → node có code hợp lệ...")
 
     rel_types = [
-        # (rel_type, direction)
-        # direction = "out"  → (no_code)-[r]->(x)  cần tạo (has_code)-[r]->(x)
-        # direction = "in"   → (x)-[r]->(no_code)  cần tạo (x)-[r]->(has_code)
-        ("LEADS_TO",     "out"),   # MAJOR -[LEADS_TO]-> CAREER
-        ("OFFERS",       "out"),   # MAJOR -[OFFERS]-> SUBJECT
-        ("MENTIONED_IN", "out"),   # MAJOR -[MENTIONED_IN]-> DOCUMENT
+        # (rel_type_in_neo4j, direction)
+        # direction = "out" → (no_code)-[r]->(x)  cần tạo (has_code)-[r]->(x)
+        # direction = "in"  → (x)-[r]->(no_code)  cần tạo (x)-[r]->(has_code)
+        ("LEADS_TO",             "out"),   # MAJOR -[:LEADS_TO]-> CAREER
+        ("MAJOR_OFFERS_SUBJECT", "out"),   # MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT
     ]
 
     total = 0
@@ -94,8 +96,8 @@ def step1_reconnect_relationships(session):
                 MATCH (has_code:MAJOR)
                 WHERE has_code.code IS NOT NULL AND has_code.code =~ '^\\d+'
                 MATCH (no_code:MAJOR)
-                    WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
-                    AND toLower(no_code.name) = toLower(has_code.name)
+                WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
+                  AND toLower(no_code.name) = toLower(has_code.name)
                 MATCH (no_code)-[:{rel_type}]->(x)
                 MERGE (has_code)-[:{rel_type}]->(x)
                 RETURN count(*) AS cnt
@@ -105,8 +107,8 @@ def step1_reconnect_relationships(session):
                 MATCH (has_code:MAJOR)
                 WHERE has_code.code IS NOT NULL AND has_code.code =~ '^\\d+'
                 MATCH (no_code:MAJOR)
-                    WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
-                    AND toLower(no_code.name) = toLower(has_code.name)
+                WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
+                  AND toLower(no_code.name) = toLower(has_code.name)
                 MATCH (x)-[:{rel_type}]->(no_code)
                 MERGE (x)-[:{rel_type}]->(has_code)
                 RETURN count(*) AS cnt
@@ -128,8 +130,8 @@ def step2_delete_no_code_nodes(session):
         MATCH (has_code:MAJOR)
         WHERE has_code.code IS NOT NULL AND has_code.code =~ '^\\d+'
         MATCH (no_code:MAJOR)
-            WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
-            AND toLower(no_code.name) = toLower(has_code.name)
+        WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
+          AND toLower(no_code.name) = toLower(has_code.name)
         RETURN no_code.name AS name, elementId(no_code) AS node_id
     """).data()
 
@@ -145,8 +147,8 @@ def step2_delete_no_code_nodes(session):
         MATCH (has_code:MAJOR)
         WHERE has_code.code IS NOT NULL AND has_code.code =~ '^\\d+'
         MATCH (no_code:MAJOR)
-            WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
-            AND toLower(no_code.name) = toLower(has_code.name)
+        WHERE no_code.code IS NOT NULL AND no_code.code = no_code.name
+          AND toLower(no_code.name) = toLower(has_code.name)
         DETACH DELETE no_code
         RETURN count(*) AS cnt
     """).single()["cnt"]
@@ -162,7 +164,7 @@ def step3_verify(session):
     result = session.run("""
         MATCH (m:MAJOR)
         OPTIONAL MATCH (m)-[:LEADS_TO]->(c:CAREER)
-        OPTIONAL MATCH (m)-[:OFFERS]->(s:SUBJECT)
+        OPTIONAL MATCH (m)-[:MAJOR_OFFERS_SUBJECT]->(s:SUBJECT)
         RETURN m.name AS name, m.code AS code,
                count(DISTINCT c) AS career_count,
                count(DISTINCT s) AS subject_count
@@ -198,32 +200,34 @@ def step3_verify(session):
 def detect_career_major_rel_direction(session):
     """
     Tự detect hướng quan hệ giữa CAREER và MAJOR trong graph.
-    Trả về: "MAJOR_TO_CAREER" | "CAREER_TO_MAJOR" | None
+    Ưu tiên MAJOR -[:LEADS_TO]-> CAREER (schema chuẩn từ script 2).
+    Trả về: ("MAJOR_TO_CAREER", rel_type) | ("CAREER_TO_MAJOR", rel_type) | (None, None)
     """
-    # Thử MAJOR -[LEADS_TO]-> CAREER
+    # Thử MAJOR -[:LEADS_TO]-> CAREER (schema chuẩn)
     r1 = session.run("""
         MATCH (m:MAJOR)-[:LEADS_TO]->(c:CAREER)
         RETURN count(*) AS cnt
     """).single()["cnt"]
 
-    # Thử CAREER -[SUITABLE_FOR|RELATED_TO|LEADS_TO]-> MAJOR (một số schema ngược)
+    if r1 > 0:
+        print(f"  Phát hiện: MAJOR -[:LEADS_TO]-> CAREER ({r1} rels)")
+        return "MAJOR_TO_CAREER", "LEADS_TO"
+
+    # Fallback: thử hướng ngược lại
     r2 = session.run("""
         MATCH (c:CAREER)-[r]->(m:MAJOR)
         RETURN type(r) AS rel_type, count(*) AS cnt
         ORDER BY cnt DESC LIMIT 1
     """).data()
 
-    if r1 > 0:
-        print(f"  Phát hiện: MAJOR -[LEADS_TO]-> CAREER ({r1} rels)")
-        return "MAJOR_TO_CAREER", "LEADS_TO"
-    elif r2:
+    if r2:
         rel_type = r2[0]["rel_type"]
-        cnt = r2[0]["cnt"]
+        cnt      = r2[0]["cnt"]
         print(f"  Phát hiện: CAREER -[{rel_type}]-> MAJOR ({cnt} rels)")
         return "CAREER_TO_MAJOR", rel_type
-    else:
-        print("  ⚠ Không tìm thấy quan hệ nào giữa CAREER và MAJOR!")
-        return None, None
+
+    print("  ⚠ Không tìm thấy quan hệ nào giữa CAREER và MAJOR!")
+    return None, None
 
 
 def step4_diagnose_career_major_codes(session):
@@ -256,14 +260,13 @@ def step4_diagnose_career_major_codes(session):
         """
 
     result = session.run(query).data()
-    total_careers = len(result)
-    has_valid_major = 0
+    total_careers    = len(result)
+    has_valid_major  = 0
 
     for r in result:
         valid_codes = [
             m["code"] for m in r["majors"]
             if m["code"] and m["code"] != m["name"]
-            # code hợp lệ: có giá trị và không phải là tên ngành
         ]
         if valid_codes:
             has_valid_major += 1
@@ -282,12 +285,10 @@ def step5_set_major_codes(session, direction: str, rel_type: str):
     """
     Gắn thuộc tính major_codes vào mỗi CAREER node.
     major_codes = list mã ngành hợp lệ (code =~ '^\\d+') của các MAJOR liên quan.
-
-    Với MAJOR không có code hợp lệ: thử fuzzy-match tên sang MAJOR có code hợp lệ.
     """
     print(f"\n[Step 5] Gắn major_codes vào CAREER nodes (rel direction: {direction})...")
 
-    # ── 5a. Gắn từ MAJOR có code hợp lệ trực tiếp ──────────────────────────
+    # ── 5a. Gắn từ MAJOR có code hợp lệ trực tiếp ────────────────────────────
     if direction == "MAJOR_TO_CAREER":
         cypher_direct = f"""
             MATCH (c:CAREER)
@@ -295,7 +296,7 @@ def step5_set_major_codes(session, direction: str, rel_type: str):
             WHERE m.code IS NOT NULL AND m.code =~ '^\\d+'
             WITH c, collect(DISTINCT m.code) AS codes
             SET c.major_codes = codes
-            RETURN count(c) AS updated, 
+            RETURN count(c) AS updated,
                    sum(size(codes)) AS total_codes
         """
     else:
@@ -313,15 +314,13 @@ def step5_set_major_codes(session, direction: str, rel_type: str):
     print(f"  ✓ Đã SET major_codes cho {r['updated']} CAREER nodes "
           f"(tổng {r['total_codes']} code assignments)")
 
-    # ── 5b. Với CAREER chưa có code nào: thử map qua tên MAJOR ──────────────
-    # Tìm CAREER có major_codes rỗng nhưng có MAJOR rels (với code=name / no code)
+    # ── 5b. Với CAREER chưa có code nào: thử map qua tên MAJOR ───────────────
     if direction == "MAJOR_TO_CAREER":
         cypher_fallback_find = f"""
             MATCH (c:CAREER)
             WHERE size(c.major_codes) = 0
             MATCH (m_bad:MAJOR)-[:{rel_type}]->(c)
             WHERE m_bad.code IS NULL OR NOT (m_bad.code =~ '^\\d+')
-            // Tìm MAJOR có code hợp lệ cùng tên (case-insensitive)
             OPTIONAL MATCH (m_good:MAJOR)
             WHERE m_good.code IS NOT NULL AND m_good.code =~ '^\\d+'
               AND toLower(m_good.name) = toLower(m_bad.name)
@@ -345,7 +344,6 @@ def step5_set_major_codes(session, direction: str, rel_type: str):
 
     fallback_rows = session.run(cypher_fallback_find).data()
 
-    # Group by career
     career_extra: dict[str, list[str]] = {}
     for row in fallback_rows:
         if row["resolved_code"]:
@@ -378,7 +376,7 @@ def step6_verify_career_codes(session):
 
     no_codes = 0
     for r in result:
-        codes = r["codes"] or []
+        codes  = r["codes"] or []
         status = f"{codes}" if codes else "⚠ EMPTY"
         if not codes:
             no_codes += 1
@@ -406,7 +404,7 @@ def main():
     driver = get_driver()
     with driver.session() as session:
 
-        # ── PHẦN 1: Fix MAJOR duplicates ──────────────────────────────────
+        # ── PHẦN 1: Fix MAJOR duplicates ──────────────────────────────────────
         print("\n" + "─" * 60)
         print("PHẦN 1: Fix MAJOR duplicate nodes")
         print("─" * 60)
@@ -421,7 +419,7 @@ def main():
         else:
             print("\n✅ Không có MAJOR node trùng. Bỏ qua Phần 1.")
 
-        # ── PHẦN 2: Gắn major_codes vào CAREER ────────────────────────────
+        # ── PHẦN 2: Gắn major_codes vào CAREER ────────────────────────────────
         print("\n" + "─" * 60)
         print("PHẦN 2: Gắn major_codes vào CAREER nodes")
         print("─" * 60)

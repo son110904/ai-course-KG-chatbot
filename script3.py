@@ -1,22 +1,14 @@
 """
 Script 3: Knowledge Graph Q&A Chatbot
-v7 — GraphRAG 3-Tier Community Detection
+v8 — GraphRAG 3-Tier Community Detection (synchronized)
 
-Kiến trúc cộng đồng 3 tầng:
-  ├── Level 1 (Global):  Hệ sinh thái Đào tạo & Nghề nghiệp (toàn bộ graph)
-  ├── Level 2 (Functional):
-  │     ├── Academic Cluster:        Major + Subject + Teacher
-  │     └── Career Alignment Cluster: Skill + Career + Subject
-  └── Level 3 (Atomic):
-        ├── Major-centric:  Subject + Teacher theo từng Major Code
-        └── Skill-centric:  Subject + Career theo từng Skill
-
-Trọng số quan hệ (dùng Louvain weighted):
-  SUBJECT -[:PROVIDES]-> SKILL      weight=3  (Career Alignment)
-  CAREER  -[:REQUIRES]-> SKILL      weight=3  (Career Alignment)
-  TEACHER -[:TEACH]->    SUBJECT    weight=2  (Academic)
-  MAJOR   -[:OFFERS]->   SUBJECT    weight=1  (Academic, rộng)
-  MAJOR   -[:LEADS_TO]-> CAREER     weight=2  (Cross-cluster bridge)
+Relationship names đồng bộ với script 1, 2, 2b:
+  MAJOR    -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT   weight=1
+  MAJOR    -[:LEADS_TO]->             CAREER    weight=2
+  TEACHER  -[:TEACH]->               SUBJECT   weight=2
+  SUBJECT  -[:PROVIDES]->            SKILL     weight=3
+  SUBJECT  -[:PREREQUISITE_FOR]->    SUBJECT
+  CAREER   -[:REQUIRES]->            SKILL     weight=3
 
 Pipeline:
   Abbrev expand → Intent (LLM) → Community Route
@@ -42,73 +34,49 @@ NEO4J_PASSWORD = os.getenv("DB_PASSWORD")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL")
 
-MAX_HOPS    = int(os.getenv("MAX_HOPS", "3"))
-LOG_DIR     = Path("./qa_logs")
+MAX_HOPS = int(os.getenv("MAX_HOPS", "3"))
+LOG_DIR  = Path("./qa_logs")
 
 
+# ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 1: ĐỊNH NGHĨA 3 TẦNG CỘNG ĐỒNG (GRAPHRAG COMMUNITY SCHEMA)
+# ══════════════════════════════════════════════════════════════════════════════
 
-"""
-COMMUNITY SCHEMA
-────────────────
-Mỗi cộng đồng được mô tả bởi:
-  - id:           định danh duy nhất
-  - level:        1 (Global) | 2 (Functional) | 3 (Atomic)
-  - name:         tên cộng đồng
-  - node_labels:  tập labels Neo4j thuộc cộng đồng
-  - rel_weights:  dict {rel_type: weight} — dùng khi tính Louvain weighted
-  - purpose:      câu hỏi điển hình cộng đồng này giải quyết
-  - cypher_scope: Cypher WHERE clause để lọc nodes thuộc cộng đồng (dùng trong BFS)
-
-Ánh xạ intent → community:
-  MAJOR  → CAREER                     : Level2_CareerAlignment (bridge)
-  MAJOR  → SUBJECT / TEACHER           : Level2_Academic
-  CAREER → SKILL / SUBJECT             : Level2_CareerAlignment
-  SKILL  → MAJOR / SUBJECT / CAREER   : Level2_CareerAlignment
-  SUBJECT → SKILL / TEACHER           : Level2_Academic + CareerAlignment
-  Level3 được kích hoạt khi keyword chứa Major Code cụ thể hoặc Skill cụ thể
-"""
-
-# ── Trọng số quan hệ toàn cục (dùng khi build Louvain projection) ────────────
+# ── Trọng số quan hệ toàn cục ────────────────────────────────────────────────
 RELATIONSHIP_WEIGHTS: dict[str, int] = {
-    "PROVIDES":   3,   # SUBJECT → SKILL: Career Alignment (mạnh nhất)
-    "REQUIRES":   3,   # CAREER  → SKILL: Career Alignment (mạnh nhất)
-    "TEACH":      2,   # TEACHER → SUBJECT: Academic
-    "LEADS_TO":   2,   # MAJOR   → CAREER: Cross-cluster bridge
-    "MAJOR_OFFERS_SUBJECT": 1,  # MAJOR → SUBJECT: Academic rộng
+    "PROVIDES":             3,   # SUBJECT → SKILL
+    "REQUIRES":             3,   # CAREER  → SKILL
+    "TEACH":                2,   # TEACHER → SUBJECT
+    "LEADS_TO":             2,   # MAJOR   → CAREER
+    "MAJOR_OFFERS_SUBJECT": 1,   # MAJOR   → SUBJECT
 }
 
 # ── Định nghĩa 3 tầng cộng đồng ──────────────────────────────────────────────
 COMMUNITY_LEVELS: dict[str, dict] = {
 
-    # ── LEVEL 1: GLOBAL ──────────────────────────────────────────────────────
     "L1_GLOBAL": {
         "id":          "L1_GLOBAL",
         "level":       1,
         "name":        "Hệ sinh thái Đào tạo & Nghề nghiệp",
         "node_labels": {"MAJOR", "SUBJECT", "SKILL", "CAREER", "TEACHER"},
-        "rel_weights": RELATIONSHIP_WEIGHTS,  # dùng toàn bộ
+        "rel_weights": RELATIONSHIP_WEIGHTS,
         "purpose": (
             "Trả lời câu hỏi chiến lược: xu hướng đào tạo, liên kết toàn diện "
             "giữa chương trình học và thị trường lao động."
         ),
-        "cypher_scope": (
-            "(n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER)"
-        ),
+        "cypher_scope": "(n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER)",
         "example_questions": [
             "Xu hướng đào tạo của trường đáp ứng gì cho thị trường lao động?",
-            "Tại sao giảng viên ngành ATTT tập trung dạy nhiều về kỹ năng Cloud?",
         ],
     },
 
-    # ── LEVEL 2a: ACADEMIC CLUSTER ───────────────────────────────────────────
     "L2_ACADEMIC": {
         "id":          "L2_ACADEMIC",
         "level":       2,
         "name":        "Cụm Học thuật (Academic Cluster)",
         "node_labels": {"MAJOR", "SUBJECT", "TEACHER"},
         "rel_weights": {
-            "TEACH":              2,
+            "TEACH":                2,
             "MAJOR_OFFERS_SUBJECT": 1,
         },
         "purpose": (
@@ -123,7 +91,6 @@ COMMUNITY_LEVELS: dict[str, dict] = {
         ],
     },
 
-    # ── LEVEL 2b: CAREER ALIGNMENT CLUSTER ───────────────────────────────────
     "L2_CAREER_ALIGNMENT": {
         "id":          "L2_CAREER_ALIGNMENT",
         "level":       2,
@@ -145,9 +112,6 @@ COMMUNITY_LEVELS: dict[str, dict] = {
         ],
     },
 
-    # ── LEVEL 3a: MAJOR-CENTRIC (Atomic per Major) ───────────────────────────
-    # NOTE: Level 3 được tạo ĐỘNG (dynamic) khi detect major_code cụ thể
-    # Template dùng để build Cypher với $major_code param
     "L3_MAJOR_CENTRIC": {
         "id":          "L3_MAJOR_CENTRIC",
         "level":       3,
@@ -155,25 +119,22 @@ COMMUNITY_LEVELS: dict[str, dict] = {
         "node_labels": {"SUBJECT", "TEACHER", "SKILL"},
         "rel_weights": {
             "MAJOR_OFFERS_SUBJECT": 1,
-            "TEACH":              2,
-            "PROVIDES":           3,
+            "TEACH":                2,
+            "PROVIDES":             3,
         },
         "purpose": (
             "Chi tiết lộ trình một ngành cụ thể: môn học, giảng viên, kỹ năng đầu ra. "
             "Kích hoạt khi câu hỏi nhắc tới Major Code cụ thể."
         ),
-        # Cypher template — $major_code sẽ được bind khi execute
         "cypher_scope": (
             "(n:SUBJECT OR n:TEACHER OR n:SKILL) AND "
             "EXISTS { MATCH (m:MAJOR {code: $major_code})-[:MAJOR_OFFERS_SUBJECT]->(n) }"
         ),
         "example_questions": [
             "Ngành 7480201 có những môn và giảng viên nào?",
-            "Lộ trình học ngành CNTT (7480201) như thế nào?",
         ],
     },
 
-    # ── LEVEL 3b: SKILL-CENTRIC (Atomic per Skill) ───────────────────────────
     "L3_SKILL_CENTRIC": {
         "id":          "L3_SKILL_CENTRIC",
         "level":       3,
@@ -193,22 +154,18 @@ COMMUNITY_LEVELS: dict[str, dict] = {
         ),
         "example_questions": [
             "Kỹ năng Python có giá trị như thế nào trên thị trường?",
-            "Kỹ năng SQL được dạy ở đâu và nghề nào cần?",
         ],
     },
 }
 
-
 # ── Ánh xạ intent → community ID ─────────────────────────────────────────────
 INTENT_TO_COMMUNITY: dict[tuple, str] = {
-    # Academic cluster: khi đề cập Major/Subject/Teacher
     ("MAJOR",   "SUBJECT"):  "L2_ACADEMIC",
     ("MAJOR",   "TEACHER"):  "L2_ACADEMIC",
     ("SUBJECT", "TEACHER"):  "L2_ACADEMIC",
     ("TEACHER", "SUBJECT"):  "L2_ACADEMIC",
     ("TEACHER", "MAJOR"):    "L2_ACADEMIC",
 
-    # Career Alignment: khi đề cập Career/Skill hoặc kết hợp Subject-Skill
     ("MAJOR",   "CAREER"):   "L2_CAREER_ALIGNMENT",
     ("MAJOR",   "SKILL"):    "L2_CAREER_ALIGNMENT",
     ("CAREER",  "SKILL"):    "L2_CAREER_ALIGNMENT",
@@ -220,108 +177,53 @@ INTENT_TO_COMMUNITY: dict[tuple, str] = {
     ("SUBJECT", "SKILL"):    "L2_CAREER_ALIGNMENT",
     ("SUBJECT", "CAREER"):   "L2_CAREER_ALIGNMENT",
 
-    # So sánh giữa các Major → cần cả 2 cluster
     ("MAJOR",   "MAJOR"):    "L1_GLOBAL",
 }
 
 
 def route_to_community(intent: dict) -> tuple[str, dict]:
-    """
-    Xác định cộng đồng phù hợp nhất cho intent.
-    Ưu tiên Level 3 nếu có major_code / skill_name cụ thể trong keywords.
-    Returns: (community_id, community_def)
-    """
     mentioned = (intent.get("mentioned_labels") or [])
     asked     = intent.get("asked_label", "UNKNOWN")
     keywords  = intent.get("keywords", [])
 
-    # Kiểm tra Level 3 trước (khi keyword chứa mã ngành dạng số hoặc tên kỹ năng rất cụ thể)
-    MAJOR_CODE_PATTERN = re.compile(r"\b\d{7}\b")  # mã ngành 7 chữ số (VD: 7480201)
+    MAJOR_CODE_PATTERN = re.compile(r"\b\d{7}\b")
     for kw in keywords:
         if MAJOR_CODE_PATTERN.search(str(kw)):
             return "L3_MAJOR_CENTRIC", COMMUNITY_LEVELS["L3_MAJOR_CENTRIC"]
 
-    # Kiểm tra Level 3 Skill-centric: khi asked=CAREER + mentioned=SKILL hoặc ngược lại
-    # và keyword khá cụ thể (> 2 từ)
     if asked in ("CAREER", "SUBJECT") and "SKILL" in mentioned:
         long_kws = [k for k in keywords if len(k.split()) >= 2]
         if long_kws:
             return "L3_SKILL_CENTRIC", COMMUNITY_LEVELS["L3_SKILL_CENTRIC"]
 
-    # Level 2 routing theo intent
     first_mentioned = mentioned[0] if mentioned else None
-    key = (first_mentioned, asked)
-    cid = INTENT_TO_COMMUNITY.get(key)
+    cid = INTENT_TO_COMMUNITY.get((first_mentioned, asked))
 
-    # Thử các mentioned khác nếu không tìm thấy
     if not cid:
         for m in mentioned:
             cid = INTENT_TO_COMMUNITY.get((m, asked))
             if cid:
                 break
 
-    # Default: Global nếu không khớp
     if not cid:
         cid = "L1_GLOBAL"
 
     return cid, COMMUNITY_LEVELS[cid]
 
 
+# ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 2: LOUVAIN COMMUNITY DETECTION (GDS hoặc IN-MEMORY FALLBACK)
-
-def build_community_projection_cypher(community_def: dict, level3_param: dict | None = None) -> str | None:
-    """
-    Tạo Cypher để tính Louvain community_id cho nodes thuộc community_def.
-    Yêu cầu Neo4j GDS plugin (Graph Data Science).
-    Returns None nếu không cần GDS (Level 1 không cần chia nhỏ hơn).
-    """
-    if community_def["level"] == 1:
-        return None  # L1 là toàn bộ graph, không cần partition
-
-    cid  = community_def["id"]
-    wmap = community_def["rel_weights"]
-
-    # Tên graph projection (unique per community)
-    graph_name = f"neo_edu_{cid.lower()}"
-
-    # Build relationship projection với weights
-    rel_projection = {
-        rtype: {"type": rtype, "properties": {"weight": {"defaultValue": w}}}
-        for rtype, w in wmap.items()
-    }
-
-    # Cypher GDS: drop nếu tồn tại → project → run Louvain → write community
-    cypher = f"""
-    // Drop old projection if exists
-    CALL gds.graph.drop('{graph_name}', false) YIELD graphName
-    UNION ALL
-    // Create new projection
-    CALL gds.graph.project(
-      '{graph_name}',
-      {json.dumps(list(community_def["node_labels"]))},
-      {json.dumps(rel_projection)}
-    )
-    YIELD graphName, nodeCount, relationshipCount
-    RETURN graphName, nodeCount, relationshipCount
-    """
-    return cypher
-
+# ══════════════════════════════════════════════════════════════════════════════
 
 def run_louvain_and_write(driver, community_def: dict) -> dict:
-    """
-    Chạy Louvain weighted trên community_def (nếu GDS có sẵn).
-    Ghi community_id vào property 'community_L{level}' của từng node.
-    Returns: stats dict.
-    """
-    level    = community_def["level"]
-    cid      = community_def["id"]
-    prop_key = f"community_L{level}"
+    level      = community_def["level"]
+    cid        = community_def["id"]
+    prop_key   = f"community_L{level}"
     graph_name = f"neo_edu_{cid.lower()}"
 
     stats = {"community_id": cid, "level": level, "nodes_written": 0, "error": None}
 
     if level == 1:
-        # L1 không cần Louvain — gán community = 0 cho tất cả nodes
         with driver.session() as session:
             r = session.run(
                 f"MATCH (n) WHERE (n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER) "
@@ -331,14 +233,13 @@ def run_louvain_and_write(driver, community_def: dict) -> dict:
         return stats
 
     with driver.session() as session:
-        # 1. Drop + project graph
         try:
             session.run(f"CALL gds.graph.drop('{graph_name}', false)")
         except Exception:
             pass
 
-        node_labels   = list(community_def["node_labels"])
-        rel_proj      = {
+        node_labels = list(community_def["node_labels"])
+        rel_proj    = {
             rtype: {"type": rtype, "orientation": "UNDIRECTED",
                     "properties": {"weight": {"defaultValue": w}}}
             for rtype, w in community_def["rel_weights"].items()
@@ -351,11 +252,9 @@ def run_louvain_and_write(driver, community_def: dict) -> dict:
             )
         except Exception as e:
             stats["error"] = f"GDS project error: {e}"
-            # Fallback: in-memory mock community (không cần GDS)
             _fallback_community_assignment(driver, community_def, prop_key)
             return stats
 
-        # 2. Chạy Louvain weighted
         try:
             session.run(
                 f"CALL gds.louvain.write('{graph_name}', "
@@ -378,20 +277,8 @@ def run_louvain_and_write(driver, community_def: dict) -> dict:
 
 
 def _fallback_community_assignment(driver, community_def: dict, prop_key: str):
-    """
-    Fallback khi GDS không có sẵn:
-    Gán community dựa trên rule-based (label → community_id số).
-    Đảm bảo chatbot vẫn hoạt động dù không có GDS plugin.
-
-    Mapping:
-      Level 2 Academic:          TEACHER=0, SUBJECT=1, MAJOR=2
-      Level 2 Career Alignment:  SKILL=0, CAREER=1, SUBJECT=2
-      Level 3 Major-centric:     SUBJECT=0, TEACHER=1, SKILL=2
-      Level 3 Skill-centric:     SUBJECT=0, CAREER=1
-    """
     cid = community_def["id"]
-
-    label_to_community: dict[str, int] = {
+    label_to_community = {
         "L2_ACADEMIC":          {"TEACHER": 0, "SUBJECT": 1, "MAJOR": 2},
         "L2_CAREER_ALIGNMENT":  {"SKILL": 0, "CAREER": 1, "SUBJECT": 2},
         "L3_MAJOR_CENTRIC":     {"SUBJECT": 0, "TEACHER": 1, "SKILL": 2},
@@ -400,20 +287,12 @@ def _fallback_community_assignment(driver, community_def: dict, prop_key: str):
 
     with driver.session() as session:
         for label, comm_val in label_to_community.items():
-            session.run(
-                f"MATCH (n:{label}) SET n.{prop_key} = {comm_val}"
-            )
+            session.run(f"MATCH (n:{label}) SET n.{prop_key} = {comm_val}")
 
 
 def initialize_communities(driver, force_rebuild: bool = False):
-    """
-    Khởi tạo community detection cho tất cả levels.
-    Gọi 1 lần khi startup (hoặc force_rebuild=True để rebuild).
-    Community IDs được lưu vào properties: community_L1, community_L2, community_L3.
-    """
     print("\n[Community Init] Bắt đầu khởi tạo 3 tầng cộng đồng...")
 
-    # Kiểm tra xem đã có community chưa
     if not force_rebuild:
         with driver.session() as session:
             r = session.run(
@@ -440,8 +319,9 @@ def initialize_communities(driver, force_rebuild: bool = False):
     print("[Community Init] Hoàn tất.\n")
 
 
-
-# PHẦN 3: AGGREGATION QUERY ROUTER (giữ nguyên từ v6)
+# ══════════════════════════════════════════════════════════════════════════════
+# PHẦN 3: AGGREGATION QUERY ROUTER
+# ══════════════════════════════════════════════════════════════════════════════
 
 NEGATION_SYNONYMS = {
     "ko", "k", "không", "chẳng", "chả", "kém", "chưa giỏi",
@@ -606,12 +486,12 @@ def run_aggregation_query(driver, question: str, agg_type: str) -> list[dict]:
 
         elif agg_type == "count_entities":
             q_lower = question.lower()
-            if "ngành" in q_lower:   label, vn = "MAJOR",   "ngành"
-            elif "nghề" in q_lower:  label, vn = "CAREER",  "nghề"
+            if "ngành" in q_lower:        label, vn = "MAJOR",   "ngành"
+            elif "nghề" in q_lower:       label, vn = "CAREER",  "nghề"
             elif "kỹ năng" in q_lower or "skill" in q_lower:
-                                     label, vn = "SKILL",   "kỹ năng"
+                                          label, vn = "SKILL",   "kỹ năng"
             elif "giảng viên" in q_lower: label, vn = "TEACHER", "giảng viên"
-            else:                    label, vn = "SUBJECT", "môn học"
+            else:                         label, vn = "SUBJECT", "môn học"
             cnt = session.run(f"MATCH (n:{label}) RETURN count(n) AS cnt").single()["cnt"]
             results.append({
                 "name": f"Tổng số {vn}: {cnt}", "label": label,
@@ -622,19 +502,21 @@ def run_aggregation_query(driver, question: str, agg_type: str) -> list[dict]:
     return results
 
 
+# ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 4: SCHEMA + CONSTRAINTS + SYSTEM PROMPTS
+# ══════════════════════════════════════════════════════════════════════════════
 
 SCHEMA_DESC = """
 Nodes: MAJOR{name,code}, SUBJECT{name,code},
        SKILL{name}, CAREER{name},
        TEACHER{name}
 Relationships:
-  (MAJOR)  -[:MAJOR_OFFERS_SUBJECT]-> (SUBJECT)   weight=1
-  (TEACHER)-[:TEACH]->                (SUBJECT)   weight=2
-  (SUBJECT)-[:PROVIDES]->             (SKILL)     weight=3
-  (CAREER) -[:REQUIRES]->             (SKILL)     weight=3
-  (MAJOR)  -[:LEADS_TO]->             (CAREER)    weight=2
+  (MAJOR)  -[:MAJOR_OFFERS_SUBJECT]-> (SUBJECT)         weight=1
+  (TEACHER)-[:TEACH]->                (SUBJECT)         weight=2
+  (SUBJECT)-[:PROVIDES]->             (SKILL)           weight=3
   (SUBJECT)-[:PREREQUISITE_FOR]->     (SUBJECT)
+  (CAREER) -[:REQUIRES]->             (SKILL)           weight=3
+  (MAJOR)  -[:LEADS_TO]->             (CAREER)          weight=2
 
 GraphRAG Communities (3 levels):
   L1 Global:             All 5 node types — xu hướng chiến lược
@@ -681,10 +563,10 @@ RELATIONSHIP_CONSTRAINTS = {
     ("SKILL", "SUBJECT"):  (
         "SKILL <-[:PROVIDES]- SUBJECT. Môn học (kèm mã môn) cung cấp kỹ năng đó."
     ),
-    ("SUBJECT", "TEACHER"):(
+    ("SUBJECT", "TEACHER"): (
         "TEACHER -[:TEACH]-> SUBJECT. Giảng viên phụ trách môn đó."
     ),
-    ("TEACHER", "SUBJECT"):(
+    ("TEACHER", "SUBJECT"): (
         "TEACHER -[:TEACH]-> SUBJECT. Môn học thầy/cô đó phụ trách."
     ),
     ("MAJOR", "TEACHER"):  (
@@ -731,7 +613,9 @@ CỘNG ĐỒNG ĐÃ ĐƯỢC ĐỊNH TUYẾN:
 """
 
 
+# ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 5: ABBREVIATION EXPANSION
+# ══════════════════════════════════════════════════════════════════════════════
 
 ABBREVIATION_MAP: dict[str, list[str]] = {
     "da":   ["data analyst", "phân tích dữ liệu"],
@@ -774,13 +658,15 @@ def expand_abbreviations(question: str) -> tuple[str, list[str]]:
             extras.extend(expansions)
 
     if found:
-        hints = "; ".join(f"{k.upper()} = {' / '.join(v)}" for k, v in found.items())
+        hints    = "; ".join(f"{k.upper()} = {' / '.join(v)}" for k, v in found.items())
         expanded = question + f"  [GHI CHÚ: {hints}]"
 
     return expanded, extras
 
 
+# ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 6: INTENT EXTRACTION
+# ══════════════════════════════════════════════════════════════════════════════
 
 def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
     system_msg = (
@@ -838,14 +724,14 @@ def get_relationship_constraint(intent: dict) -> str:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 7: COMMUNITY-AWARE TRAVERSAL
+# Relationship names đồng bộ với script 2:
+#   TEACH, PROVIDES, REQUIRES, LEADS_TO, MAJOR_OFFERS_SUBJECT, PREREQUISITE_FOR
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Targeted Cypher theo intent — dùng đúng rel type từ script2
 TARGETED_QUERIES: dict[tuple[str, str], str] = {
     ("MAJOR", "CAREER"): """
         MATCH (start:MAJOR)-[:LEADS_TO]->(n:CAREER)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-           OR start.code = $kw
+        WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                ['LEADS_TO'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
         ORDER BY n.name LIMIT 50
@@ -947,6 +833,15 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                [start.name, sub.name, n.name] AS node_names, 2 AS hops
         ORDER BY n.name LIMIT 50
     """,
+    # ── Môn tiên quyết ────────────────────────────────────────────────────────
+    ("SUBJECT", "SUBJECT"): """
+        MATCH (start:SUBJECT)-[:PREREQUISITE_FOR]->(n:SUBJECT)
+        WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['PREREQUISITE_FOR'] AS rel_types,
+               [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
 }
 
 
@@ -970,19 +865,16 @@ def _add_node_and_paths(rec, all_nodes, all_paths):
 
 def multihop_traversal_community_aware(
     driver,
-    keywords:   list[str],
-    max_hops:   int = MAX_HOPS,
-    intent:     dict | None = None,
+    keywords:      list[str],
+    max_hops:      int = MAX_HOPS,
+    intent:        dict | None = None,
     community_def: dict | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Traversal 3-phase community-aware:
-
-    Phase 1 — TARGETED: Cypher chính xác theo intent (mentioned→asked).
-    Phase 2 — BFS community-scoped: chỉ traverse trong node_labels của community.
-              Nodes được filter bởi community_L{level} property (nếu đã Louvain).
-    Phase 3 — CROSS-CLUSTER BRIDGE: nếu community là L2/L3, thêm 1 hop ra ngoài
-              để bắt các kết nối cross-cluster quan trọng (VD: MAJOR→CAREER bridge).
+    Phase 1 — TARGETED Cypher theo intent.
+    Phase 2 — BFS community-scoped.
+    Phase 3 — CROSS-CLUSTER BRIDGE (L2/L3).
     """
     all_nodes  = []
     all_paths  = []
@@ -992,17 +884,14 @@ def multihop_traversal_community_aware(
     asked_label      = (intent or {}).get("asked_label", "UNKNOWN")
     first_mentioned  = mentioned_labels[0] if mentioned_labels else None
 
-    # Xác định allowed labels từ community
     if community_def:
         allowed_labels = community_def["node_labels"]
         level          = community_def["level"]
         comm_id        = community_def["id"]
-        prop_key       = f"community_L{level}"
     else:
         allowed_labels = {"MAJOR", "SUBJECT", "SKILL", "CAREER", "TEACHER"}
         level          = 1
         comm_id        = "L1_GLOBAL"
-        prop_key       = "community_L1"
 
     print(f"  [community] Routing to: {comm_id} (Level {level})")
     print(f"  [community] Scope labels: {allowed_labels}")
@@ -1023,14 +912,7 @@ def multihop_traversal_community_aware(
             print(f"  [targeted] ({targeted_key}) → {len(all_nodes)} nodes")
 
     # ── Phase 2: BFS community-scoped ────────────────────────────────────────
-    # Build label filter cho BFS
     label_clauses = " OR ".join(f"n:{lbl}" for lbl in allowed_labels)
-
-    # Community filter: dùng property nếu đã được Louvain tag, else skip
-    # (vẫn hoạt động kể cả khi GDS không có, chỉ kém precise hơn)
-    community_filter = ""
-    # Không áp dụng community_id filter cứng ở đây vì Louvain gán ID tự động
-    # thay vào đó dùng label scope là đủ cho Level 2/3
 
     with driver.session() as session:
         for kw in keywords:
@@ -1076,25 +958,20 @@ def multihop_traversal_community_aware(
                 except Exception as e:
                     print(f"  [BFS] WARNING seed={seed_name}: {e}")
 
-    # ── Phase 3: Cross-cluster bridge (chỉ cho Level 2/3) ────────────────────
-    # Bắt quan hệ MAJOR-CAREER bridge khi community là Academic nhưng user
-    # ngầm muốn biết về nghề nghiệp, hoặc ngược lại.
+    # ── Phase 3: Cross-cluster bridge (L2/L3) ────────────────────────────────
     if level >= 2 and asked_label not in (None, "UNKNOWN"):
         bridge_pairs = [
-            # Academic → Career bridge
             ("L2_ACADEMIC", "CAREER",
              "MATCH (m:MAJOR)-[:LEADS_TO]->(n:CAREER) "
              "WHERE m.name IN $names "
              "RETURN n.name AS name, 'CAREER' AS label, null AS code, "
              "['LEADS_TO'] AS rel_types, [m.name, n.name] AS node_names, 1 AS hops"),
-            # Career → Subject bridge
             ("L2_CAREER_ALIGNMENT", "SUBJECT",
              "MATCH (c:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(n:SUBJECT) "
              "WHERE c.name IN $names "
              "RETURN n.name AS name, 'SUBJECT' AS label, n.code AS code, "
              "['REQUIRES','PROVIDES'] AS rel_types, [c.name, sk.name, n.name] AS node_names, 2 AS hops"),
         ]
-        # Collect seed names từ all_nodes hiện có
         seed_names = list({n["name"] for n in all_nodes if n.get("name")})[:20]
 
         if seed_names:
@@ -1119,11 +996,11 @@ def multihop_traversal_community_aware(
 # ══════════════════════════════════════════════════════════════════════════════
 
 def generate_answer(
-    ai_client: OpenAI,
-    question:  str,
+    ai_client:    OpenAI,
+    question:     str,
     ranked_nodes: list[dict],
     traversal_paths: list[dict],
-    intent:    dict,
+    intent:       dict,
     community_def: dict | None = None,
     override_constraint: str | None = None,
 ) -> str:
@@ -1144,7 +1021,6 @@ def generate_answer(
             "Loại bỏ khỏi gợi ý."
         )
 
-    # Community context cho LLM biết đang ở tầng nào
     if community_def:
         community_context = (
             f"Tầng {community_def['level']} — {community_def['name']}\n"
@@ -1301,20 +1177,22 @@ def _build_record(
         "algorithm": {
             "community_detection": "Louvain weighted (GDS) + rule-based fallback",
             "traversal":           algorithm_desc,
-            "weights": RELATIONSHIP_WEIGHTS,
+            "weights":             RELATIONSHIP_WEIGHTS,
         },
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 10: MAIN + INTERACTIVE LOOP
+# ══════════════════════════════════════════════════════════════════════════════
 
 def get_driver():
     return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
 
 
 def interactive_loop(driver, ai_client: OpenAI):
-    print("\n🎓 Knowledge Graph Chatbot v7 — GraphRAG 3-Tier Community")
-    print(f"Communities: L1 Global | L2 Academic / Career Alignment | L3 Major / Skill")
+    print("\n🎓 Knowledge Graph Chatbot v8 — GraphRAG 3-Tier Community (synchronized)")
+    print(f"Rels: TEACH | PROVIDES | REQUIRES | LEADS_TO | MAJOR_OFFERS_SUBJECT | PREREQUISITE_FOR")
     print(f"Traversal: max_hops={MAX_HOPS} | Weights: PROVIDES/REQUIRES=3, TEACH/LEADS_TO=2, OFFERS=1")
     print("Gõ câu hỏi. Nhập 'exit' để thoát.\n")
 
@@ -1335,7 +1213,7 @@ def interactive_loop(driver, ai_client: OpenAI):
 
 
 def main():
-    print("Starting KG Chatbot v7 (GraphRAG 3-Tier)...")
+    print("Starting KG Chatbot v8 (GraphRAG 3-Tier, synchronized)...")
     ai_client = OpenAI(api_key=OPENAI_API_KEY)
     driver    = get_driver()
     try:
