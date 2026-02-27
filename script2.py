@@ -48,9 +48,16 @@ FOLDERS = ["curriculum", "career_description", "syllabus"]
 # ──────────────────────────────────────────────────────────────────────────────
 
 
+def _s(value) -> str:
+    """Safe strip: trả về chuỗi rỗng nếu value là None."""
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def _esc(value) -> str:
-    """Escape single quotes cho Cypher string literals."""
-    return str(value).replace("\\", "\\\\").replace("'", "\\'")
+    """Escape single quotes cho Cypher string literals. An toàn với None."""
+    return _s(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
 # ─── SCHEMA DETECTOR ──────────────────────────────────────────────────────────
@@ -90,9 +97,9 @@ def cur_node_cypher(node: dict) -> str | None:
     t = node.get("type", "")
 
     if t == "MAJOR":
-        code    = _esc(node.get("major_code", "").strip())
-        name_vi = _esc(node.get("major_name_vi", "").strip())
-        name_en = _esc(node.get("major_name_en", "").strip())
+        code    = _esc(node.get("major_code"))
+        name_vi = _esc(node.get("major_name_vi"))
+        name_en = _esc(node.get("major_name_en"))
         if not code:
             return None
         return (
@@ -101,9 +108,9 @@ def cur_node_cypher(node: dict) -> str | None:
         )
 
     if t == "SUBJECT":
-        code    = _esc(node.get("subject_code", "").strip())
-        name_vi = _esc(node.get("subject_name_vi", "").strip())
-        name_en = _esc(node.get("subject_name_en", "").strip())
+        code    = _esc(node.get("subject_code"))
+        name_vi = _esc(node.get("subject_name_vi"))
+        name_en = _esc(node.get("subject_name_en"))
         if not code:
             return None
         return (
@@ -112,9 +119,9 @@ def cur_node_cypher(node: dict) -> str | None:
         )
 
     if t == "CAREER":
-        key     = _esc(node.get("career_key", "").strip())
-        name_vi = _esc(node.get("career_name_vi", "").strip())
-        name_en = _esc(node.get("career_name_en", "").strip())
+        key     = _esc(node.get("career_key"))
+        name_vi = _esc(node.get("career_name_vi"))
+        name_en = _esc(node.get("career_name_en"))
         name    = name_vi or name_en
         if not name:
             return None
@@ -136,10 +143,10 @@ def cur_rel_cypher(rel: dict) -> str | None:
 
     # ── MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT ──────────────────────────────
     if rtype == "major_offers_subject":
-        major_code   = _esc(rel.get("from_major_code", "").strip())
-        subject_code = _esc(rel.get("to_subject_code", "").strip())
+        major_code   = _esc(rel.get("from_major_code"))
+        subject_code = _esc(rel.get("to_subject_code"))
         semester     = rel.get("semester", "")
-        req_type     = _esc(rel.get("required_type", "").strip())
+        req_type     = _esc(rel.get("required_type"))
         if not major_code or not subject_code:
             return None
         if semester != "" and req_type:
@@ -155,8 +162,8 @@ def cur_rel_cypher(rel: dict) -> str | None:
 
     # ── MAJOR -[:LEADS_TO]-> CAREER ───────────────────────────────────────────
     if rtype == "major_leads_to_career":
-        major_code  = _esc(rel.get("from_major_code", "").strip())
-        career_key  = _esc(rel.get("to_career_key", "").strip())
+        major_code  = _esc(rel.get("from_major_code"))
+        career_key  = _esc(rel.get("to_career_key"))
         if not major_code or not career_key:
             return None
         # CAREER node được MERGE bằng name, match bằng career_key property
@@ -177,9 +184,9 @@ def syl_node_cypher(node: dict) -> str | None:
     t = node.get("type", "")
 
     if t == "SUBJECT":
-        code    = _esc(node.get("subject_code", "").strip())
-        name_vi = _esc(node.get("subject_name_vi", "").strip())
-        name_en = _esc(node.get("subject_name_en", "").strip())
+        code    = _esc(node.get("subject_code"))
+        name_vi = _esc(node.get("subject_name_vi"))
+        name_en = _esc(node.get("subject_name_en"))
         if not code:
             return None
         return (
@@ -188,10 +195,10 @@ def syl_node_cypher(node: dict) -> str | None:
         )
 
     if t == "TEACHER":
-        name  = _esc(node.get("name", "").strip())
-        email = _esc(node.get("email", "").strip())
-        title = _esc(node.get("title", "").strip())
-        key   = _esc(node.get("teacher_key", "").strip())
+        name  = _esc(node.get("name"))
+        email = _esc(node.get("email"))
+        title = _esc(node.get("title"))
+        key   = _esc(node.get("teacher_key"))
         if not name:
             return None
         stmt = f"MERGE (n:TEACHER {{name: '{name}'}})"
@@ -204,9 +211,9 @@ def syl_node_cypher(node: dict) -> str | None:
         return stmt
 
     if t == "SKILL":
-        key        = _esc(node.get("skill_key", "").strip())
-        name       = _esc(node.get("skill_name", "").strip())
-        skill_type = _esc(node.get("skill_type", "").strip())
+        key        = _esc(node.get("skill_key"))
+        name       = _esc(node.get("skill_name"))
+        skill_type = _esc(node.get("skill_type"))
         if not name:
             return None
         stmt = f"MERGE (n:SKILL {{name: '{name}'}})"
@@ -231,8 +238,8 @@ def syl_rel_cypher(rel: dict) -> str | None:
 
     # ── TEACHER -[:TEACH]-> SUBJECT ───────────────────────────────────────────
     if rtype == "teacher_instructs_subject":
-        teacher_key  = _esc(rel.get("from_teacher_key", "").strip())
-        subject_code = _esc(rel.get("to_subject_code", "").strip())
+        teacher_key  = _esc(rel.get("from_teacher_key"))
+        subject_code = _esc(rel.get("to_subject_code"))
         if not teacher_key or not subject_code:
             return None
         return (
@@ -242,9 +249,9 @@ def syl_rel_cypher(rel: dict) -> str | None:
 
     # ── SUBJECT -[:PROVIDES]-> SKILL ──────────────────────────────────────────
     if rtype == "subject_provides_skill":
-        subject_code = _esc(rel.get("from_subject_code", "").strip())
-        skill_key    = _esc(rel.get("to_skill_key", "").strip())
-        mastery      = _esc(rel.get("mastery_level", "").strip())
+        subject_code = _esc(rel.get("from_subject_code"))
+        skill_key    = _esc(rel.get("to_skill_key"))
+        mastery      = _esc(rel.get("mastery_level"))
         if not subject_code or not skill_key:
             return None
         if mastery:
@@ -259,8 +266,8 @@ def syl_rel_cypher(rel: dict) -> str | None:
 
     # ── SUBJECT -[:PREREQUISITE_FOR]-> SUBJECT ────────────────────────────────
     if rtype == "subject_is_prerequisite_of_subject":
-        from_code = _esc(rel.get("from_subject_code", "").strip())
-        to_code   = _esc(rel.get("to_subject_code", "").strip())
+        from_code = _esc(rel.get("from_subject_code"))
+        to_code   = _esc(rel.get("to_subject_code"))
         if not from_code or not to_code:
             return None
         return (
@@ -280,10 +287,10 @@ def car_node_cypher(node: dict) -> str | None:
     t = node.get("type", "")
 
     if t == "CAREER":
-        key      = _esc(node.get("career_key", "").strip())
-        name_vi  = _esc(node.get("career_name_vi", "").strip())
-        name_en  = _esc(node.get("career_name_en", "").strip())
-        field    = _esc(node.get("field_name", "").strip())
+        key      = _esc(node.get("career_key"))
+        name_vi  = _esc(node.get("career_name_vi"))
+        name_en  = _esc(node.get("career_name_en"))
+        field    = _esc(node.get("field_name"))
         majors   = node.get("major_codes", [])
         name     = name_vi or name_en
         if not name:
@@ -302,9 +309,9 @@ def car_node_cypher(node: dict) -> str | None:
         return stmt
 
     if t == "SKILL":
-        key        = _esc(node.get("skill_key", "").strip())
-        name       = _esc(node.get("skill_name", "").strip())
-        skill_type = _esc(node.get("skill_type", "").strip())
+        key        = _esc(node.get("skill_key"))
+        name       = _esc(node.get("skill_name"))
+        skill_type = _esc(node.get("skill_type"))
         if not name:
             return None
         stmt = f"MERGE (n:SKILL {{name: '{name}'}})"
@@ -326,9 +333,9 @@ def car_rel_cypher(rel: dict) -> str | None:
     if rel.get("rel_type") != "career_requires_skill":
         return None
 
-    career_key = _esc(rel.get("from_career_key", "").strip())
-    skill_key  = _esc(rel.get("to_skill_key", "").strip())
-    req_level  = _esc(rel.get("required_level", "").strip())
+    career_key = _esc(rel.get("from_career_key"))
+    skill_key  = _esc(rel.get("to_skill_key"))
+    req_level  = _esc(rel.get("required_level"))
 
     if not career_key or not skill_key:
         return None

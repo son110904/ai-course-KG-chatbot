@@ -410,6 +410,35 @@ def _normalize_name(name: str) -> str:
     return re.sub(r"\s+", " ", name.strip().upper())
 
 
+# ─── CAREER → MAJOR MAPPING TABLE ────────────────────────────────────────────
+# Key: career_name_vi (chính xác như trong CAREER node)
+# Value: danh sách major_code tương ứng
+CAREER_MAJOR_MAP = {
+    "Automation tester":                ["7480201", "7340405", "7480101"],
+    "Business analyst":                 ["7480201", "7340405", "7480101"],
+    "Chuyên viên dữ liệu":              ["7480201", "7310108", "7340405", "7480101"],
+    "Customer Success":                 ["7340115"],
+    "Data Analyst":                     ["7480201", "7340405", "7480101", "7310108"],
+    "Data Engineer":                    ["7480201", "7480101", "7310108"],
+    "Kế toán quản trị":                 ["7340201"],
+    "Key Account Manager":              ["7340115"],
+    "Kỹ sư cầu nối":                    ["7480201", "7480103"],
+    "Kỹ sư phần mềm":                   ["7480101", "7480201", "7480103", "7480202"],
+    "Lập trình game":                   ["7480101", "7480201", "7480103"],
+    "Lập trình nhúng":                  ["7480101"],
+    "Marketing Offline":                ["7340115"],
+    "Media Planner":                    ["7340115"],
+    "Nhân viên Bồi thường bảo hiểm":    ["7340204"],
+    "Nhân viên kinh doanh tiếng Trung": ["7340120", "7340121"],
+    "Nhân viên kinh doanh":             ["7340121", "7310101"],
+    "Nhân viên triển khai phần mềm":    ["7480201", "7480101", "7480103"],
+    "Quản lý kinh doanh":               [],   # QUẢN TRỊ KINH DOANH chưa có trong index
+    "Sales Representative":             ["7340115"],
+    "System Administrator":             ["7480201", "7480103", "7480101"],
+    "Tester":                           ["7480201", "7480103", "7480101"],
+}
+
+
 # ─── LLM EXTRACTION WITH RETRY ───────────────────────────────────────────────
 
 def extract_via_llm(ai_client: OpenAI, doc_json: dict, docid: str, doctype: str) -> dict:
@@ -563,8 +592,8 @@ def _partial_match(norm_name: str, major_index: dict[str, str]) -> str | None:
 def map_major_codes_for_career(data: dict, major_index: dict[str, str]) -> tuple[dict, list[str], list[str]]:
     """
     Với 1 career_description JSON (schema v2 không có MAJOR nodes):
-    - Nếu có field "major_names" trong CAREER node → map sang codes
-    - Gắn major_codes vào CAREER node
+    - Dùng CAREER_MAJOR_MAP (bảng mapping thủ công) để gắn major_codes vào CAREER node
+    - Fallback sang major_index nếu career_name không có trong bảng thủ công
 
     Trả về: (updated_data, mapped_codes, unmatched_names)
     """
@@ -574,12 +603,18 @@ def map_major_codes_for_career(data: dict, major_index: dict[str, str]) -> tuple
     if not career_node:
         return data, [], []
 
-    # Schema v2: career_description chỉ extract CAREER + SKILL
-    # major_names có thể được LLM ghi vào field phụ nếu có trong tài liệu
+    career_name = career_node.get("career_name_vi", "")
+
+    # Ưu tiên bảng mapping thủ công
+    if career_name in CAREER_MAJOR_MAP:
+        career_node["major_codes"] = CAREER_MAJOR_MAP[career_name]
+        return data, CAREER_MAJOR_MAP[career_name], []
+
+    # Fallback: dùng major_names field + major_index nếu có
     major_names = career_node.get("major_names", [])
     if not major_names:
         career_node["major_codes"] = []
-        return data, [], []
+        return data, [], [career_name] if career_name else []
 
     mapped_codes: list[str] = []
     unmatched:    list[str] = []
@@ -642,12 +677,12 @@ def run_phase2_mapping():
         if mapped_codes:
             log.info(f"  ✓ {jf.name} | CAREER: {career_name} | major_codes: {mapped_codes}")
         else:
-            log.warning(f"  ⚠ {jf.name} | CAREER: {career_name} | Không map được major_codes")
+            log.warning(f"  ⚠ {jf.name} | CAREER: {career_name} | Không map được major_codes — thêm vào CAREER_MAJOR_MAP nếu cần")
 
         if unmatched:
             log.warning(
                 f"    Không tìm thấy code cho: {unmatched}\n"
-                f"    → Kiểm tra xem tên ngành có khớp với curriculum không."
+                f"    → Thêm career_name_vi này vào CAREER_MAJOR_MAP để fix."
             )
 
         with open(jf, "w", encoding="utf-8") as f:
@@ -660,8 +695,8 @@ def run_phase2_mapping():
     )
     if total_unmatched > 0:
         log.warning(
-            "[Phase 2] Có tên ngành không match. Nguyên nhân thường gặp: "
-            "LLM viết tên ngành khác với tên trong curriculum."
+            "[Phase 2] Có career chưa được mapping. "
+            "Hãy thêm career_name_vi tương ứng vào bảng CAREER_MAJOR_MAP trong script."
         )
 
 
