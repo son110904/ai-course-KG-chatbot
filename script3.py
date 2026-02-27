@@ -1,24 +1,41 @@
 """
 Script 3: Knowledge Graph Q&A Chatbot
-Fixes v2:
-  - Intent detection: phân loại thực thể đề cập / thực thể được hỏi
-  - Relationship constraints per query type: ràng buộc đường truy xuất theo loại câu hỏi
-  - Negation handling: nhận diện "ko / k / không / chẳng / kém / chưa giỏi" → lọc thực thể phủ định
-  - Prompt AI trả lời sát trọng tâm, không thêm thông tin ngoài lề
+v7 — GraphRAG 3-Tier Community Detection
+
+Kiến trúc cộng đồng 3 tầng:
+  ├── Level 1 (Global):  Hệ sinh thái Đào tạo & Nghề nghiệp (toàn bộ graph)
+  ├── Level 2 (Functional):
+  │     ├── Academic Cluster:        Major + Subject + Teacher
+  │     └── Career Alignment Cluster: Skill + Career + Subject
+  └── Level 3 (Atomic):
+        ├── Major-centric:  Subject + Teacher theo từng Major Code
+        └── Skill-centric:  Subject + Career theo từng Skill
+
+Trọng số quan hệ (dùng Louvain weighted):
+  SUBJECT -[:PROVIDES]-> SKILL      weight=3  (Career Alignment)
+  CAREER  -[:REQUIRES]-> SKILL      weight=3  (Career Alignment)
+  TEACHER -[:TEACH]->    SUBJECT    weight=2  (Academic)
+  MAJOR   -[:OFFERS]->   SUBJECT    weight=1  (Academic, rộng)
+  MAJOR   -[:LEADS_TO]-> CAREER     weight=2  (Cross-cluster bridge)
+
+Pipeline:
+  Abbrev expand → Intent (LLM) → Community Route
+  → Targeted Cypher (community-aware) + BFS → dedup + negation filter → LLM answer
 """
 
 import os
+import re
 import json
 import uuid
 import datetime
 from pathlib import Path
+from collections import defaultdict
 from neo4j import GraphDatabase
 from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ─── CONFIG ──────────────────────────────────────────────────────────────────
 NEO4J_URI      = os.getenv("DB_URL")
 NEO4J_USERNAME = os.getenv("DB_USER")
 NEO4J_PASSWORD = os.getenv("DB_PASSWORD")
@@ -26,11 +43,406 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL   = os.getenv("OPENAI_MODEL")
 
 MAX_HOPS    = int(os.getenv("MAX_HOPS", "3"))
-TOP_K       = int(os.getenv("TOP_K", "15"))
 LOG_DIR     = Path("./qa_logs")
-# ─────────────────────────────────────────────────────────────────────────────
 
-# Từ đồng nghĩa phủ định — nhận diện câu hỏi có từ phủ định / "không giỏi"
+
+# PHẦN 1: ĐỊNH NGHĨA 3 TẦNG CỘNG ĐỒNG (GRAPHRAG COMMUNITY SCHEMA)
+
+"""
+COMMUNITY SCHEMA
+────────────────
+Mỗi cộng đồng được mô tả bởi:
+  - id:           định danh duy nhất
+  - level:        1 (Global) | 2 (Functional) | 3 (Atomic)
+  - name:         tên cộng đồng
+  - node_labels:  tập labels Neo4j thuộc cộng đồng
+  - rel_weights:  dict {rel_type: weight} — dùng khi tính Louvain weighted
+  - purpose:      câu hỏi điển hình cộng đồng này giải quyết
+  - cypher_scope: Cypher WHERE clause để lọc nodes thuộc cộng đồng (dùng trong BFS)
+
+Ánh xạ intent → community:
+  MAJOR  → CAREER                     : Level2_CareerAlignment (bridge)
+  MAJOR  → SUBJECT / TEACHER           : Level2_Academic
+  CAREER → SKILL / SUBJECT             : Level2_CareerAlignment
+  SKILL  → MAJOR / SUBJECT / CAREER   : Level2_CareerAlignment
+  SUBJECT → SKILL / TEACHER           : Level2_Academic + CareerAlignment
+  Level3 được kích hoạt khi keyword chứa Major Code cụ thể hoặc Skill cụ thể
+"""
+
+# ── Trọng số quan hệ toàn cục (dùng khi build Louvain projection) ────────────
+RELATIONSHIP_WEIGHTS: dict[str, int] = {
+    "PROVIDES":   3,   # SUBJECT → SKILL: Career Alignment (mạnh nhất)
+    "REQUIRES":   3,   # CAREER  → SKILL: Career Alignment (mạnh nhất)
+    "TEACH":      2,   # TEACHER → SUBJECT: Academic
+    "LEADS_TO":   2,   # MAJOR   → CAREER: Cross-cluster bridge
+    "MAJOR_OFFERS_SUBJECT": 1,  # MAJOR → SUBJECT: Academic rộng
+}
+
+# ── Định nghĩa 3 tầng cộng đồng ──────────────────────────────────────────────
+COMMUNITY_LEVELS: dict[str, dict] = {
+
+    # ── LEVEL 1: GLOBAL ──────────────────────────────────────────────────────
+    "L1_GLOBAL": {
+        "id":          "L1_GLOBAL",
+        "level":       1,
+        "name":        "Hệ sinh thái Đào tạo & Nghề nghiệp",
+        "node_labels": {"MAJOR", "SUBJECT", "SKILL", "CAREER", "TEACHER"},
+        "rel_weights": RELATIONSHIP_WEIGHTS,  # dùng toàn bộ
+        "purpose": (
+            "Trả lời câu hỏi chiến lược: xu hướng đào tạo, liên kết toàn diện "
+            "giữa chương trình học và thị trường lao động."
+        ),
+        "cypher_scope": (
+            "(n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER)"
+        ),
+        "example_questions": [
+            "Xu hướng đào tạo của trường đáp ứng gì cho thị trường lao động?",
+            "Tại sao giảng viên ngành ATTT tập trung dạy nhiều về kỹ năng Cloud?",
+        ],
+    },
+
+    # ── LEVEL 2a: ACADEMIC CLUSTER ───────────────────────────────────────────
+    "L2_ACADEMIC": {
+        "id":          "L2_ACADEMIC",
+        "level":       2,
+        "name":        "Cụm Học thuật (Academic Cluster)",
+        "node_labels": {"MAJOR", "SUBJECT", "TEACHER"},
+        "rel_weights": {
+            "TEACH":              2,
+            "MAJOR_OFFERS_SUBJECT": 1,
+        },
+        "purpose": (
+            "Trả lời về chương trình ngành, môn học, giảng viên phụ trách. "
+            "Kết nối Teacher ↔ Subject ↔ Major."
+        ),
+        "cypher_scope": "(n:MAJOR OR n:SUBJECT OR n:TEACHER)",
+        "example_questions": [
+            "Đội ngũ giảng viên ngành An toàn thông tin có những ai?",
+            "Ngành CNTT gồm những môn học nào?",
+            "Thầy Nguyễn Văn A dạy môn gì?",
+        ],
+    },
+
+    # ── LEVEL 2b: CAREER ALIGNMENT CLUSTER ───────────────────────────────────
+    "L2_CAREER_ALIGNMENT": {
+        "id":          "L2_CAREER_ALIGNMENT",
+        "level":       2,
+        "name":        "Cụm Năng lực & Việc làm (Career Alignment Cluster)",
+        "node_labels": {"SKILL", "CAREER", "SUBJECT"},
+        "rel_weights": {
+            "PROVIDES": 3,
+            "REQUIRES": 3,
+        },
+        "purpose": (
+            "Kết nối đầu ra môn học (Subject→Skill) với yêu cầu thực tế (Career→Skill). "
+            "Trả lời về kỹ năng cần thiết, môn học liên quan đến nghề nghiệp."
+        ),
+        "cypher_scope": "(n:SKILL OR n:CAREER OR n:SUBJECT)",
+        "example_questions": [
+            "Môn nào cung cấp kỹ năng Phân tích dữ liệu cho nghề Data Engineer?",
+            "Nghề Business Analyst cần những kỹ năng gì?",
+            "Kỹ năng SQL được dạy trong môn nào?",
+        ],
+    },
+
+    # ── LEVEL 3a: MAJOR-CENTRIC (Atomic per Major) ───────────────────────────
+    # NOTE: Level 3 được tạo ĐỘNG (dynamic) khi detect major_code cụ thể
+    # Template dùng để build Cypher với $major_code param
+    "L3_MAJOR_CENTRIC": {
+        "id":          "L3_MAJOR_CENTRIC",
+        "level":       3,
+        "name":        "Cộng đồng theo Ngành (Major-centric)",
+        "node_labels": {"SUBJECT", "TEACHER", "SKILL"},
+        "rel_weights": {
+            "MAJOR_OFFERS_SUBJECT": 1,
+            "TEACH":              2,
+            "PROVIDES":           3,
+        },
+        "purpose": (
+            "Chi tiết lộ trình một ngành cụ thể: môn học, giảng viên, kỹ năng đầu ra. "
+            "Kích hoạt khi câu hỏi nhắc tới Major Code cụ thể."
+        ),
+        # Cypher template — $major_code sẽ được bind khi execute
+        "cypher_scope": (
+            "(n:SUBJECT OR n:TEACHER OR n:SKILL) AND "
+            "EXISTS { MATCH (m:MAJOR {code: $major_code})-[:MAJOR_OFFERS_SUBJECT]->(n) }"
+        ),
+        "example_questions": [
+            "Ngành 7480201 có những môn và giảng viên nào?",
+            "Lộ trình học ngành CNTT (7480201) như thế nào?",
+        ],
+    },
+
+    # ── LEVEL 3b: SKILL-CENTRIC (Atomic per Skill) ───────────────────────────
+    "L3_SKILL_CENTRIC": {
+        "id":          "L3_SKILL_CENTRIC",
+        "level":       3,
+        "name":        "Cộng đồng theo Kỹ năng (Skill-centric)",
+        "node_labels": {"SUBJECT", "CAREER"},
+        "rel_weights": {
+            "PROVIDES": 3,
+            "REQUIRES": 3,
+        },
+        "purpose": (
+            "Giá trị của một kỹ năng cụ thể: môn nào dạy + nghề nào yêu cầu. "
+            "Kích hoạt khi câu hỏi nhắc tới Skill cụ thể."
+        ),
+        "cypher_scope": (
+            "(n:SUBJECT OR n:CAREER) AND "
+            "EXISTS { MATCH (n)-[:PROVIDES|REQUIRES]->(sk:SKILL {name: $skill_name}) }"
+        ),
+        "example_questions": [
+            "Kỹ năng Python có giá trị như thế nào trên thị trường?",
+            "Kỹ năng SQL được dạy ở đâu và nghề nào cần?",
+        ],
+    },
+}
+
+
+# ── Ánh xạ intent → community ID ─────────────────────────────────────────────
+INTENT_TO_COMMUNITY: dict[tuple, str] = {
+    # Academic cluster: khi đề cập Major/Subject/Teacher
+    ("MAJOR",   "SUBJECT"):  "L2_ACADEMIC",
+    ("MAJOR",   "TEACHER"):  "L2_ACADEMIC",
+    ("SUBJECT", "TEACHER"):  "L2_ACADEMIC",
+    ("TEACHER", "SUBJECT"):  "L2_ACADEMIC",
+    ("TEACHER", "MAJOR"):    "L2_ACADEMIC",
+
+    # Career Alignment: khi đề cập Career/Skill hoặc kết hợp Subject-Skill
+    ("MAJOR",   "CAREER"):   "L2_CAREER_ALIGNMENT",
+    ("MAJOR",   "SKILL"):    "L2_CAREER_ALIGNMENT",
+    ("CAREER",  "SKILL"):    "L2_CAREER_ALIGNMENT",
+    ("CAREER",  "SUBJECT"):  "L2_CAREER_ALIGNMENT",
+    ("CAREER",  "MAJOR"):    "L2_CAREER_ALIGNMENT",
+    ("SKILL",   "MAJOR"):    "L2_CAREER_ALIGNMENT",
+    ("SKILL",   "CAREER"):   "L2_CAREER_ALIGNMENT",
+    ("SKILL",   "SUBJECT"):  "L2_CAREER_ALIGNMENT",
+    ("SUBJECT", "SKILL"):    "L2_CAREER_ALIGNMENT",
+    ("SUBJECT", "CAREER"):   "L2_CAREER_ALIGNMENT",
+
+    # So sánh giữa các Major → cần cả 2 cluster
+    ("MAJOR",   "MAJOR"):    "L1_GLOBAL",
+}
+
+
+def route_to_community(intent: dict) -> tuple[str, dict]:
+    """
+    Xác định cộng đồng phù hợp nhất cho intent.
+    Ưu tiên Level 3 nếu có major_code / skill_name cụ thể trong keywords.
+    Returns: (community_id, community_def)
+    """
+    mentioned = (intent.get("mentioned_labels") or [])
+    asked     = intent.get("asked_label", "UNKNOWN")
+    keywords  = intent.get("keywords", [])
+
+    # Kiểm tra Level 3 trước (khi keyword chứa mã ngành dạng số hoặc tên kỹ năng rất cụ thể)
+    MAJOR_CODE_PATTERN = re.compile(r"\b\d{7}\b")  # mã ngành 7 chữ số (VD: 7480201)
+    for kw in keywords:
+        if MAJOR_CODE_PATTERN.search(str(kw)):
+            return "L3_MAJOR_CENTRIC", COMMUNITY_LEVELS["L3_MAJOR_CENTRIC"]
+
+    # Kiểm tra Level 3 Skill-centric: khi asked=CAREER + mentioned=SKILL hoặc ngược lại
+    # và keyword khá cụ thể (> 2 từ)
+    if asked in ("CAREER", "SUBJECT") and "SKILL" in mentioned:
+        long_kws = [k for k in keywords if len(k.split()) >= 2]
+        if long_kws:
+            return "L3_SKILL_CENTRIC", COMMUNITY_LEVELS["L3_SKILL_CENTRIC"]
+
+    # Level 2 routing theo intent
+    first_mentioned = mentioned[0] if mentioned else None
+    key = (first_mentioned, asked)
+    cid = INTENT_TO_COMMUNITY.get(key)
+
+    # Thử các mentioned khác nếu không tìm thấy
+    if not cid:
+        for m in mentioned:
+            cid = INTENT_TO_COMMUNITY.get((m, asked))
+            if cid:
+                break
+
+    # Default: Global nếu không khớp
+    if not cid:
+        cid = "L1_GLOBAL"
+
+    return cid, COMMUNITY_LEVELS[cid]
+
+
+# PHẦN 2: LOUVAIN COMMUNITY DETECTION (GDS hoặc IN-MEMORY FALLBACK)
+
+def build_community_projection_cypher(community_def: dict, level3_param: dict | None = None) -> str | None:
+    """
+    Tạo Cypher để tính Louvain community_id cho nodes thuộc community_def.
+    Yêu cầu Neo4j GDS plugin (Graph Data Science).
+    Returns None nếu không cần GDS (Level 1 không cần chia nhỏ hơn).
+    """
+    if community_def["level"] == 1:
+        return None  # L1 là toàn bộ graph, không cần partition
+
+    cid  = community_def["id"]
+    wmap = community_def["rel_weights"]
+
+    # Tên graph projection (unique per community)
+    graph_name = f"neo_edu_{cid.lower()}"
+
+    # Build relationship projection với weights
+    rel_projection = {
+        rtype: {"type": rtype, "properties": {"weight": {"defaultValue": w}}}
+        for rtype, w in wmap.items()
+    }
+
+    # Cypher GDS: drop nếu tồn tại → project → run Louvain → write community
+    cypher = f"""
+    // Drop old projection if exists
+    CALL gds.graph.drop('{graph_name}', false) YIELD graphName
+    UNION ALL
+    // Create new projection
+    CALL gds.graph.project(
+      '{graph_name}',
+      {json.dumps(list(community_def["node_labels"]))},
+      {json.dumps(rel_projection)}
+    )
+    YIELD graphName, nodeCount, relationshipCount
+    RETURN graphName, nodeCount, relationshipCount
+    """
+    return cypher
+
+
+def run_louvain_and_write(driver, community_def: dict) -> dict:
+    """
+    Chạy Louvain weighted trên community_def (nếu GDS có sẵn).
+    Ghi community_id vào property 'community_L{level}' của từng node.
+    Returns: stats dict.
+    """
+    level    = community_def["level"]
+    cid      = community_def["id"]
+    prop_key = f"community_L{level}"
+    graph_name = f"neo_edu_{cid.lower()}"
+
+    stats = {"community_id": cid, "level": level, "nodes_written": 0, "error": None}
+
+    if level == 1:
+        # L1 không cần Louvain — gán community = 0 cho tất cả nodes
+        with driver.session() as session:
+            r = session.run(
+                f"MATCH (n) WHERE (n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER) "
+                f"SET n.{prop_key} = 0 RETURN count(n) AS cnt"
+            ).single()
+            stats["nodes_written"] = r["cnt"] if r else 0
+        return stats
+
+    with driver.session() as session:
+        # 1. Drop + project graph
+        try:
+            session.run(f"CALL gds.graph.drop('{graph_name}', false)")
+        except Exception:
+            pass
+
+        node_labels   = list(community_def["node_labels"])
+        rel_proj      = {
+            rtype: {"type": rtype, "orientation": "UNDIRECTED",
+                    "properties": {"weight": {"defaultValue": w}}}
+            for rtype, w in community_def["rel_weights"].items()
+        }
+
+        try:
+            session.run(
+                "CALL gds.graph.project($gname, $nlabels, $rproj)",
+                gname=graph_name, nlabels=node_labels, rproj=rel_proj,
+            )
+        except Exception as e:
+            stats["error"] = f"GDS project error: {e}"
+            # Fallback: in-memory mock community (không cần GDS)
+            _fallback_community_assignment(driver, community_def, prop_key)
+            return stats
+
+        # 2. Chạy Louvain weighted
+        try:
+            session.run(
+                f"CALL gds.louvain.write('{graph_name}', "
+                f"{{relationshipWeightProperty: 'weight', writeProperty: '{prop_key}'}})"
+            )
+            r = session.run(
+                f"MATCH (n) WHERE n.{prop_key} IS NOT NULL RETURN count(n) AS cnt"
+            ).single()
+            stats["nodes_written"] = r["cnt"] if r else 0
+        except Exception as e:
+            stats["error"] = f"GDS Louvain error: {e}"
+            _fallback_community_assignment(driver, community_def, prop_key)
+        finally:
+            try:
+                session.run(f"CALL gds.graph.drop('{graph_name}', false)")
+            except Exception:
+                pass
+
+    return stats
+
+
+def _fallback_community_assignment(driver, community_def: dict, prop_key: str):
+    """
+    Fallback khi GDS không có sẵn:
+    Gán community dựa trên rule-based (label → community_id số).
+    Đảm bảo chatbot vẫn hoạt động dù không có GDS plugin.
+
+    Mapping:
+      Level 2 Academic:          TEACHER=0, SUBJECT=1, MAJOR=2
+      Level 2 Career Alignment:  SKILL=0, CAREER=1, SUBJECT=2
+      Level 3 Major-centric:     SUBJECT=0, TEACHER=1, SKILL=2
+      Level 3 Skill-centric:     SUBJECT=0, CAREER=1
+    """
+    cid = community_def["id"]
+
+    label_to_community: dict[str, int] = {
+        "L2_ACADEMIC":          {"TEACHER": 0, "SUBJECT": 1, "MAJOR": 2},
+        "L2_CAREER_ALIGNMENT":  {"SKILL": 0, "CAREER": 1, "SUBJECT": 2},
+        "L3_MAJOR_CENTRIC":     {"SUBJECT": 0, "TEACHER": 1, "SKILL": 2},
+        "L3_SKILL_CENTRIC":     {"SUBJECT": 0, "CAREER": 1},
+    }.get(cid, {})
+
+    with driver.session() as session:
+        for label, comm_val in label_to_community.items():
+            session.run(
+                f"MATCH (n:{label}) SET n.{prop_key} = {comm_val}"
+            )
+
+
+def initialize_communities(driver, force_rebuild: bool = False):
+    """
+    Khởi tạo community detection cho tất cả levels.
+    Gọi 1 lần khi startup (hoặc force_rebuild=True để rebuild).
+    Community IDs được lưu vào properties: community_L1, community_L2, community_L3.
+    """
+    print("\n[Community Init] Bắt đầu khởi tạo 3 tầng cộng đồng...")
+
+    # Kiểm tra xem đã có community chưa
+    if not force_rebuild:
+        with driver.session() as session:
+            r = session.run(
+                "MATCH (n) WHERE n.community_L2 IS NOT NULL RETURN count(n) AS cnt LIMIT 1"
+            ).single()
+            if r and r["cnt"] > 0:
+                print("[Community Init] Community L2/L3 đã tồn tại, bỏ qua rebuild.")
+                print("                (Dùng force_rebuild=True để rebuild lại)")
+                return
+
+    BUILD_ORDER = ["L1_GLOBAL", "L2_ACADEMIC", "L2_CAREER_ALIGNMENT",
+                   "L3_MAJOR_CENTRIC", "L3_SKILL_CENTRIC"]
+
+    for cid in BUILD_ORDER:
+        cdef  = COMMUNITY_LEVELS[cid]
+        level = cdef["level"]
+        print(f"  [L{level}] Building: {cdef['name']}...")
+        stats = run_louvain_and_write(driver, cdef)
+        if stats.get("error"):
+            print(f"    ⚠ Fallback (no GDS): {stats['error'][:80]}")
+        else:
+            print(f"    ✓ {stats['nodes_written']} nodes tagged (community_L{level})")
+
+    print("[Community Init] Hoàn tất.\n")
+
+
+
+# PHẦN 3: AGGREGATION QUERY ROUTER (giữ nguyên từ v6)
+
 NEGATION_SYNONYMS = {
     "ko", "k", "không", "chẳng", "chả", "kém", "chưa giỏi",
     "không giỏi", "ko giỏi", "k giỏi", "yếu", "dở",
@@ -39,287 +451,376 @@ NEGATION_SYNONYMS = {
     "không biết", "ko biết", "chưa biết",
 }
 
-SCHEMA_DESC = """
-Nodes: MAJOR{name,code,pagerank}, SUBJECT{name,code,pagerank},
-       SKILL{name,pagerank}, CAREER{name,pagerank},
-       TEACHER{name}, DOCUMENT{name,docid,doctype}
-Relationships:
-  (MAJOR)-[:OFFERS]->(SUBJECT)
-  (TEACHER)-[:TEACH]->(SUBJECT)
-  (SUBJECT)-[:PROVIDES]->(SKILL)
-  (CAREER)-[:REQUIRES]->(SKILL)
-  (SUBJECT)-[:PREREQUISITE_FOR]->(SUBJECT)
-  (MAJOR)-[:LEADS_TO]->(CAREER)
-  (*)-[:MENTIONED_IN]->(DOCUMENT)
-All name values are UPPERCASE Vietnamese.
+_AGG_ALL_MAJOR_TOKENS = (
+    r"tất cả(?: các)? ngành|mọi ngành|"
+    r"các ngành đều|"
+    r"ngành nào cũng|"
+    r"chung cho(?: tất cả| mọi| các)?(?: các)? ngành|"
+    r"môn chung|môn bắt buộc chung|môn(?: học)? bắt buộc"
+)
 
-Community ID mapping (tự động gán theo node type, không cần Louvain):
-  TEACHER → 0, SKILL → 1, CAREER → 2, MAJOR → 3, SUBJECT → 4
+AGGREGATION_PATTERNS: list[tuple[re.Pattern, str]] = [
+    (re.compile(
+        r"môn(?: học)?(?: nào)?(?: là)? chung(?: giữa| của)?(.*?)(?:\s+và\s+)(.*?)(?:\?|$)",
+        re.IGNORECASE | re.UNICODE,
+    ), "subject_intersection_two"),
+    (re.compile(
+        r"(?:môn(?: học)?(?: gì| nào)?.*?(?:" + _AGG_ALL_MAJOR_TOKENS + r")"
+        r"|(?:" + _AGG_ALL_MAJOR_TOKENS + r").*?(?:môn|học phần))",
+        re.IGNORECASE | re.UNICODE,
+    ), "subject_intersection_all"),
+    (re.compile(
+        r"ngành(?: nào)?.{0,20}(?:nhiều môn|nhiều học phần).{0,15}nhất",
+        re.IGNORECASE | re.UNICODE,
+    ), "major_most_subjects"),
+    (re.compile(
+        r"(?:nghề|career|vị trí).{0,20}(?:nhiều kỹ năng|nhiều skill).{0,15}nhất",
+        re.IGNORECASE | re.UNICODE,
+    ), "career_most_skills"),
+    (re.compile(
+        r"môn(?: học)?(?: nào)?.{0,30}(?:nhiều ngành|phổ biến nhất|nhiều nhất)",
+        re.IGNORECASE | re.UNICODE,
+    ), "subject_most_majors"),
+    (re.compile(
+        r"(?:kỹ năng|skill)(?: nào)?.{0,30}(?:nhiều môn|phổ biến nhất)",
+        re.IGNORECASE | re.UNICODE,
+    ), "skill_most_subjects"),
+    (re.compile(
+        r"(?:có|tổng)(?: tất cả)? bao nhiêu (ngành|môn|nghề|kỹ năng|giảng viên)",
+        re.IGNORECASE | re.UNICODE,
+    ), "count_entities"),
+]
+
+
+def detect_aggregation_type(question: str) -> str | None:
+    for pattern, agg_type in AGGREGATION_PATTERNS:
+        if pattern.search(question):
+            return agg_type
+    return None
+
+
+def run_aggregation_query(driver, question: str, agg_type: str) -> list[dict]:
+    results = []
+    with driver.session() as session:
+
+        if agg_type == "subject_intersection_all":
+            rows = session.run("""
+                MATCH (m:MAJOR)
+                WITH count(m) AS total_majors
+                MATCH (s:SUBJECT)<-[:MAJOR_OFFERS_SUBJECT]-(m:MAJOR)
+                WITH s, count(DISTINCT m) AS major_count, total_majors
+                WHERE major_count = total_majors
+                RETURN s.name AS name, s.code AS code, major_count
+                ORDER BY s.name ASC
+            """).data()
+            if not rows:
+                rows = session.run("""
+                    MATCH (m:MAJOR)
+                    WITH count(m) AS total_majors
+                    MATCH (s:SUBJECT)<-[:MAJOR_OFFERS_SUBJECT]-(m:MAJOR)
+                    WITH s, count(DISTINCT m) AS major_count, total_majors
+                    WHERE major_count >= toInteger(total_majors * 0.8)
+                    RETURN s.name AS name, s.code AS code,
+                           major_count, total_majors
+                    ORDER BY major_count DESC LIMIT 30
+                """).data()
+            for r in rows:
+                results.append({
+                    "name": r["name"], "label": "SUBJECT", "code": r["code"],
+                    "major_count": r.get("major_count"), "hops": 1,
+                    "_agg_meta": f"Xuất hiện trong {r.get('major_count')} ngành",
+                })
+
+        elif agg_type == "subject_intersection_two":
+            rows = session.run("""
+                MATCH (s:SUBJECT)<-[:MAJOR_OFFERS_SUBJECT]-(m:MAJOR)
+                WITH s, collect(DISTINCT toLower(m.name)) AS major_names,
+                     count(DISTINCT m) AS major_count
+                WHERE major_count >= 2
+                RETURN s.name AS name, s.code AS code,
+                       major_names, major_count
+                ORDER BY major_count DESC LIMIT 50
+            """).data()
+            for r in rows:
+                results.append({
+                    "name": r["name"], "label": "SUBJECT", "code": r["code"],
+                    "major_names": r.get("major_names"),
+                    "major_count": r.get("major_count"), "hops": 1,
+                })
+
+        elif agg_type == "major_most_subjects":
+            rows = session.run("""
+                MATCH (m:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(s:SUBJECT)
+                WITH m, count(DISTINCT s) AS subject_count
+                RETURN m.name AS name, m.code AS code, subject_count
+                ORDER BY subject_count DESC LIMIT 10
+            """).data()
+            for r in rows:
+                results.append({
+                    "name": r["name"], "label": "MAJOR", "code": r["code"],
+                    "subject_count": r.get("subject_count"), "hops": 1,
+                    "_agg_meta": f"{r.get('subject_count')} môn học",
+                })
+
+        elif agg_type == "career_most_skills":
+            rows = session.run("""
+                MATCH (c:CAREER)-[:REQUIRES]->(sk:SKILL)
+                WITH c, count(DISTINCT sk) AS skill_count
+                RETURN c.name AS name, skill_count
+                ORDER BY skill_count DESC LIMIT 10
+            """).data()
+            for r in rows:
+                results.append({
+                    "name": r["name"], "label": "CAREER",
+                    "skill_count": r.get("skill_count"), "hops": 1,
+                    "_agg_meta": f"{r.get('skill_count')} kỹ năng",
+                })
+
+        elif agg_type == "subject_most_majors":
+            rows = session.run("""
+                MATCH (m:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(s:SUBJECT)
+                WITH s, count(DISTINCT m) AS major_count
+                RETURN s.name AS name, s.code AS code, major_count
+                ORDER BY major_count DESC LIMIT 15
+            """).data()
+            for r in rows:
+                results.append({
+                    "name": r["name"], "label": "SUBJECT", "code": r["code"],
+                    "major_count": r.get("major_count"), "hops": 1,
+                    "_agg_meta": f"Được dạy trong {r.get('major_count')} ngành",
+                })
+
+        elif agg_type == "skill_most_subjects":
+            rows = session.run("""
+                MATCH (s:SUBJECT)-[:PROVIDES]->(sk:SKILL)
+                WITH sk, count(DISTINCT s) AS subject_count
+                RETURN sk.name AS name, subject_count
+                ORDER BY subject_count DESC LIMIT 15
+            """).data()
+            for r in rows:
+                results.append({
+                    "name": r["name"], "label": "SKILL",
+                    "subject_count": r.get("subject_count"), "hops": 1,
+                    "_agg_meta": f"Được cung cấp bởi {r.get('subject_count')} môn",
+                })
+
+        elif agg_type == "count_entities":
+            q_lower = question.lower()
+            if "ngành" in q_lower:   label, vn = "MAJOR",   "ngành"
+            elif "nghề" in q_lower:  label, vn = "CAREER",  "nghề"
+            elif "kỹ năng" in q_lower or "skill" in q_lower:
+                                     label, vn = "SKILL",   "kỹ năng"
+            elif "giảng viên" in q_lower: label, vn = "TEACHER", "giảng viên"
+            else:                    label, vn = "SUBJECT", "môn học"
+            cnt = session.run(f"MATCH (n:{label}) RETURN count(n) AS cnt").single()["cnt"]
+            results.append({
+                "name": f"Tổng số {vn}: {cnt}", "label": label,
+                "count": cnt, "hops": 0,
+                "_agg_meta": f"count={cnt}",
+            })
+
+    return results
+
+
+# PHẦN 4: SCHEMA + CONSTRAINTS + SYSTEM PROMPTS
+
+SCHEMA_DESC = """
+Nodes: MAJOR{name,code}, SUBJECT{name,code},
+       SKILL{name}, CAREER{name},
+       TEACHER{name}
+Relationships:
+  (MAJOR)  -[:MAJOR_OFFERS_SUBJECT]-> (SUBJECT)   weight=1
+  (TEACHER)-[:TEACH]->                (SUBJECT)   weight=2
+  (SUBJECT)-[:PROVIDES]->             (SKILL)     weight=3
+  (CAREER) -[:REQUIRES]->             (SKILL)     weight=3
+  (MAJOR)  -[:LEADS_TO]->             (CAREER)    weight=2
+  (SUBJECT)-[:PREREQUISITE_FOR]->     (SUBJECT)
+
+GraphRAG Communities (3 levels):
+  L1 Global:             All 5 node types — xu hướng chiến lược
+  L2 Academic:           MAJOR + SUBJECT + TEACHER — chương trình ngành
+  L2 Career Alignment:   SKILL + CAREER + SUBJECT  — năng lực & việc làm
+  L3 Major-centric:      SUBJECT + TEACHER + SKILL per Major
+  L3 Skill-centric:      SUBJECT + CAREER per Skill
 """
 
-# ── Ràng buộc quan hệ theo loại câu hỏi ──────────────────────────────────────
-# Key: (thực thể đề cập, thực thể được hỏi)
 RELATIONSHIP_CONSTRAINTS = {
-    # Đề cập MAJOR → hỏi CAREER
-    ("MAJOR", "CAREER"): (
-        "Đường truy xuất: MAJOR -[:LEADS_TO]-> CAREER.\n"
-        "Chỉ liệt kê các nghề nghiệp (CAREER) mà ngành (MAJOR) dẫn đến.\n"
-        "KHÔNG đề cập SUBJECT (môn học) trừ khi được hỏi thêm."
+    ("MAJOR", "CAREER"):   (
+        "MAJOR -[:LEADS_TO]-> CAREER. "
+        "Liệt kê Career mà Major dẫn đến. KHÔNG đề cập SUBJECT trừ khi được hỏi."
     ),
-    # Đề cập CAREER → hỏi SKILL
-    ("CAREER", "SKILL"): (
-        "Đường truy xuất: CAREER -[:REQUIRES]-> SKILL và SUBJECT -[:PROVIDES]-> SKILL.\n"
-        "Trả lời: kỹ năng cần thiết cho nghề đó + môn học cung cấp kỹ năng tương ứng.\n"
-        "Kèm mã môn học."
+    ("CAREER", "SKILL"):   (
+        "CAREER -[:REQUIRES]-> SKILL và SUBJECT -[:PROVIDES]-> SKILL. "
+        "Trả lời kỹ năng cần + môn cung cấp kỹ năng đó."
     ),
-    # Đề cập MAJOR → hỏi SKILL
-    ("MAJOR", "SKILL"): (
-        "Đường truy xuất: MAJOR -[:OFFERS]-> SUBJECT -[:PROVIDES]-> SKILL.\n"
-        "Trả lời: kỹ năng đạt được từ các môn học trong chương trình đào tạo.\n"
-        "Kèm tên môn học (mã môn) cung cấp kỹ năng đó."
+    ("MAJOR", "SKILL"):    (
+        "MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT -[:PROVIDES]-> SKILL. "
+        "Kỹ năng đạt được từ các môn trong chương trình. Kèm tên môn (mã môn)."
     ),
-    # Đề cập SKILL → hỏi MAJOR
-    ("SKILL", "MAJOR"): (
-        "Đường truy xuất: SKILL <-[:PROVIDES]- SUBJECT <-[:OFFERS]- MAJOR.\n"
-        "Trả lời: ngành học (MAJOR) có môn học cung cấp kỹ năng đó.\n"
-        "Kèm mã ngành, tên môn trung gian."
+    ("SKILL", "MAJOR"):    (
+        "SKILL <-[:PROVIDES]- SUBJECT <-[:MAJOR_OFFERS_SUBJECT]- MAJOR. "
+        "Ngành học có môn cung cấp kỹ năng đó. Kèm mã ngành, tên môn trung gian."
     ),
-    # Đề cập CAREER → hỏi SUBJECT (môn học)
     ("CAREER", "SUBJECT"): (
-        "Đường truy xuất: CAREER -[:REQUIRES]-> SKILL <-[:PROVIDES]- SUBJECT.\n"
-        "Trả lời: các môn học cung cấp kỹ năng mà nghề đó yêu cầu.\n"
-        "Kèm mã môn học và kỹ năng tương ứng."
+        "CAREER -[:REQUIRES]-> SKILL <-[:PROVIDES]- SUBJECT. "
+        "Môn học cung cấp kỹ năng nghề yêu cầu. Kèm mã môn + kỹ năng tương ứng."
     ),
-    # Đề cập MAJOR → hỏi SUBJECT (môn học)
-    ("MAJOR", "SUBJECT"): (
-        "Đường truy xuất: MAJOR -[:OFFERS]-> SUBJECT.\n"
-        "Trả lời: các môn học thuộc chương trình ngành đó, kèm mã môn và kỹ năng cung cấp (SKILL)."
+    ("MAJOR", "SUBJECT"):  (
+        "MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT. "
+        "Môn học thuộc chương trình ngành, kèm mã môn và kỹ năng cung cấp."
     ),
-    # Đề cập SKILL → hỏi CAREER
-    ("SKILL", "CAREER"): (
-        "Đường truy xuất: SKILL <-[:REQUIRES]- CAREER.\n"
-        "Trả lời: danh sách nghề nghiệp yêu cầu kỹ năng đó."
+    ("SKILL", "CAREER"):   (
+        "SKILL <-[:REQUIRES]- CAREER. Nghề nghiệp yêu cầu kỹ năng đó."
     ),
-    # Đề cập CAREER → hỏi MAJOR
-    ("CAREER", "MAJOR"): (
-        "Đường truy xuất: MAJOR -[:LEADS_TO]-> CAREER.\n"
-        "Trả lời: ngành học (MAJOR) dẫn đến nghề đó, kèm mã ngành."
+    ("CAREER", "MAJOR"):   (
+        "MAJOR -[:LEADS_TO]-> CAREER. Ngành học dẫn đến nghề đó, kèm mã ngành."
     ),
-    # Đề cập SUBJECT → hỏi SKILL
-    ("SUBJECT", "SKILL"): (
-        "Đường truy xuất: SUBJECT -[:PROVIDES]-> SKILL.\n"
-        "Trả lời: kỹ năng đạt được sau khi học môn đó."
+    ("SUBJECT", "SKILL"):  (
+        "SUBJECT -[:PROVIDES]-> SKILL. Kỹ năng đạt được sau khi học môn đó."
     ),
-    # Đề cập SKILL → hỏi SUBJECT
-    ("SKILL", "SUBJECT"): (
-        "Đường truy xuất: SKILL <-[:PROVIDES]- SUBJECT.\n"
-        "Trả lời: môn học (kèm mã môn) cung cấp kỹ năng đó, và ngành nào chứa môn đó."
+    ("SKILL", "SUBJECT"):  (
+        "SKILL <-[:PROVIDES]- SUBJECT. Môn học (kèm mã môn) cung cấp kỹ năng đó."
     ),
-    # Đề cập MAJOR → so sánh nhiều ngành
-    ("MAJOR", "MAJOR"): (
-        "Đây là câu so sánh giữa các ngành.\n"
-        "Truy xuất: MAJOR -[:LEADS_TO]-> CAREER và MAJOR -[:OFFERS]-> SUBJECT.\n"
-        "Trả lời: so sánh cơ hội nghề nghiệp và môn học đặc trưng của từng ngành.\n"
-        "Kèm mã ngành, mã môn học nếu có. Trích dẫn nguồn tài liệu (DOCUMENT) nếu có."
+    ("SUBJECT", "TEACHER"):(
+        "TEACHER -[:TEACH]-> SUBJECT. Giảng viên phụ trách môn đó."
     ),
-    # Đề cập MAJOR/CAREER → hỏi CAREER/MAJOR (tổng quát)
-    ("MAJOR", "MAJOR_CAREER"): (
-        "Đường truy xuất: MAJOR -[:LEADS_TO]-> CAREER và MAJOR -[:OFFERS]-> SUBJECT -[:PROVIDES]-> SKILL.\n"
-        "Trả lời nghề nghiệp + kỹ năng đặc trưng + môn học trong ngành đó."
+    ("TEACHER", "SUBJECT"):(
+        "TEACHER -[:TEACH]-> SUBJECT. Môn học thầy/cô đó phụ trách."
+    ),
+    ("MAJOR", "TEACHER"):  (
+        "MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT <-[:TEACH]- TEACHER. "
+        "Giảng viên dạy trong chương trình ngành đó."
+    ),
+    ("TEACHER", "MAJOR"):  (
+        "TEACHER -[:TEACH]-> SUBJECT <-[:MAJOR_OFFERS_SUBJECT]- MAJOR. "
+        "Ngành học thầy/cô đó tham gia giảng dạy."
+    ),
+    ("MAJOR", "MAJOR"):    (
+        "So sánh: MAJOR -[:LEADS_TO]-> CAREER và MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT. "
+        "So sánh cơ hội nghề nghiệp và môn học đặc trưng của từng ngành."
     ),
 }
 
-# ── Prompt hệ thống chính cho generate_answer ─────────────────────────────────
 ANSWER_SYSTEM_BASE = """Bạn là trợ lý tư vấn học thuật cho Đại học Kinh tế Quốc dân (NEU).
 
 {schema}
 
 ==================================================
-LUẬT TUYỆT ĐỐI — VI PHẠM LÀ SAI:
+LUẬT TUYỆT ĐỐI:
 ==================================================
-A. CHỈ dùng đúng tên/code/thông tin có trong phần [DỮ LIỆU GRAPH] bên dưới.
-B. TUYỆT ĐỐI KHÔNG thêm bất kỳ kỹ năng, môn học, nghề nghiệp nào từ kiến thức bên ngoài.
-C. TUYỆT ĐỐI KHÔNG liệt kê các mục chung chung như "kỹ năng giao tiếp", "tư duy logic",
-   "quản lý thời gian" nếu chúng KHÔNG xuất hiện tên đúng trong [DỮ LIỆU GRAPH].
+A. CHỈ dùng đúng tên/code/thông tin có trong [DỮ LIỆU GRAPH].
+B. TUYỆT ĐỐI KHÔNG thêm kỹ năng, môn học, nghề nghiệp từ kiến thức bên ngoài.
+C. TUYỆT ĐỐI KHÔNG liệt kê mục chung chung nếu không có trong [DỮ LIỆU GRAPH].
 D. Mọi tên SKILL/SUBJECT/CAREER/MAJOR phải lấy nguyên văn từ [DỮ LIỆU GRAPH].
-E. Mọi mã môn (code) phải lấy nguyên văn từ field "code" trong [DỮ LIỆU GRAPH].
-F. Nếu [DỮ LIỆU GRAPH] không có node nào phù hợp → trả lời:
+E. Mọi mã môn (code) phải lấy nguyên văn từ field "code".
+F. Nếu [DỮ LIỆU GRAPH] trống → trả lời:
    "Dữ liệu hiện tại chưa đủ để tư vấn về [chủ đề]. Bạn có thể liên hệ phòng đào tạo."
-   KHÔNG được tự bổ sung thêm gì khác.
 
-ĐỊNH DẠNG KẾT QUẢ:
-- Ngôn ngữ tự nhiên, thân thiện, tiếng Việt.
-- Khi nhắc môn học: "Tên môn (mã môn)" — ví dụ: "Toán cho các nhà kinh tế (TCB1110)".
-- Khi nhắc ngành: "Tên ngành (mã ngành)" — ví dụ: "Công nghệ thông tin (7480201)".
-- Khi người dùng phủ định (không giỏi X) → bỏ X khỏi câu trả lời.
-- KHÔNG hỏi ngược lại người dùng ở cuối câu trả lời.
+ĐỊNH DẠNG:
+- Tiếng Việt tự nhiên, thân thiện.
+- Môn học: "Tên môn (mã môn)" — VD: "Toán rời rạc (TOCB1107)".
+- Ngành: "Tên ngành (mã ngành)" — VD: "Công nghệ thông tin (7480201)".
+- Khi người dùng phủ định (không giỏi X) → bỏ X khỏi gợi ý.
+- KHÔNG hỏi ngược lại người dùng.
 
 RÀNG BUỘC THEO LOẠI CÂU HỎI:
 {constraint}
+
+CỘNG ĐỒNG ĐÃ ĐƯỢC ĐỊNH TUYẾN:
+{community_context}
 """
 
-# ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 0: SETUP — Gán Community ID cố định + Tính PageRank (chạy mỗi khi graph thay đổi)
-# ══════════════════════════════════════════════════════════════════════════════
 
-def setup_graph_algorithms(driver):
-    """
-    Gán community_id cố định theo node type (KHÔNG dùng Louvain phức tạp):
-      TEACHER → 0, SKILL → 1, CAREER → 2, MAJOR → 3, SUBJECT → 4
-    
-    Tính PageRank bằng NetworkX (Python) → ghi lên Neo4j.
-    
-    ⚠️  QUAN TRỌNG: Chạy lại script này mỗi khi graph được cập nhật/thay đổi
-        để đảm bảo PageRank luôn mới nhất.
-    """
-    try:
-        import networkx as nx
-    except ImportError:
-        print("  Cài networkx: pip install networkx")
-        return
+# PHẦN 5: ABBREVIATION EXPANSION
 
-    print("\n[Setup] Gán community_id cố định + tính PageRank bằng NetworkX...")
-
-    # Mapping cố định: node type → community_id
-    TYPE_TO_COMMUNITY = {
-        "TEACHER": 0,
-        "SKILL":   1,
-        "CAREER":  2,
-        "MAJOR":   3,
-        "SUBJECT": 4,
-    }
-
-    G = nx.Graph()
-
-    with driver.session() as session:
-        # Gán community_id cố định theo type
-        print("  Gán community_id theo node type...")
-        for node_type, cid in TYPE_TO_COMMUNITY.items():
-            result = session.run(f"""
-                MATCH (n:{node_type})
-                SET n.community_id = {cid}
-                RETURN count(n) AS cnt
-            """)
-            count = result.single()["cnt"]
-            print(f"    {node_type}: {count} nodes → community_id={cid}")
-
-        # Pull graph để tính PageRank
-        nodes = session.run("""
-            MATCH (n)
-            WHERE n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER
-            RETURN n.name AS name
-        """).data()
-        for row in nodes:
-            if row["name"]:
-                G.add_node(row["name"])
-
-        rels = session.run("""
-            MATCH (a)-[r]->(b)
-            WHERE (a:MAJOR OR a:SUBJECT OR a:SKILL OR a:CAREER OR a:TEACHER)
-              AND (b:MAJOR OR b:SUBJECT OR b:SKILL OR b:CAREER OR b:TEACHER)
-              AND a.name IS NOT NULL AND b.name IS NOT NULL
-            RETURN a.name AS src, b.name AS tgt
-        """).data()
-        for row in rels:
-            G.add_edge(row["src"], row["tgt"])
-
-    print(f"  Graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
-
-    print("  Tính PageRank (alpha=0.85)...")
-    pagerank = nx.pagerank(G, alpha=0.85, max_iter=100)
-
-    print("  Ghi pagerank lên Neo4j...")
-    with driver.session() as session:
-        BATCH_SIZE = 500
-        items = list(pagerank.items())
-        for i in range(0, len(items), BATCH_SIZE):
-            batch = [
-                {"name": name, "pr": round(pr, 8)}
-                for name, pr in items[i:i+BATCH_SIZE]
-            ]
-            session.run("""
-                UNWIND $batch AS row
-                MATCH (n) WHERE n.name = row.name
-                SET n.pagerank = row.pr
-            """, batch=batch)
-
-    print(f"  Đã ghi PageRank cho {len(pagerank)} nodes")
-    print("[Setup] Xong. Gợi ý: Chạy lại script này nếu graph được cập nhật.\n")
+ABBREVIATION_MAP: dict[str, list[str]] = {
+    "da":   ["data analyst", "phân tích dữ liệu"],
+    "de":   ["data engineer", "kỹ sư dữ liệu"],
+    "ds":   ["data scientist", "khoa học dữ liệu"],
+    "ba":   ["business analyst", "phân tích kinh doanh"],
+    "pm":   ["project manager", "quản lý dự án"],
+    "po":   ["product owner"],
+    "qa":   ["kiểm thử", "quality assurance"],
+    "dev":  ["lập trình viên", "developer"],
+    "fe":   ["front end", "lập trình viên frontend"],
+    "be":   ["back end", "lập trình viên backend"],
+    "ml":   ["machine learning", "học máy"],
+    "ai":   ["trí tuệ nhân tạo", "artificial intelligence"],
+    "cntt": ["công nghệ thông tin"],
+    "ktpm": ["kỹ thuật phần mềm"],
+    "httt": ["hệ thống thông tin"],
+    "qtkd": ["quản trị kinh doanh"],
+    "tcnh": ["tài chính ngân hàng"],
+    "kt":   ["kế toán", "kinh tế"],
+    "mkt":  ["marketing"],
+    "hr":   ["quản trị nhân lực", "nhân sự"],
+}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# EXTRACT QUERY INTENT — Phân loại ý định câu hỏi
-# ══════════════════════════════════════════════════════════════════════════════
+def expand_abbreviations(question: str) -> tuple[str, list[str]]:
+    q_lower  = question.lower()
+    expanded = question
+    extras   = []
+    found    = {}
+
+    for abbrev, expansions in ABBREVIATION_MAP.items():
+        if len(abbrev) <= 3:
+            pat = r"(?<![\w\u00C0-\u024F])" + re.escape(abbrev.upper()) + r"(?![\w\u00C0-\u024F])"
+            if not re.search(pat, question, re.UNICODE):
+                continue
+        pattern = r"(?<![\w\u00C0-\u024F])" + re.escape(abbrev) + r"(?![\w\u00C0-\u024F])"
+        if re.search(pattern, q_lower, re.IGNORECASE | re.UNICODE):
+            found[abbrev] = expansions
+            extras.extend(expansions)
+
+    if found:
+        hints = "; ".join(f"{k.upper()} = {' / '.join(v)}" for k, v in found.items())
+        expanded = question + f"  [GHI CHÚ: {hints}]"
+
+    return expanded, extras
+
+
+# PHẦN 6: INTENT EXTRACTION
 
 def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
-    """
-    Trích xuất:
-    - keywords: từ khoá tìm kiếm thực thể trong KG
-    - mentioned_labels: loại thực thể được đề cập trong câu hỏi
-    - asked_label: loại thực thể người dùng muốn biết
-    - negated_keywords: từ khoá người dùng phủ định (không giỏi, không thích, ...)
-    - is_comparison: câu hỏi so sánh
-    """
     system_msg = (
         "Bạn phân tích câu hỏi tư vấn học thuật và trả về JSON.\n"
-        "Schema Knowledge Graph:\n"
-        "  Node labels: MAJOR (ngành học), SUBJECT (môn học), SKILL (kỹ năng), "
-        "CAREER (nghề nghiệp / vị trí việc làm), TEACHER (giảng viên)\n\n"
-        "Từ đồng nghĩa phủ định: ko, k, không, chẳng, kém, yếu, dở, chưa giỏi, "
-        "không giỏi, không thích, không muốn, không biết\n\n"
-        "QUAN TRỌNG - Chuẩn hóa keyword về tiếng Việt theo graph:\n"
-        "  data analyst → chuyên viên phân tích dữ liệu\n"
-        "  software engineer / developer → lập trình viên, kỹ sư phần mềm\n"
-        "  tester / QA → kiểm thử\n"
-        "  IT / information technology → công nghệ thông tin\n"
-        "  AI / machine learning → trí tuệ nhân tạo, học máy\n"
-        "  Nếu không biết tên tiếng Việt → giữ nguyên tiếng Anh\n\n"
-        "Trả về JSON với đúng các trường sau:\n"
+        "Schema: Node labels: MAJOR, SUBJECT, SKILL, CAREER, TEACHER\n\n"
+        "Chuẩn hóa keyword:\n"
+        "  data analyst/DA → phân tích dữ liệu, data analyst\n"
+        "  business analyst/BA → phân tích kinh doanh\n"
+        "  CNTT/IT → công nghệ thông tin\n"
+        "  KTPM → kỹ thuật phần mềm | HTTT → hệ thống thông tin\n"
+        "  developer/DEV → lập trình viên | tester/QA → kiểm thử\n\n"
+        "Trả về JSON:\n"
         "{\n"
-        '  "keywords": ["từ khoá thực thể để tìm trong KG"],\n'
+        '  "keywords": ["tên thực thể để tìm trong KG"],\n'
         '  "mentioned_labels": ["MAJOR|SUBJECT|SKILL|CAREER|TEACHER"],\n'
         '  "asked_label": "MAJOR|SUBJECT|SKILL|CAREER|TEACHER|UNKNOWN",\n'
-        '  "negated_keywords": ["thực thể / kỹ năng / môn bị phủ định"],\n'
-        '  "is_comparison": true\n'
-        "}\n\n"
-        "Ví dụ:\n"
-        '  Câu: "Giỏi giao tiếp thì học ngành nào?" → mentioned_labels: ["SKILL"], asked_label: "MAJOR"\n'
-        '  Câu: "Ngành CNTT có những nghề gì?" → mentioned_labels: ["MAJOR"], asked_label: "CAREER"\n'
-        '  Câu: "Ko giỏi toán thì theo nghề lập trình viên được không?" '
-        '→ negated_keywords: ["toán"], mentioned_labels: ["CAREER"]\n'
-        '  Câu: "CNTT hay KTPM phù hợp hơn?" → is_comparison: true, mentioned_labels: ["MAJOR"]\n'
+        '  "negated_keywords": ["thực thể bị phủ định"],\n'
+        '  "is_comparison": false\n'
+        "}\n"
     )
-
     response = ai_client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
             {"role": "system", "content": system_msg},
-            {"role": "user",   "content": f"Phan tich cau hoi sau va tra ve json: {question}"},
+            {"role": "user",   "content": f"Phân tích: {question}"},
         ],
         temperature=0,
         response_format={"type": "json_object"},
     )
     parsed = json.loads(response.choices[0].message.content)
     return {
-        "keywords":        parsed.get("keywords", []),
+        "keywords":         parsed.get("keywords", []),
         "mentioned_labels": parsed.get("mentioned_labels", []),
-        "asked_label":     parsed.get("asked_label", "UNKNOWN"),
+        "asked_label":      parsed.get("asked_label", "UNKNOWN"),
         "negated_keywords": parsed.get("negated_keywords", []),
-        "is_comparison":   parsed.get("is_comparison", False),
+        "is_comparison":    parsed.get("is_comparison", False),
     }
 
 
-def detect_negation_in_question(question: str) -> bool:
-    """Kiểm tra nhanh câu hỏi có chứa từ phủ định không."""
-    q_lower = question.lower()
-    for neg in NEGATION_SYNONYMS:
-        if neg in q_lower:
-            return True
-    return False
-
-
 def get_relationship_constraint(intent: dict) -> str:
-    """Lấy ràng buộc quan hệ dựa trên intent."""
     mentioned = intent.get("mentioned_labels", [])
     asked     = intent.get("asked_label", "UNKNOWN")
     is_comp   = intent.get("is_comparison", False)
@@ -327,80 +828,135 @@ def get_relationship_constraint(intent: dict) -> str:
     if is_comp and "MAJOR" in mentioned:
         return RELATIONSHIP_CONSTRAINTS.get(("MAJOR", "MAJOR"), "")
 
-    # Lấy label đề cập đầu tiên
-    first_mentioned = mentioned[0] if mentioned else None
-
-    if first_mentioned and asked and asked != "UNKNOWN":
-        key = (first_mentioned, asked)
-        if key in RELATIONSHIP_CONSTRAINTS:
-            return RELATIONSHIP_CONSTRAINTS[key]
-
-    # Thử tổ hợp khác
-    for m in mentioned:
+    for m in ([mentioned[0]] if mentioned else []) + mentioned:
         key = (m, asked)
         if key in RELATIONSHIP_CONSTRAINTS:
             return RELATIONSHIP_CONSTRAINTS[key]
 
-    return "Trả lời theo đúng câu hỏi, chỉ dùng dữ liệu có trong Knowledge Graph."
+    return "Trả lời theo đúng câu hỏi, chỉ dùng dữ liệu trong Knowledge Graph."
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 1: COMMUNITY MAPPING (cố định theo node type)
+# PHẦN 7: COMMUNITY-AWARE TRAVERSAL
 # ══════════════════════════════════════════════════════════════════════════════
 
-def get_community_for_node_type(node_type: str) -> int:
-    """Lấy community_id cố định theo node type."""
-    TYPE_TO_COMMUNITY = {
-        "TEACHER": 0,
-        "SKILL":   1,
-        "CAREER":  2,
-        "MAJOR":   3,
-        "SUBJECT": 4,
-    }
-    return TYPE_TO_COMMUNITY.get(node_type, -1)
+# Targeted Cypher theo intent — dùng đúng rel type từ script2
+TARGETED_QUERIES: dict[tuple[str, str], str] = {
+    ("MAJOR", "CAREER"): """
+        MATCH (start:MAJOR)-[:LEADS_TO]->(n:CAREER)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+           OR start.code = $kw
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['LEADS_TO'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("CAREER", "SKILL"): """
+        MATCH (start:CAREER)-[:REQUIRES]->(n:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
+               ['REQUIRES'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("MAJOR", "SKILL"): """
+        MATCH (start:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(sub:SUBJECT)-[:PROVIDES]->(n:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
+        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
+               ['MAJOR_OFFERS_SUBJECT','PROVIDES'] AS rel_types,
+               [start.name, sub.name, n.name] AS node_names, 2 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("SKILL", "MAJOR"): """
+        MATCH (n:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(sub:SUBJECT)-[:PROVIDES]->(start:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['MAJOR_OFFERS_SUBJECT','PROVIDES'] AS rel_types,
+               [n.name, sub.name, start.name] AS node_names, 2 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("SKILL", "CAREER"): """
+        MATCH (n:CAREER)-[:REQUIRES]->(start:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
+               ['REQUIRES'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("CAREER", "SUBJECT"): """
+        MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(n:SUBJECT)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['REQUIRES','PROVIDES'] AS rel_types,
+               [start.name, sk.name, n.name] AS node_names, 2 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("MAJOR", "SUBJECT"): """
+        MATCH (start:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(n:SUBJECT)
+        WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['MAJOR_OFFERS_SUBJECT'] AS rel_types,
+               [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("SKILL", "SUBJECT"): """
+        MATCH (n:SUBJECT)-[:PROVIDES]->(start:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['PROVIDES'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("SUBJECT", "SKILL"): """
+        MATCH (start:SUBJECT)-[:PROVIDES]->(n:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
+        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
+               ['PROVIDES'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("CAREER", "MAJOR"): """
+        MATCH (n:MAJOR)-[:LEADS_TO]->(start:CAREER)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['LEADS_TO'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("SUBJECT", "TEACHER"): """
+        MATCH (n:TEACHER)-[:TEACH]->(start:SUBJECT)
+        WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
+        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
+               ['TEACH'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("TEACHER", "SUBJECT"): """
+        MATCH (start:TEACHER)-[:TEACH]->(n:SUBJECT)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['TEACH'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("MAJOR", "TEACHER"): """
+        MATCH (n:TEACHER)-[:TEACH]->(sub:SUBJECT)<-[:MAJOR_OFFERS_SUBJECT]-(start:MAJOR)
+        WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
+        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
+               ['MAJOR_OFFERS_SUBJECT','TEACH'] AS rel_types,
+               [start.name, sub.name, n.name] AS node_names, 2 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+    ("TEACHER", "MAJOR"): """
+        MATCH (start:TEACHER)-[:TEACH]->(sub:SUBJECT)<-[:MAJOR_OFFERS_SUBJECT]-(n:MAJOR)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['TEACH','MAJOR_OFFERS_SUBJECT'] AS rel_types,
+               [start.name, sub.name, n.name] AS node_names, 2 AS hops
+        ORDER BY n.name LIMIT 50
+    """,
+}
 
-
-def find_relevant_communities(driver, keywords):
-    """
-    Tìm các community_id liên quan đến từ khóa.
-    Sửa lỗi: Sử dụng WITH để gom nhóm pagerank trước khi sắp xếp.
-    """
-    community_ids = set()
-    with driver.session() as session:
-        for kw in keywords:
-            kw = kw.upper()
-            # Câu lệnh Cypher đã fix lỗi 42N44
-            query = """
-                MATCH (n)
-                WHERE n.name CONTAINS $kw 
-                   OR (n.code IS NOT NULL AND n.code CONTAINS $kw)
-                WITH n.community_id AS cid, max(n.pagerank) AS max_rank
-                WHERE cid IS NOT NULL
-                RETURN cid
-                ORDER BY max_rank DESC
-                LIMIT 3
-            """
-            result = session.run(query, kw=kw)
-            for record in result:
-                community_ids.add(record["cid"])
-    return list(community_ids)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 2: MULTI-HOP TRAVERSAL
-# ══════════════════════════════════════════════════════════════════════════════
 
 def _add_node_and_paths(rec, all_nodes, all_paths):
-    """Helper: parse 1 record từ traversal query vào all_nodes / all_paths."""
-    node_info = {
-        "name":         rec["name"],
-        "label":        rec["label"],
-        "code":         rec["code"],
-        "pagerank":     rec["pagerank"],
-        "community_id": rec["community_id"],
-        "hops":         rec["hops"],
-    }
-    all_nodes.append(node_info)
+    all_nodes.append({
+        "name":  rec["name"],
+        "label": rec["label"],
+        "code":  rec["code"],
+        "hops":  rec["hops"],
+    })
     node_names = rec["node_names"]
     rel_types  = rec["rel_types"]
     for i, rel in enumerate(rel_types):
@@ -412,108 +968,22 @@ def _add_node_and_paths(rec, all_nodes, all_paths):
         })
 
 
-# Bảng các targeted query theo intent (mentioned_label, asked_label)
-# Dùng khi BFS thông thường bị chặn bởi community filter
-TARGETED_QUERIES: dict[tuple[str, str], str] = {
-    ("MAJOR", "CAREER"): """
-        MATCH (start:MAJOR)-[:LEADS_TO]->(n:CAREER)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['LEADS_TO'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-    ("CAREER", "SKILL"): """
-        MATCH (start:CAREER)-[:REQUIRES]->(n:SKILL)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-           OR toLower(start.name) CONTAINS 'phân tích'
-           OR toLower(start.name) CONTAINS 'analyst'
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['REQUIRES'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-    ("MAJOR", "SKILL"): """
-        MATCH (start:MAJOR)-[:OFFERS]->(sub:SUBJECT)-[:PROVIDES]->(n:SKILL)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['OFFERS','PROVIDES'] AS rel_types, [start.name, sub.name, n.name] AS node_names, 2 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-    ("SKILL", "MAJOR"): """
-        MATCH (n:MAJOR)-[:OFFERS]->(sub:SUBJECT)-[:PROVIDES]->(start:SKILL)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['OFFERS','PROVIDES'] AS rel_types, [n.name, sub.name, start.name] AS node_names, 2 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-    ("SKILL", "CAREER"): """
-        MATCH (n:CAREER)-[:REQUIRES]->(start:SKILL)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['REQUIRES'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-    ("CAREER", "SUBJECT"): """
-        MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(n:SUBJECT)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['REQUIRES','PROVIDES'] AS rel_types, [start.name, sk.name, n.name] AS node_names, 2 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-    ("MAJOR", "SUBJECT"): """
-        MATCH (start:MAJOR)-[:OFFERS]->(n:SUBJECT)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['OFFERS'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-    ("SKILL", "SUBJECT"): """
-        MATCH (n:SUBJECT)-[:PROVIDES]->(start:SKILL)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['PROVIDES'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-    ("SUBJECT", "SKILL"): """
-        MATCH (start:SUBJECT)-[:PROVIDES]->(n:SKILL)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['PROVIDES'] AS rel_types, [start.name, n.name] AS node_names, 1 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-    ("CAREER", "MAJOR"): """
-        MATCH (n:MAJOR)-[:LEADS_TO]->(start:CAREER)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               n.pagerank AS pagerank, n.community_id AS community_id,
-               ['LEADS_TO'] AS rel_types, [n.name, start.name] AS node_names, 1 AS hops
-        ORDER BY n.pagerank DESC
-        LIMIT 30
-    """,
-}
+def multihop_traversal_community_aware(
+    driver,
+    keywords:   list[str],
+    max_hops:   int = MAX_HOPS,
+    intent:     dict | None = None,
+    community_def: dict | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """
+    Traversal 3-phase community-aware:
 
-
-def multihop_traversal(driver, keywords: list[str],
-                       community_ids: list[int],
-                       max_hops: int = MAX_HOPS,
-                       intent: dict | None = None) -> tuple[list[dict], list[dict]]:
+    Phase 1 — TARGETED: Cypher chính xác theo intent (mentioned→asked).
+    Phase 2 — BFS community-scoped: chỉ traverse trong node_labels của community.
+              Nodes được filter bởi community_L{level} property (nếu đã Louvain).
+    Phase 3 — CROSS-CLUSTER BRIDGE: nếu community là L2/L3, thêm 1 hop ra ngoài
+              để bắt các kết nối cross-cluster quan trọng (VD: MAJOR→CAREER bridge).
+    """
     all_nodes  = []
     all_paths  = []
     seen_names = set()
@@ -522,34 +992,60 @@ def multihop_traversal(driver, keywords: list[str],
     asked_label      = (intent or {}).get("asked_label", "UNKNOWN")
     first_mentioned  = mentioned_labels[0] if mentioned_labels else None
 
-    # ── Phase 1: Targeted query theo intent (không bị chặn bởi community) ────
-    targeted_key = (first_mentioned, asked_label) if first_mentioned else None
+    # Xác định allowed labels từ community
+    if community_def:
+        allowed_labels = community_def["node_labels"]
+        level          = community_def["level"]
+        comm_id        = community_def["id"]
+        prop_key       = f"community_L{level}"
+    else:
+        allowed_labels = {"MAJOR", "SUBJECT", "SKILL", "CAREER", "TEACHER"}
+        level          = 1
+        comm_id        = "L1_GLOBAL"
+        prop_key       = "community_L1"
+
+    print(f"  [community] Routing to: {comm_id} (Level {level})")
+    print(f"  [community] Scope labels: {allowed_labels}")
+
+    # ── Phase 1: Targeted query ───────────────────────────────────────────────
+    targeted_key    = (first_mentioned, asked_label) if first_mentioned else None
     targeted_cypher = TARGETED_QUERIES.get(targeted_key) if targeted_key else None
 
     if targeted_cypher:
         with driver.session() as session:
             for kw in keywords:
                 try:
-                    results = session.run(targeted_cypher, kw=kw)
-                    for rec in results:
+                    for rec in session.run(targeted_cypher, kw=kw):
                         _add_node_and_paths(rec, all_nodes, all_paths)
-                    if all_nodes:
-                        print(f"  [targeted] ({targeted_key}) → {len(all_nodes)} nodes via direct path")
                 except Exception as e:
                     print(f"  [targeted] WARNING: {e}")
+        if all_nodes:
+            print(f"  [targeted] ({targeted_key}) → {len(all_nodes)} nodes")
 
-    # ── Phase 2: BFS thông thường (community-filtered) để lấy context ────────
+    # ── Phase 2: BFS community-scoped ────────────────────────────────────────
+    # Build label filter cho BFS
+    label_clauses = " OR ".join(f"n:{lbl}" for lbl in allowed_labels)
+
+    # Community filter: dùng property nếu đã được Louvain tag, else skip
+    # (vẫn hoạt động kể cả khi GDS không có, chỉ kém precise hơn)
+    community_filter = ""
+    # Không áp dụng community_id filter cứng ở đây vì Louvain gán ID tự động
+    # thay vào đó dùng label scope là đủ cho Level 2/3
+
     with driver.session() as session:
         for kw in keywords:
-            seed_query = """
+            seed_rows = session.run("""
                 MATCH (seed)
-                WHERE (seed:MAJOR OR seed:SUBJECT OR seed:SKILL OR seed:CAREER OR seed:TEACHER)
-                  AND toLower(seed.name) CONTAINS toLower($kw)
+                WHERE (seed:MAJOR OR seed:SUBJECT OR seed:SKILL
+                       OR seed:CAREER OR seed:TEACHER)
+                  AND (toLower(seed.name) CONTAINS toLower($kw)
+                       OR (seed.code IS NOT NULL AND seed.code = $kw))
+                WITH seed, size([(seed)-[]-() | 1]) AS degree
                 RETURN seed
-                ORDER BY seed.pagerank DESC
+                ORDER BY degree DESC
                 LIMIT 3
-            """
-            seeds = [rec["seed"] for rec in session.run(seed_query, kw=kw)]
+            """, kw=kw).data()
+            seeds = [r["seed"] for r in seed_rows]
 
             for seed in seeds:
                 seed_name = seed.get("name", "")
@@ -557,27 +1053,10 @@ def multihop_traversal(driver, keywords: list[str],
                     continue
                 seen_names.add(seed_name)
 
-                # Community filter KHÔNG áp dụng cho asked_label
-                # để tránh chặn các node đích quan trọng
-                community_filter = ""
-                params: dict = {"seed_name": seed_name, "max_hops": max_hops}
-
-                if community_ids and asked_label not in ("UNKNOWN", None):
-                    community_filter = (
-                        f"AND (n.community_id IN $cids "
-                        f"OR n.community_id IS NULL "
-                        f"OR labels(n)[0] = '{asked_label}')"
-                    )
-                    params["cids"] = community_ids
-                elif community_ids:
-                    community_filter = "AND (n.community_id IN $cids OR n.community_id IS NULL)"
-                    params["cids"] = community_ids
-
                 traversal_query = f"""
                     MATCH path = (start)-[*1..{max_hops}]-(n)
                     WHERE start.name = $seed_name
-                      AND (n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER)
-                      {community_filter}
+                      AND ({label_clauses})
                     WITH n, path,
                          [r IN relationships(path) | type(r)] AS rel_types,
                          [x IN nodes(path) | x.name]          AS node_names
@@ -585,116 +1064,106 @@ def multihop_traversal(driver, keywords: list[str],
                         n.name         AS name,
                         labels(n)[0]   AS label,
                         n.code         AS code,
-                        n.pagerank     AS pagerank,
-                        n.community_id AS community_id,
                         rel_types,
                         node_names,
                         length(path)   AS hops
                     ORDER BY hops ASC
-                    LIMIT 50
+                    LIMIT 60
                 """
-                results = session.run(traversal_query, **params)
-                for rec in results:
-                    _add_node_and_paths(rec, all_nodes, all_paths)
+                try:
+                    for rec in session.run(traversal_query, seed_name=seed_name):
+                        _add_node_and_paths(rec, all_nodes, all_paths)
+                except Exception as e:
+                    print(f"  [BFS] WARNING seed={seed_name}: {e}")
+
+    # ── Phase 3: Cross-cluster bridge (chỉ cho Level 2/3) ────────────────────
+    # Bắt quan hệ MAJOR-CAREER bridge khi community là Academic nhưng user
+    # ngầm muốn biết về nghề nghiệp, hoặc ngược lại.
+    if level >= 2 and asked_label not in (None, "UNKNOWN"):
+        bridge_pairs = [
+            # Academic → Career bridge
+            ("L2_ACADEMIC", "CAREER",
+             "MATCH (m:MAJOR)-[:LEADS_TO]->(n:CAREER) "
+             "WHERE m.name IN $names "
+             "RETURN n.name AS name, 'CAREER' AS label, null AS code, "
+             "['LEADS_TO'] AS rel_types, [m.name, n.name] AS node_names, 1 AS hops"),
+            # Career → Subject bridge
+            ("L2_CAREER_ALIGNMENT", "SUBJECT",
+             "MATCH (c:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(n:SUBJECT) "
+             "WHERE c.name IN $names "
+             "RETURN n.name AS name, 'SUBJECT' AS label, n.code AS code, "
+             "['REQUIRES','PROVIDES'] AS rel_types, [c.name, sk.name, n.name] AS node_names, 2 AS hops"),
+        ]
+        # Collect seed names từ all_nodes hiện có
+        seed_names = list({n["name"] for n in all_nodes if n.get("name")})[:20]
+
+        if seed_names:
+            with driver.session() as session:
+                for bridge_cid, bridge_label, bridge_q in bridge_pairs:
+                    if comm_id != bridge_cid:
+                        continue
+                    if bridge_label != asked_label and asked_label != "UNKNOWN":
+                        continue
+                    try:
+                        for rec in session.run(bridge_q, names=seed_names):
+                            _add_node_and_paths(rec, all_nodes, all_paths)
+                        print(f"  [bridge] {bridge_cid}→{bridge_label}: added")
+                    except Exception as e:
+                        print(f"  [bridge] WARNING: {e}")
 
     return all_nodes, all_paths
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 3: PAGERANK RANKING
+# PHẦN 8: GENERATE ANSWER
 # ══════════════════════════════════════════════════════════════════════════════
 
-def rank_nodes(nodes: list[dict], top_k: int = TOP_K,
-               negated_keywords: list[str] | None = None,
-               asked_label: str | None = None) -> list[dict]:
-    """
-    Xếp hạng nodes theo PageRank với chiến lược 2 bucket:
-    - Bucket 1 (ưu tiên): nodes khớp asked_label → lấy tối đa top_k * 2 / 3
-    - Bucket 2 (context): các nodes còn lại → lấy phần còn lại
-    Lọc bỏ nodes khớp negated_keywords và dedup theo (label, name).
-    """
-    negated_keywords = [kw.lower() for kw in (negated_keywords or [])]
-
-    def score(n: dict) -> float:
-        pr   = n.get("pagerank") or 0.0
-        hops = n.get("hops")     or 1
-        return pr / hops
-
-    # Dedup toàn bộ trước (ưu tiên bản có hops nhỏ nhất = gần seed nhất)
-    seen_keys: dict = {}
-    for n in nodes:
-        key = (n.get("label", ""), n.get("name", ""))
-        if key not in seen_keys or (n.get("hops") or 99) < (seen_keys[key].get("hops") or 99):
-            seen_keys[key] = n
-
-    deduped = list(seen_keys.values())
-
-    # Lọc thực thể bị phủ định
-    if negated_keywords:
-        deduped = [
-            n for n in deduped
-            if not any(neg in (n.get("name") or "").lower() for neg in negated_keywords)
-        ]
-
-    # Tách 2 bucket
-    if asked_label and asked_label != "UNKNOWN":
-        target_nodes  = [n for n in deduped if n.get("label") == asked_label]
-        context_nodes = [n for n in deduped if n.get("label") != asked_label]
-
-        target_nodes.sort(key=score, reverse=True)
-        context_nodes.sort(key=score, reverse=True)
-
-        target_slots  = max(top_k // 2, min(len(target_nodes), top_k))
-        context_slots = top_k - min(len(target_nodes), target_slots)
-
-        result = target_nodes[:target_slots] + context_nodes[:context_slots]
-        print(f"  [rank] target({asked_label})={len(target_nodes)} dung {min(len(target_nodes), target_slots)} | "
-              f"context={len(context_nodes)} dung {min(len(context_nodes), context_slots)}")
-    else:
-        deduped.sort(key=score, reverse=True)
-        result = deduped[:top_k]
-
-    return result
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# LLM: Extract intent + Generate answer
-# ══════════════════════════════════════════════════════════════════════════════
-
-def generate_answer(ai_client: OpenAI, question: str,
-                    ranked_nodes: list[dict], traversal_paths: list[dict],
-                    intent: dict) -> str:
-    """
-    Tổng hợp câu trả lời từ KG context + intent constraints.
-    """
+def generate_answer(
+    ai_client: OpenAI,
+    question:  str,
+    ranked_nodes: list[dict],
+    traversal_paths: list[dict],
+    intent:    dict,
+    community_def: dict | None = None,
+    override_constraint: str | None = None,
+) -> str:
     context = json.dumps({
-        "ranked_results": ranked_nodes,
+        "ranked_results":  ranked_nodes,
         "traversal_paths": traversal_paths[:60],
     }, ensure_ascii=False, indent=2)
 
-    # Lấy ràng buộc quan hệ theo loại câu hỏi
-    constraint = get_relationship_constraint(intent)
+    constraint = (
+        override_constraint if override_constraint is not None
+        else get_relationship_constraint(intent)
+    )
 
-    # Bổ sung ghi chú phủ định nếu có
     negated = intent.get("negated_keywords", [])
     if negated:
         constraint += (
-            f"\n\nLƯU Ý PHỦ ĐỊNH: Người dùng đề cập họ KHÔNG giỏi / không thích: {negated}. "
-            "Loại bỏ các môn/kỹ năng/ngành này khỏi gợi ý. "
-            "Thay vào đó gợi ý những lựa chọn phù hợp hơn."
+            f"\n\nLƯU Ý PHỦ ĐỊNH: Người dùng KHÔNG giỏi/thích: {negated}. "
+            "Loại bỏ khỏi gợi ý."
         )
+
+    # Community context cho LLM biết đang ở tầng nào
+    if community_def:
+        community_context = (
+            f"Tầng {community_def['level']} — {community_def['name']}\n"
+            f"Mục tiêu: {community_def['purpose']}"
+        )
+    else:
+        community_context = "L1 Global — Toàn bộ hệ sinh thái đào tạo"
 
     system_prompt = ANSWER_SYSTEM_BASE.format(
         schema=SCHEMA_DESC,
         constraint=constraint,
+        community_context=community_context,
     )
 
-    # Cảnh báo về dữ liệu trống
     no_data_hint = ""
     if not ranked_nodes:
         no_data_hint = (
-            "\n[CẢNH BÁO: Không tìm thấy dữ liệu liên quan trong Knowledge Graph. "
-            "Thông báo lịch sự rằng dữ liệu chưa đủ, không bịa thông tin.]"
+            "\n[CẢNH BÁO: Không tìm thấy dữ liệu trong Knowledge Graph. "
+            "Thông báo lịch sự, không bịa thông tin.]"
         )
 
     response = ai_client.chat.completions.create(
@@ -703,10 +1172,9 @@ def generate_answer(ai_client: OpenAI, question: str,
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": (
                 f"Câu hỏi: {question}\n\n"
-                f"[DỮ LIỆU GRAPH — chỉ được dùng thông tin trong này]:\n{context}"
+                f"[DỮ LIỆU GRAPH]:\n{context}"
                 f"{no_data_hint}\n\n"
-                "Hãy trả lời câu hỏi trên, CHỈ dùng đúng tên/code từ [DỮ LIỆU GRAPH]. "
-                "KHÔNG thêm bất kỳ thông tin nào từ kiến thức bên ngoài:"
+                "Trả lời CHỈ dùng tên/code từ [DỮ LIỆU GRAPH]:"
             )},
         ],
         temperature=0,
@@ -715,130 +1183,139 @@ def generate_answer(ai_client: OpenAI, question: str,
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PIPELINE CHÍNH
+# PHẦN 9: PIPELINE CHÍNH
 # ══════════════════════════════════════════════════════════════════════════════
 
-
-def fetch_seed_entities(driver, keywords: list[str], mentioned_labels: list[str]) -> list[dict]:
-    """
-    Fetch trực tiếp các seed entity (MAJOR/CAREER/...) khớp keyword.
-    Đảm bảo code/name của thực thể gốc luôn có trong context dù bị ranking đẩy xuống.
-    """
-    if not keywords or not mentioned_labels:
-        return []
-    label_filter = " OR ".join([f"n:{lbl}" for lbl in mentioned_labels])
-    results = []
-    with driver.session() as session:
-        for kw in keywords:
-            rows = session.run(f"""
-                MATCH (n)
-                WHERE ({label_filter})
-                  AND toLower(n.name) CONTAINS toLower($kw)
-                RETURN n.name AS name, labels(n)[0] AS label,
-                       n.code AS code, n.pagerank AS pagerank,
-                       n.community_id AS community_id
-                ORDER BY n.pagerank DESC
-                LIMIT 3
-            """, kw=kw).data()
-            for r in rows:
-                results.append({
-                    "name": r["name"], "label": r["label"],
-                    "code": r["code"], "pagerank": r["pagerank"],
-                    "community_id": r["community_id"], "hops": 0,
-                })
-    return results
-
-def ask(driver, ai_client: OpenAI, question: str,
-        query_id: str | None = None) -> dict:
+def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -> dict:
     if query_id is None:
         query_id = "q" + uuid.uuid4().hex[:6]
 
     print(f"\n{'='*60}")
     print(f"Q [{query_id}]: {question}")
 
-    # ── Bước 1: Extract intent (keywords + labels + negation) ─────────────────
-    intent = extract_query_intent(ai_client, question)
-    keywords         = intent["keywords"]
-    negated_keywords = intent["negated_keywords"]
+    # ── Bước 0: Aggregation Router ────────────────────────────────────────────
+    agg_type = detect_aggregation_type(question)
+    if agg_type:
+        print(f"  [aggregation] {agg_type}")
+        agg_nodes = run_aggregation_query(driver, question, agg_type)
+        print(f"  [aggregation] {len(agg_nodes)} nodes")
+
+        agg_intent = {
+            "keywords": [], "mentioned_labels": [], "negated_keywords": [],
+            "is_comparison": False, "agg_type": agg_type,
+            "asked_label": (
+                "SUBJECT" if "subject" in agg_type else
+                "MAJOR"   if "major"   in agg_type else
+                "CAREER"  if "career"  in agg_type else
+                "SKILL"   if "skill"   in agg_type else "UNKNOWN"
+            ),
+        }
+        agg_constraint = (
+            "Câu hỏi thống kê/tập hợp. Dữ liệu đã tổng hợp từ graph. "
+            "Trình bày rõ ràng, kèm mã môn/ngành, số liệu (_agg_meta). "
+            "Nếu intersection: giải thích đây là môn tất cả ngành đều học. "
+            "Nếu ranking: liệt kê từ cao xuống thấp."
+        )
+        answer = generate_answer(
+            ai_client, question, agg_nodes, [],
+            intent=agg_intent,
+            community_def=COMMUNITY_LEVELS["L1_GLOBAL"],
+            override_constraint=agg_constraint,
+        )
+        print(f"\nA: {answer}")
+        return _build_record(query_id, question, answer, [], agg_intent,
+                             agg_nodes, [], "aggregation")
+
+    # ── Bước 0b: Expand viết tắt ──────────────────────────────────────────────
+    expanded_question, abbrev_keywords = expand_abbreviations(question)
+    if abbrev_keywords:
+        print(f"  [abbrev] {abbrev_keywords}")
+
+    # ── Bước 1: Extract intent ────────────────────────────────────────────────
+    intent = extract_query_intent(ai_client, expanded_question)
+    intent["keywords"] = list(dict.fromkeys(intent["keywords"] + abbrev_keywords))
+    keywords = intent["keywords"]
     print(f"  Keywords: {keywords}")
-    print(f"  Intent: mentioned={intent['mentioned_labels']} asked={intent['asked_label']} "
-          f"negated={negated_keywords} comparison={intent['is_comparison']}")
+    print(f"  Intent: mentioned={intent['mentioned_labels']} "
+          f"asked={intent['asked_label']} negated={intent['negated_keywords']}")
 
-    # ── Bước 1b: Fetch seed entities (đảm bảo code luôn có trong context) ─────
-    seed_entities = fetch_seed_entities(driver, keywords, intent.get("mentioned_labels", []))
-    print(f"  Seed entities: {[(e['name'], e['code']) for e in seed_entities]}")
+    # ── Bước 2: Community Routing ─────────────────────────────────────────────
+    community_id, community_def = route_to_community(intent)
+    intent["community_id"] = community_id
 
-    # ── Bước 2: Community Detection ───────────────────────────────────────────
-    community_ids = find_relevant_communities(driver, keywords)
-    print(f"  Communities: {community_ids}")
-
-    # ── Bước 3: Multi-hop BFS Traversal ──────────────────────────────────────
-    raw_nodes, traversal_paths = multihop_traversal(
-        driver, keywords, community_ids, max_hops=MAX_HOPS, intent=intent
+    # ── Bước 3: Community-aware Traversal ────────────────────────────────────
+    raw_nodes, traversal_paths = multihop_traversal_community_aware(
+        driver, keywords, max_hops=MAX_HOPS,
+        intent=intent, community_def=community_def,
     )
-    print(f"  BFS nodes found: {len(raw_nodes)}  |  paths: {len(traversal_paths)}")
+    print(f"  Traversal: {len(raw_nodes)} nodes | {len(traversal_paths)} paths")
 
-    # ── Bước 4: PageRank Ranking (có lọc thực thể phủ định) ──────────────────
-    ranked_nodes = rank_nodes(raw_nodes, top_k=TOP_K, negated_keywords=negated_keywords,
-                              asked_label=intent.get("asked_label"))
-    print(f"  After PageRank ranking (top {TOP_K}): {len(ranked_nodes)} nodes")
-    if ranked_nodes:
-        top3 = [(n["name"], round(n.get("pagerank") or 0, 4)) for n in ranked_nodes[:3]]
-        print(f"  Top 3: {top3}")
+    # ── Bước 4: Dedup + Negation filter ──────────────────────────────────────
+    negated_lower = [kw.lower() for kw in intent.get("negated_keywords", [])]
+    seen: dict = {}
+    for n in raw_nodes:
+        key = (n.get("label", ""), n.get("name", ""))
+        if key not in seen or (n.get("hops") or 99) < (seen[key].get("hops") or 99):
+            seen[key] = n
+    context_nodes = [
+        n for n in seen.values()
+        if not any(neg in (n.get("name") or "").lower() for neg in negated_lower)
+    ]
+    print(f"  Context nodes (dedup+negation): {len(context_nodes)}")
 
-    # ── Bước 4b: Inject seed entities vào đầu context (đảm bảo code luôn có) ─
-    # Dedup: loại seed_entities đã có trong ranked_nodes
-    ranked_names = {n.get("name") for n in ranked_nodes}
-    extra_seeds  = [e for e in seed_entities if e.get("name") not in ranked_names]
-    context_nodes = extra_seeds + ranked_nodes
-
-    # ── Bước 5: LLM tổng hợp câu trả lời (có intent constraints) ────
+    # ── Bước 5: LLM answer ───────────────────────────────────────────────────
     answer = generate_answer(
         ai_client, question, context_nodes, traversal_paths,
-        intent=intent
+        intent=intent, community_def=community_def,
     )
     print(f"\nA: {answer}")
 
-    qa_record = {
-        "query_id":            query_id,
-        "query":               question,
-        "generated_answer":    answer,
-        "keywords":            keywords,
-        "intent":              intent,
-        "communities_covered": community_ids,
-        "context_text":        json.dumps(ranked_nodes, ensure_ascii=False),
+    return _build_record(
+        query_id, question, answer, keywords, intent,
+        context_nodes, traversal_paths,
+        f"Targeted+BFS community-aware [{community_id}]",
+    )
+
+
+def _build_record(
+    query_id, question, answer, keywords, intent,
+    context_nodes, traversal_paths, algorithm_desc,
+) -> dict:
+    return {
+        "query_id":         query_id,
+        "query":            question,
+        "generated_answer": answer,
+        "keywords":         keywords,
+        "intent":           intent,
+        "community_id":     intent.get("community_id", ""),
         "retrieved_nodes": [
             {
                 "node_id":  f"node{i+1:03d}",
                 "content":  json.dumps(n, ensure_ascii=False),
-                "score":    round(n.get("pagerank") or 0, 6),
                 "entities": [n.get("name", "")],
             }
-            for i, n in enumerate(ranked_nodes)
+            for i, n in enumerate(context_nodes)
         ],
-        "traversal_path":      traversal_paths[:20],
-        "timestamp":           datetime.datetime.now().isoformat(),
+        "traversal_path": traversal_paths[:20],
+        "timestamp":      datetime.datetime.now().isoformat(),
         "algorithm": {
-            "community_detection": "Louvain (NetworkX)",
-            "traversal":           f"BFS multi-hop (max_hops={MAX_HOPS})",
-            "ranking":             "PageRank (damping=0.85) + negation filter",
+            "community_detection": "Louvain weighted (GDS) + rule-based fallback",
+            "traversal":           algorithm_desc,
+            "weights": RELATIONSHIP_WEIGHTS,
         },
     }
 
-    return qa_record
 
-
-# ── Neo4j ─────────────────────────────────────────────────────────────────────
+# PHẦN 10: MAIN + INTERACTIVE LOOP
 
 def get_driver():
     return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
 
 
-# ── Interactive loop ──────────────────────────────────────────────────────────
-
 def interactive_loop(driver, ai_client: OpenAI):
-    print("\n🎓 Knowledge Graph Chatbot (NEU)")
-    print(f"Pipeline: Intent Detection → Community → BFS (max={MAX_HOPS}) → PageRank → LLM")
+    print("\n🎓 Knowledge Graph Chatbot v7 — GraphRAG 3-Tier Community")
+    print(f"Communities: L1 Global | L2 Academic / Career Alignment | L3 Major / Skill")
+    print(f"Traversal: max_hops={MAX_HOPS} | Weights: PROVIDES/REQUIRES=3, TEACH/LEADS_TO=2, OFFERS=1")
     print("Gõ câu hỏi. Nhập 'exit' để thoát.\n")
 
     counter = 1
@@ -848,36 +1325,21 @@ def interactive_loop(driver, ai_client: OpenAI):
         except (EOFError, KeyboardInterrupt):
             print("\nTạm biệt!")
             break
-
         if not question:
             continue
-
         if question.lower() in ("exit", "quit", "thoat", "thoát"):
             print("Tạm biệt!")
             break
-
         ask(driver, ai_client, question, query_id=f"q{counter:03d}")
         counter += 1
 
 
 def main():
-    print("Starting KG Chatbot...")
+    print("Starting KG Chatbot v7 (GraphRAG 3-Tier)...")
     ai_client = OpenAI(api_key=OPENAI_API_KEY)
     driver    = get_driver()
-
     try:
-        print("\n" + "="*70)
-        print("⚙️  SETUP: Gán Community ID + Tính PageRank")
-        print("="*70)
-        print("Hướng dẫn:")
-        print("  • Chạy 'yes' lần ĐẦU TIÊN khi khởi động (setup graph)")
-        print("  • Chạy 'yes' LẠI mỗi khi graph thay đổi (thêm/xóa nodes)")
-        print("  • Nếu không chạy setup → kết quả ranking sẽ không chính xác")
-        print("="*70)
-        ans = input("\nNhập 'yes' để chạy setup, Enter để bỏ qua: ").strip().lower()
-        if ans == "yes":
-            setup_graph_algorithms(driver)
-
+        initialize_communities(driver, force_rebuild=False)
         interactive_loop(driver, ai_client)
     finally:
         driver.close()

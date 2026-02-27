@@ -40,7 +40,7 @@ from dotenv import load_dotenv
 
 import sys
 sys.path.append(str(Path(__file__).parent))
-from script3 import ask, get_driver, setup_graph_algorithms
+from script3 import ask, get_driver
 
 load_dotenv()
 
@@ -60,7 +60,6 @@ THRESHOLDS = {
     "entity_coverage":   0.8,
     "path_relevance":    0.7,
     "comprehensiveness": 0.7,
-    "faithfulness":      0.7,
 }
 
 METRIC_LABELS = {
@@ -71,7 +70,6 @@ METRIC_LABELS = {
     "entity_coverage":   "Entity Coverage",
     "path_relevance":    "Path Relevance",
     "comprehensiveness": "Comprehensiveness",
-    "faithfulness":      "Faithfulness",
 }
 
 COLORS = {
@@ -89,22 +87,13 @@ COLORS = {
 # BƯỚC 1: CHẠY PIPELINE VÀ LƯU RESULT
 # ══════════════════════════════════════════════════════════════════════════════
 
-def run_pipeline_for_sample(driver, ai_client: OpenAI, sample: dict) -> dict:
+def run_pipeline_for_sample(driver, ai_client, sample: dict) -> dict:
     """
     Gọi script3 ask(), map output sang format chuẩn của framework,
     lưu ra data/results/{query_id}_result.json.
-
-    Format result chuẩn (theo pipeline_connector.py):
-      query_id, query, generated_answer, retrieved_nodes,
-      traversal_path, communities_covered, context_text
     """
     query_id = sample["id"]
     qa = ask(driver, ai_client, sample["query"], query_id=query_id)
-
-    # Build context_text từ retrieved_nodes
-    context_text = "\n\n".join(
-        n.get("content", "") for n in qa.get("retrieved_nodes", [])
-    )
 
     result = {
         "query_id":            query_id,
@@ -113,7 +102,6 @@ def run_pipeline_for_sample(driver, ai_client: OpenAI, sample: dict) -> dict:
         "retrieved_nodes":     qa["retrieved_nodes"],
         "traversal_path":      qa["traversal_path"],
         "communities_covered": [str(c) for c in qa.get("communities_covered", [])],
-        "context_text":        context_text,
     }
 
     out_path = RESULTS_DIR / f"{query_id}_result.json"
@@ -124,36 +112,25 @@ def run_pipeline_for_sample(driver, ai_client: OpenAI, sample: dict) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 2: METRICS  (theo core_metrics.py của framework)
+# BƯỚC 2: METRICS
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _normalize(text: str) -> str:
-    """Chuẩn hóa tên thực thể để so sánh: lowercase + strip."""
     return text.lower().strip()
 
 
 def _name_match(a: str, b: str) -> bool:
-    """
-    So sánh mềm giữa 2 tên thực thể:
-    - Exact match sau normalize
-    - Hoặc một cái chứa cái kia (substring match)
-    """
     a, b = _normalize(a), _normalize(b)
     return a == b or a in b or b in a
 
 
 def _extract_retrieved_names(retrieved_nodes: list, k: int | None = None) -> list[str]:
-    """
-    Lấy danh sách tên thực thể từ retrieved_nodes[:k].
-    Ưu tiên field 'entities', fallback parse 'content' JSON.
-    """
     nodes = retrieved_nodes[:k] if k is not None else retrieved_nodes
     names = []
     for node in nodes:
         for ent in node.get("entities", []):
             if ent:
                 names.append(ent)
-        # Fallback: parse content JSON lấy thêm name/code
         if not node.get("entities"):
             try:
                 content_data = json.loads(node.get("content", "{}"))
@@ -164,54 +141,38 @@ def _extract_retrieved_names(retrieved_nodes: list, k: int | None = None) -> lis
     return names
 
 
-def compute_precision_recall_f1(retrieved_nodes: list, relevant_names: list, k: int) -> dict:
-    """
-    Precision/Recall/F1 dựa trên name matching thay vì node_id matching.
+def compute_precision_recall_f1(retrieved_ids: list, relevant_ids: list, k: int) -> dict:
+    retrieved_ids = retrieved_ids[:k]
+    relevant_set  = set(relevant_ids)
 
-    retrieved_nodes[:k] — lấy entities từ top-K nodes
-    relevant_names      — danh sách tên thực thể gold (từ ground truth)
+    if not retrieved_ids and not relevant_set:
+        return {"precision": 1.0, "recall": 1.0, "f1": 1.0}
 
-    True Positive: retrieved entity nào khớp (name_match) với ít nhất 1 gold entity.
-    """
-    if not relevant_names:
-        return {"precision": 0.0, "recall": 0.0, "f1": 0.0,
-                "note": "relevant_names rỗng — kiểm tra ground truth dataset"}
+    if not retrieved_ids or not relevant_set:
+        return {"precision": 0.0, "recall": 0.0, "f1": 0.0}
 
-    retrieved_names = _extract_retrieved_names(retrieved_nodes, k=k)
+    tp = sum(1 for r in retrieved_ids if r in relevant_set)
 
-    if not retrieved_names:
-        return {"precision": 0.0, "recall": 0.0, "f1": 0.0,
-                "retrieved_count": 0, "relevant_count": len(relevant_names)}
+    precision = tp / k
+    recall    = tp / len(relevant_set)
 
-    # Đếm retrieved entities khớp với gold (mỗi gold chỉ tính 1 lần)
-    matched_gold = set()
-    matched_retrieved_count = 0
-    for r_name in retrieved_names:
-        for i, g_name in enumerate(relevant_names):
-            if i not in matched_gold and _name_match(r_name, g_name):
-                matched_gold.add(i)
-                matched_retrieved_count += 1
-                break
-
-    tp        = matched_retrieved_count
-    precision = tp / len(retrieved_names)
-    recall    = tp / len(relevant_names)
-    f1        = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
+    )
 
     return {
         "precision": round(precision, 4),
         "recall":    round(recall,    4),
         "f1":        round(f1,        4),
         "true_positives":  tp,
-        "retrieved_count": len(retrieved_names),
-        "relevant_count":  len(relevant_names),
+        "retrieved_count": k,
+        "relevant_count":  len(relevant_set),
     }
 
 
 def compute_mrr(retrieved_nodes: list, relevant_names: list) -> float:
-    """
-    MRR dựa trên name matching: rank của retrieved node đầu tiên khớp gold.
-    """
     if not relevant_names:
         return 0.0
     for rank, node in enumerate(retrieved_nodes, 1):
@@ -229,10 +190,6 @@ def compute_mrr(retrieved_nodes: list, relevant_names: list) -> float:
 
 
 def compute_entity_coverage(gold_entities: list, retrieved_nodes: list) -> dict:
-    """
-    Entity Coverage: tỷ lệ gold_entities được tìm thấy trong retrieved_nodes.
-    Dùng name_match thay vì exact string match.
-    """
     if not gold_entities:
         return {"entity_coverage": 1.0, "covered_entities": [], "missing_entities": [],
                 "note": "gold_entities rỗng"}
@@ -257,10 +214,6 @@ def compute_entity_coverage(gold_entities: list, retrieved_nodes: list) -> dict:
 
 
 def compute_path_relevance(traversal_path: list, gold_path: list) -> float | None:
-    """
-    Path Relevance: tỷ lệ gold_path entities xuất hiện trong traversal (name_match).
-    Trả về None nếu gold_path rỗng (global query).
-    """
     if not gold_path:
         return None
 
@@ -281,9 +234,7 @@ def compute_path_relevance(traversal_path: list, gold_path: list) -> float | Non
     return round(matched / len(gold_path), 4)
 
 
-def compute_path_depth(graph: nx.Graph | None,
-                       gold_path: list, gold_hop_count: int) -> int | None:
-    """Path Depth: số hop ngắn nhất trong graph từ đầu đến cuối gold_path."""
+def compute_path_depth(graph, gold_path: list, gold_hop_count: int) -> int | None:
     if not graph or not gold_path or len(gold_path) < 2:
         return None
     src, tgt = gold_path[0], gold_path[-1]
@@ -296,82 +247,26 @@ def compute_path_depth(graph: nx.Graph | None,
         return None
 
 
-def compute_comprehensiveness(retrieved_nodes: list,
+def compute_comprehensiveness(generated_answer: str,
                                expected_communities: list) -> float | None:
-    """
-    Comprehensiveness v2: so sánh community_id từ retrieved_nodes với expected_communities.
-
-    Logic:
-      - expected_communities: list community ID (int/str) từ ground truth
-      - retrieved_nodes: mỗi node có field "community_id" hoặc trong content JSON
-      - Score = số community ID khớp / tổng community ID cần cover
-
-    Trả về None nếu expected_communities rỗng (không phải global query).
-    """
     if not expected_communities:
         return None
 
-    expected_set = set(str(c) for c in expected_communities)
+    answer_lower = generated_answer.lower()
+    covered = []
+    for c in expected_communities:
+        phrase = c.replace("_", " ").lower()
+        if phrase in answer_lower:
+            covered.append(c)
 
-    retrieved_cids = set()
-    for node in retrieved_nodes:
-        # Ưu tiên field trực tiếp
-        cid = node.get("community_id")
-        if cid is None:
-            # Fallback: parse content JSON
-            try:
-                content_data = json.loads(node.get("content", "{}"))
-                cid = content_data.get("community_id")
-            except (json.JSONDecodeError, TypeError):
-                pass
-        if cid is not None:
-            retrieved_cids.add(str(cid))
-
-    covered = expected_set & retrieved_cids
-    missing = expected_set - retrieved_cids
-    score   = len(covered) / len(expected_set)
-
-    return round(score, 4)
-
-
-def compute_faithfulness(generated_answer: str, context_text: str) -> float:
-    """
-    Faithfulness heuristic: token + bigram overlap giữa answer và context.
-    (Không cần LLM — dùng RAGAS nếu cần chính xác hơn)
-    """
-    if not context_text or not generated_answer:
-        return 0.0
-
-    def tokenize(text):
-        words   = re.findall(r'\b\w+\b', text.lower())
-        bigrams = {f"{a} {b}" for a, b in zip(words, words[1:])}
-        return set(words) | bigrams
-
-    answer_tokens  = tokenize(generated_answer)
-    context_tokens = tokenize(context_text)
-    if not answer_tokens:
-        return 0.0
-    return round(len(answer_tokens & context_tokens) / len(answer_tokens), 4)
+    return round(len(covered) / len(expected_communities), 4)
 
 
 def evaluate_single_sample(sample: dict, result: dict,
-                            graph: nx.Graph | None, k: int) -> dict:
-    """
-    Tính tất cả metrics cho 1 sample.
-
-    Mapping:
-        relevant_names (gold)   ↔  retrieved_nodes[].entities  → Precision/Recall/MRR (name_match)
-        gold_entities           ↔  retrieved_nodes[].entities  → Entity Coverage (name_match)
-        gold_path               ↔  traversal_path              → Path Relevance (name_match)
-        gold_path + graph       ↔  gold_hop_count              → Path Depth
-        expected_communities    ↔  retrieved_nodes[].community_id → Comprehensiveness
-        generated_answer        ↔  context_text                → Faithfulness (token overlap)
-    """
+                            graph, k: int) -> dict:
     retrieved_nodes = result.get("retrieved_nodes", [])
     gold_path       = sample.get("gold_path", [])
 
-    # relevant_names: ưu tiên "relevant_node_ids" (có thể là tên thực thể),
-    # fallback "gold_entities"
     relevant_names = (
         sample.get("relevant_node_ids") or
         sample.get("gold_entities") or []
@@ -385,16 +280,13 @@ def evaluate_single_sample(sample: dict, result: dict,
         "query":       sample["query"],
         "query_type":  sample.get("query_type", "unknown"),
 
-        # Standard IR (name-based)
         "precision":   prf["precision"],
         "recall":      prf["recall"],
         "f1":          prf["f1"],
         "mrr":         compute_mrr(retrieved_nodes, relevant_names),
 
-        # Graph-specific
         "entity_coverage": ec["entity_coverage"],
 
-        # Multi-hop
         "path_relevance": compute_path_relevance(
             result.get("traversal_path", []), gold_path
         ),
@@ -402,19 +294,11 @@ def evaluate_single_sample(sample: dict, result: dict,
             graph, gold_path, sample.get("gold_hop_count", 0)
         ),
 
-        # Global
         "comprehensiveness": compute_comprehensiveness(
-            retrieved_nodes,
+            result.get("generated_answer", ""),
             sample.get("expected_communities", [])
         ),
 
-        # Faithfulness (token overlap)
-        "faithfulness": compute_faithfulness(
-            result.get("generated_answer", ""),
-            result.get("context_text", "")
-        ),
-
-        # Debug
         "entity_coverage_detail": ec,
         "prf_detail": prf,
     }
@@ -431,7 +315,7 @@ def safe_mean(values: list) -> float | None:
 
 def aggregate_metrics(all_metrics: list) -> dict:
     metric_keys = ["precision", "recall", "f1", "mrr", "entity_coverage",
-                   "path_relevance", "path_depth", "comprehensiveness", "faithfulness"]
+                   "path_relevance", "path_depth", "comprehensiveness"]
 
     overall = {k: safe_mean([m.get(k) for m in all_metrics]) for k in metric_keys}
     overall["sample_count"] = len(all_metrics)
@@ -469,19 +353,19 @@ def print_summary(aggregate: dict, k: int):
         print("\nBY QUERY TYPE:")
         for qt, m in by_type.items():
             print(f"\n  [{qt}]  n={m['sample_count']}")
-            for key in ["precision", "recall", "f1", "entity_coverage", "faithfulness"]:
+            for key in ["precision", "recall", "f1", "entity_coverage"]:
                 val = m.get(key)
                 if val is not None:
                     print(f"    {METRIC_LABELS.get(key, key):20s}: {val:.4f}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# BƯỚC 4: VISUALIZE  (theo visualize.py của framework)
+# BƯỚC 4: VISUALIZE
 # ══════════════════════════════════════════════════════════════════════════════
 
 def plot_radar_chart(aggregate: dict, output_path: str):
     metrics_to_show = ["precision", "recall", "f1",
-                       "entity_coverage", "faithfulness", "path_relevance"]
+                       "entity_coverage", "path_relevance"]
     overall = aggregate.get("overall", {})
 
     values = []
@@ -690,7 +574,6 @@ def load_dataset(dataset_path: str) -> list:
     with open(dataset_path, encoding="utf-8") as f:
         raw = json.load(f)
     samples = raw.get("samples", raw) if isinstance(raw, dict) else raw
-    # Hỗ trợ cả "id" và "query_id"
     for s in samples:
         if "id" not in s and "query_id" in s:
             s["id"] = s["query_id"]
@@ -711,7 +594,6 @@ def run_eval(
     samples = load_dataset(dataset_path)
     print(f"Dataset : {dataset_path}  ({len(samples)} samples)")
 
-    # Load NetworkX graph nếu có (cho Path Depth metric)
     graph = None
     if graph_path and Path(graph_path).exists():
         with open(graph_path, encoding="utf-8") as f:
@@ -727,7 +609,6 @@ def run_eval(
             )
         print(f"Graph   : {graph.number_of_nodes()} nodes, {graph.number_of_edges()} edges")
 
-    # ── Chạy pipeline hoặc load results đã có ────────────────────────────────
     all_results: dict[str, dict] = {}
 
     if eval_only:
@@ -754,7 +635,6 @@ def run_eval(
 
         driver.close()
 
-    # ── Tính metrics ──────────────────────────────────────────────────────────
     print(f"\nComputing metrics (K={k})...\n")
     all_metrics = []
     missing     = []
@@ -766,7 +646,7 @@ def run_eval(
             result = {
                 "query_id": qid, "query": sample["query"],
                 "generated_answer": "", "retrieved_nodes": [],
-                "traversal_path": [], "communities_covered": [], "context_text": "",
+                "traversal_path": [], "communities_covered": [],
             }
         else:
             result = all_results[qid]
@@ -778,20 +658,18 @@ def run_eval(
         print(f"  [{qid}] {sample['query'][:55]}...")
         print(f"    P={m['precision']:.3f}  R={m['recall']:.3f}  "
               f"F1={m['f1']:.3f}  MRR={m['mrr']:.3f}  "
-              f"EC={m['entity_coverage']:.3f}  Faith={m['faithfulness']:.3f}", end="")
+              f"EC={m['entity_coverage']:.3f}", end="")
         if m.get("path_relevance") is not None:
             print(f"  PathRel={m['path_relevance']:.3f}", end="")
         if m.get("comprehensiveness") is not None:
             print(f"  Comp={m['comprehensiveness']:.3f}", end="")
         print()
 
-    # ── Aggregate + print ─────────────────────────────────────────────────────
     aggregate = aggregate_metrics(all_metrics)
     print_summary(aggregate, k)
     if missing:
         print(f"\n  WARNING: Missing results for: {missing}")
 
-    # ── Lưu report ────────────────────────────────────────────────────────────
     ts     = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     report = {
         "config": {
@@ -808,7 +686,6 @@ def run_eval(
     with open(report_path, "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2)
 
-    # ── Charts ────────────────────────────────────────────────────────────────
     generate_charts(aggregate, all_metrics, REPORTS_DIR / "charts")
 
     print(f"\n{'='*60}")
@@ -843,15 +720,7 @@ if __name__ == "__main__":
     parser.add_argument("--results_dir",
                         default="data/results",
                         help="Thư mục chứa result files (dùng với --eval_only)")
-    parser.add_argument("--setup",
-                        action="store_true",
-                        help="Chạy Community Detection + PageRank trước khi eval")
     args = parser.parse_args()
-
-    if args.setup:
-        driver = get_driver()
-        setup_graph_algorithms(driver)
-        driver.close()
 
     run_eval(
         dataset_path=args.dataset,

@@ -1,14 +1,13 @@
 """
-Script 2 (OPTIMIZED): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
+Script 2 (OPTIMIZED v2): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
 → push to Neo4j Aura
 
-IMPROVEMENTS vs original:
-- Bỏ hoàn toàn LLM để sinh Cypher → nhanh ~10x, không hallucinate, không tốn token
-- Sinh Cypher xác định từ JSON schema đã biết
-- Batch MERGE trong single transaction per file
-- Connection pool tối ưu
-- Structured logging với thống kê chi tiết
-- Idempotent hoàn toàn (MERGE everywhere)
+Hỗ trợ 3 schema thực tế:
+  - CUR  (curriculum):         type MAJOR/SUBJECT, rel: major_offers_subject
+  - SYL  (syllabus):           type SUBJECT/TEACHER, rel: teacher_instructs_subject
+  - CAR  (career_description): type CAREER/SKILL,   rel: career_requires_skill
+
+Tất cả idempotent (MERGE everywhere), không dùng LLM.
 """
 
 import os
@@ -37,162 +36,271 @@ NEO4J_USERNAME = os.getenv("DB_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("DB_PASSWORD")
 
 LOCAL_OUT_DIR = Path("./cache/output")
-FOLDERS       = ["curriculum", "career_description", "syllabus"]
+# Map folder name → file prefix để nhận dạng loại file
+FOLDERS = ["curriculum", "career_description", "syllabus"]
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-# ─── CYPHER GENERATION (NO LLM) ───────────────────────────────────────────────
-
-# Merge key theo label: dùng trường nào để MERGE (tránh duplicate)
-MERGE_KEY = {
-    "MAJOR":    "code",   # MAJOR merge theo code
-    "SUBJECT":  "code",   # SUBJECT merge theo code
-    "DOCUMENT": "docid",  # DOCUMENT merge theo docid
-    "SKILL":    "name",   # SKILL merge theo name (không có code)
-    "CAREER":   "name",   # CAREER merge theo name
-    "TEACHER":  "name",   # TEACHER merge theo name
-}
-
-# Labels dùng MERGE theo name (không có code unique)
-NAME_ONLY_LABELS = {"SKILL", "CAREER", "TEACHER"}
-
-# Labels dùng MERGE theo code (hoặc docid)
-CODE_LABELS = {"MAJOR", "SUBJECT"}
-
-def _esc(value: str) -> str:
+def _esc(value) -> str:
     """Escape single quotes cho Cypher string literals."""
     return str(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
-def build_node_cypher(node: dict) -> str | None:
+# ─── SCHEMA DETECTOR ──────────────────────────────────────────────────────────
+
+def detect_schema(kg_data: dict) -> str:
     """
-    Sinh MERGE statement cho 1 node.
-    Returns None nếu node thiếu thông tin bắt buộc.
-    """
-    label  = node.get("label", "")
-    props  = node.get("properties", {})
-    name   = props.get("name", "").strip()
-    code   = props.get("code", "").strip()
-    docid  = props.get("docid", "").strip()
-    doctype = props.get("doctype", "").strip()
-
-    if not label or not name:
-        return None
-
-    if label == "DOCUMENT":
-        if not docid:
-            return None
-        stmt = (
-            f"MERGE (n:DOCUMENT {{docid: '{_esc(docid)}'}})"
-            f" SET n.name = '{_esc(name)}', n.doctype = '{_esc(doctype)}'"
-        )
-
-    elif label in CODE_LABELS:
-        if not code:
-            return None  # bắt buộc có code
-        stmt = (
-            f"MERGE (n:{label} {{code: '{_esc(code)}'}})"
-            f" SET n.name = '{_esc(name)}'"
-        )
-
-    elif label in NAME_ONLY_LABELS:
-        stmt = (
-            f"MERGE (n:{label} {{name: '{_esc(name)}'}})"
-        )
-
-    else:
-        # Unknown label - skip
-        return None
-
-    return stmt
-
-
-def build_rel_cypher(rel: dict, node_map: dict) -> str | None:
-    """
-    Sinh MERGE statement cho 1 relationship.
-    node_map: {local_id -> node dict}
-    """
-    src_id  = rel.get("source")
-    tgt_id  = rel.get("target")
-    rtype   = rel.get("type", "")
-
-    src_node = node_map.get(src_id)
-    tgt_node = node_map.get(tgt_id)
-
-    if not src_node or not tgt_node or not rtype:
-        return None
-
-    src_match = _build_match_clause("a", src_node)
-    tgt_match = _build_match_clause("b", tgt_node)
-
-    if not src_match or not tgt_match:
-        return None
-
-    return f"MATCH {src_match}, {tgt_match} MERGE (a)-[:{rtype}]->(b)"
-
-
-def _build_match_clause(var: str, node: dict) -> str | None:
-    """Sinh MATCH clause cho 1 node dùng unique key."""
-    label  = node.get("label", "")
-    props  = node.get("properties", {})
-    name   = props.get("name", "").strip()
-    code   = props.get("code", "").strip()
-    docid  = props.get("docid", "").strip()
-
-    if not label:
-        return None
-
-    if label == "DOCUMENT":
-        if not docid:
-            return None
-        return f"({var}:DOCUMENT {{docid: '{_esc(docid)}'}})"
-
-    elif label in CODE_LABELS:
-        if not code:
-            return None
-        return f"({var}:{label} {{code: '{_esc(code)}'}})"
-
-    elif label in NAME_ONLY_LABELS:
-        if not name:
-            return None
-        return f"({var}:{label} {{name: '{_esc(name)}'}})"
-
-    # MAJOR trong career_description không có code → match bằng name
-    if label == "MAJOR" and not code and name:
-        return f"({var}:MAJOR {{name: '{_esc(name)}'}})"
-
-    return None
-
-
-def kg_to_cypher_statements(kg_data: dict) -> list[str]:
-    """
-    Chuyển KG JSON → list Cypher statements (không cần LLM).
+    Tự động nhận dạng loại file từ nội dung JSON.
+    Returns: 'curriculum' | 'syllabus' | 'career' | 'unknown'
     """
     nodes = kg_data.get("nodes", [])
     rels  = kg_data.get("relationships", [])
 
-    # Build local id → node dict
-    node_map = {n["id"]: n for n in nodes if "id" in n}
+    node_types = {n.get("type", "") for n in nodes}
+    rel_types  = {r.get("rel_type", "") for r in rels}
+
+    if "CAREER" in node_types or "career_requires_skill" in rel_types:
+        return "career"
+    if "TEACHER" in node_types or "teacher_instructs_subject" in rel_types:
+        return "syllabus"
+    if "MAJOR" in node_types or "major_offers_subject" in rel_types:
+        return "curriculum"
+
+    return "unknown"
+
+
+# ─── CYPHER BUILDERS PER SCHEMA ───────────────────────────────────────────────
+
+# ---------- CURRICULUM ----------
+
+def cur_node_cypher(node: dict) -> str | None:
+    """CUR: MAJOR (major_code) | SUBJECT (subject_code)"""
+    t = node.get("type", "")
+
+    if t == "MAJOR":
+        code    = _esc(node.get("major_code", "").strip())
+        name_vi = _esc(node.get("major_name_vi", "").strip())
+        name_en = _esc(node.get("major_name_en", "").strip())
+        if not code:
+            return None
+        return (
+            f"MERGE (n:MAJOR {{code: '{code}'}})"
+            f" SET n.name = '{name_vi}', n.name_vi = '{name_vi}', n.name_en = '{name_en}'"
+        )
+
+    if t == "SUBJECT":
+        code    = _esc(node.get("subject_code", "").strip())
+        name_vi = _esc(node.get("subject_name_vi", "").strip())
+        name_en = _esc(node.get("subject_name_en", "").strip())
+        if not code:
+            return None
+        return (
+            f"MERGE (n:SUBJECT {{code: '{code}'}})"
+            f" SET n.name = '{name_vi}', n.name_vi = '{name_vi}', n.name_en = '{name_en}'"
+        )
+
+    return None
+
+
+def cur_rel_cypher(rel: dict) -> str | None:
+    """CUR: major_offers_subject"""
+    if rel.get("rel_type") != "major_offers_subject":
+        return None
+
+    major_code   = _esc(rel.get("from_major_code", "").strip())
+    subject_code = _esc(rel.get("to_subject_code", "").strip())
+    semester     = rel.get("semester", "")
+    req_type     = _esc(rel.get("required_type", "").strip())
+
+    if not major_code or not subject_code:
+        return None
+
+    props = ""
+    if semester != "":
+        props += f"semester: {int(semester)}, "
+    if req_type:
+        props += f"required_type: '{req_type}', "
+    props = props.rstrip(", ")
+
+    prop_clause = f" {{{{ {props} }}}}" if props else ""
+    # Cypher không dùng f-string double brace cho literal, build thủ công:
+    if props:
+        return (
+            f"MATCH (a:MAJOR {{code: '{major_code}'}}), (b:SUBJECT {{code: '{subject_code}'}})"
+            f" MERGE (a)-[:MAJOR_OFFERS_SUBJECT {{semester: {int(semester)}, required_type: '{req_type}'}}]->(b)"
+        )
+    else:
+        return (
+            f"MATCH (a:MAJOR {{code: '{major_code}'}}), (b:SUBJECT {{code: '{subject_code}'}})"
+            f" MERGE (a)-[:MAJOR_OFFERS_SUBJECT]->(b)"
+        )
+
+
+# ---------- SYLLABUS ----------
+
+def syl_node_cypher(node: dict) -> str | None:
+    """SYL: SUBJECT (subject_code) | TEACHER (name)"""
+    t = node.get("type", "")
+
+    if t == "SUBJECT":
+        code    = _esc(node.get("subject_code", "").strip())
+        name_vi = _esc(node.get("subject_name_vi", "").strip())
+        name_en = _esc(node.get("subject_name_en", "").strip())
+        if not code:
+            return None
+        return (
+            f"MERGE (n:SUBJECT {{code: '{code}'}})"
+            f" SET n.name = '{name_vi}', n.name_vi = '{name_vi}', n.name_en = '{name_en}'"
+        )
+
+    if t == "TEACHER":
+        name  = _esc(node.get("name", "").strip())
+        email = _esc(node.get("email", "").strip())
+        title = _esc(node.get("title", "").strip())
+        key   = _esc(node.get("teacher_key", "").strip())
+        if not name:
+            return None
+        stmt = f"MERGE (n:TEACHER {{name: '{name}'}})"
+        sets = []
+        if email: sets.append(f"n.email = '{email}'")
+        if title: sets.append(f"n.title = '{title}'")
+        if key:   sets.append(f"n.teacher_key = '{key}'")
+        if sets:
+            stmt += " SET " + ", ".join(sets)
+        return stmt
+
+    return None
+
+
+def syl_rel_cypher(rel: dict) -> str | None:
+    """SYL: teacher_instructs_subject"""
+    if rel.get("rel_type") != "teacher_instructs_subject":
+        return None
+
+    teacher_key  = rel.get("from_teacher_key", "").strip()
+    subject_code = _esc(rel.get("to_subject_code", "").strip())
+
+    if not teacher_key or not subject_code:
+        return None
+
+    # Teacher được match bằng teacher_key (property được set lúc MERGE node)
+    # Nhưng index chỉ có name → match bằng teacher_key property an toàn hơn
+    teacher_key_esc = _esc(teacher_key)
+    return (
+        f"MATCH (a:TEACHER {{teacher_key: '{teacher_key_esc}'}}), (b:SUBJECT {{code: '{subject_code}'}})"
+        f" MERGE (a)-[:TEACHER_INSTRUCTS_SUBJECT]->(b)"
+    )
+
+
+# ---------- CAREER ----------
+
+def car_node_cypher(node: dict) -> str | None:
+    """CAR: CAREER (career_key/career_name) | SKILL (skill_key/skill_name)"""
+    t = node.get("type", "")
+
+    if t == "CAREER":
+        key      = _esc(node.get("career_key", "").strip())
+        name_vi  = _esc(node.get("career_name_vi", "").strip())
+        name_en  = _esc(node.get("career_name_en", "").strip())
+        field    = _esc(node.get("field_name", "").strip())
+        majors   = node.get("major_codes", [])
+
+        name = name_vi or name_en
+        if not name:
+            return None
+
+        stmt = f"MERGE (n:CAREER {{name: '{name}'}})"
+        sets = []
+        if key:     sets.append(f"n.career_key = '{key}'")
+        if name_vi: sets.append(f"n.name_vi = '{name_vi}'")
+        if name_en: sets.append(f"n.name_en = '{name_en}'")
+        if field:   sets.append(f"n.field_name = '{field}'")
+        if majors:
+            codes_lit = "[" + ", ".join(f"'{_esc(str(c))}'" for c in majors) + "]"
+            sets.append(f"n.major_codes = {codes_lit}")
+        if sets:
+            stmt += " SET " + ", ".join(sets)
+        return stmt
+
+    if t == "SKILL":
+        key        = _esc(node.get("skill_key", "").strip())
+        name       = _esc(node.get("skill_name", "").strip())
+        skill_type = _esc(node.get("skill_type", "").strip())
+
+        if not name:
+            return None
+
+        stmt = f"MERGE (n:SKILL {{name: '{name}'}})"
+        sets = []
+        if key:        sets.append(f"n.skill_key = '{key}'")
+        if skill_type: sets.append(f"n.skill_type = '{skill_type}'")
+        if sets:
+            stmt += " SET " + ", ".join(sets)
+        return stmt
+
+    return None
+
+
+def car_rel_cypher(rel: dict) -> str | None:
+    """CAR: career_requires_skill"""
+    if rel.get("rel_type") != "career_requires_skill":
+        return None
+
+    career_key    = _esc(rel.get("from_career_key", "").strip())
+    skill_key     = _esc(rel.get("to_skill_key", "").strip())
+    req_level     = _esc(rel.get("required_level", "").strip())
+
+    if not career_key or not skill_key:
+        return None
+
+    prop = f"{{required_level: '{req_level}'}}" if req_level else ""
+    rel_clause = f"[:CAREER_REQUIRES_SKILL {prop}]" if prop else "[:CAREER_REQUIRES_SKILL]"
+
+    return (
+        f"MATCH (a:CAREER {{career_key: '{career_key}'}}), (b:SKILL {{skill_key: '{skill_key}'}})"
+        f" MERGE (a)-{rel_clause}->(b)"
+    )
+
+
+# ─── DISPATCH ─────────────────────────────────────────────────────────────────
+
+NODE_BUILDERS = {
+    "curriculum": cur_node_cypher,
+    "syllabus":   syl_node_cypher,
+    "career":     car_node_cypher,
+}
+
+REL_BUILDERS = {
+    "curriculum": cur_rel_cypher,
+    "syllabus":   syl_rel_cypher,
+    "career":     car_rel_cypher,
+}
+
+
+def kg_to_cypher_statements(kg_data: dict, schema: str) -> list[str]:
+    """Chuyển KG JSON → list Cypher statements theo schema đã detect."""
+    node_fn = NODE_BUILDERS.get(schema)
+    rel_fn  = REL_BUILDERS.get(schema)
+
+    if not node_fn:
+        log.warning(f"  Schema '{schema}' không có builder, bỏ qua.")
+        return []
 
     statements = []
 
-    # 1. Node MERGE statements
-    for node in nodes:
-        stmt = build_node_cypher(node)
+    for node in kg_data.get("nodes", []):
+        stmt = node_fn(node)
         if stmt:
             statements.append(stmt)
         else:
-            label = node.get("label", "?")
-            nid   = node.get("id", "?")
-            log.debug(f"  [skip node] id={nid} label={label} (thiếu key)")
+            log.debug(f"  [skip node] {node.get('type')} – thiếu key bắt buộc")
 
-    # 2. Relationship MERGE statements
-    for rel in rels:
-        stmt = build_rel_cypher(rel, node_map)
+    for rel in kg_data.get("relationships", []):
+        stmt = rel_fn(rel)
         if stmt:
             statements.append(stmt)
         else:
-            log.debug(f"  [skip rel] {rel.get('source')} -[{rel.get('type')}]-> {rel.get('target')}")
+            log.debug(f"  [skip rel] {rel.get('rel_type')} – thiếu key bắt buộc")
 
     return statements
 
@@ -210,12 +318,16 @@ def get_driver():
 
 def create_indexes(session):
     stmts = [
+        # Unique constraints
         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:MAJOR)    REQUIRE n.code  IS UNIQUE",
         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:SUBJECT)  REQUIRE n.code  IS UNIQUE",
-        "CREATE CONSTRAINT IF NOT EXISTS FOR (n:DOCUMENT) REQUIRE n.docid IS UNIQUE",
+        # Indexes
         "CREATE INDEX IF NOT EXISTS FOR (n:SKILL)   ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:SKILL)   ON (n.skill_key)",
         "CREATE INDEX IF NOT EXISTS FOR (n:CAREER)  ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:CAREER)  ON (n.career_key)",
         "CREATE INDEX IF NOT EXISTS FOR (n:TEACHER) ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:TEACHER) ON (n.teacher_key)",
         "CREATE INDEX IF NOT EXISTS FOR (n:MAJOR)   ON (n.name)",
         "CREATE INDEX IF NOT EXISTS FOR (n:SUBJECT) ON (n.name)",
     ]
@@ -228,15 +340,11 @@ def create_indexes(session):
 
 
 def run_statements_in_tx(session, statements: list[str], label: str) -> tuple[int, int]:
-    """
-    Chạy tất cả statements trong 1 write transaction.
-    Returns (ok_count, fail_count).
-    """
+    """Chạy tất cả statements trong 1 write transaction."""
     if not statements:
         return 0, 0
 
-    ok = 0
-    fail = 0
+    ok = fail = 0
 
     def tx_func(tx):
         nonlocal ok, fail
@@ -246,14 +354,12 @@ def run_statements_in_tx(session, statements: list[str], label: str) -> tuple[in
                 ok += 1
             except neo4j_exc.CypherSyntaxError as e:
                 fail += 1
-                log.error(f"  [CypherError] {e.message}\n  → {stmt[:200]}")
-            except neo4j_exc.ConstraintError as e:
-                # Có thể xảy ra với concurrent writes, bỏ qua
-                log.debug(f"  [ConstraintSkip] {e}")
-                ok += 1
+                log.error(f"  [CypherError] {e.message}\n  → {stmt[:300]}")
+            except neo4j_exc.ConstraintError:
+                ok += 1  # MERGE race condition, bỏ qua
             except Exception as e:
                 fail += 1
-                log.error(f"  [StmtError] {e}\n  → {stmt[:200]}")
+                log.error(f"  [StmtError] {e}\n  → {stmt[:300]}")
 
     try:
         session.execute_write(tx_func)
@@ -299,9 +405,16 @@ def process_files(driver):
                     total_fail += 1
                     continue
 
-                # Sinh Cypher trực tiếp (không LLM)
-                statements = kg_to_cypher_statements(kg_data)
-                log.info(f"    Generated {len(statements)} statements (no LLM)")
+                # Tự động nhận dạng schema
+                schema = detect_schema(kg_data)
+                log.info(f"    Detected schema: {schema}")
+
+                if schema == "unknown":
+                    log.warning(f"    Không nhận dạng được schema, bỏ qua.")
+                    continue
+
+                statements = kg_to_cypher_statements(kg_data, schema)
+                log.info(f"    Generated {len(statements)} statements")
 
                 if not statements:
                     log.warning(f"    Không có statements nào, bỏ qua.")
@@ -319,13 +432,12 @@ def process_files(driver):
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
-    log.info("Starting Neo4j ingestion pipeline (OPTIMIZED - No LLM)...")
+    log.info("Starting Neo4j ingestion pipeline (OPTIMIZED v2 – No LLM)...")
 
     if not NEO4J_URI:
         raise ValueError("DB_URL không tìm thấy trong .env")
 
     driver = get_driver()
-
     try:
         process_files(driver)
     finally:

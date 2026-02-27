@@ -1,16 +1,33 @@
 """
 Script 1 (OPTIMIZED): Extract entities & relationships from MinIO JSON files
-- Async I/O với asyncio + aiohttp cho MinIO downloads
-- ThreadPoolExecutor chỉ cho OpenAI calls (sync SDK)
+- ThreadPoolExecutor cho OpenAI calls (sync SDK)
 - Retry với exponential backoff (openai rate limit safe)
 - Validate output JSON trước khi lưu
 - Resume support (auto-skip đã có)
 - Structured logging
+
+Schema v2:
+  Nodes: MAJOR, SUBJECT, SKILL, CAREER, TEACHER  (bỏ DOCUMENT)
+  Fields:
+    MAJOR:   {major_code, major_name_vi, major_name_en}
+    SUBJECT: {subject_code, subject_name_vi, subject_name_en}
+    SKILL:   {skill_key, skill_name, skill_type}
+    CAREER:  {career_key, career_name_vi, career_name_en, field_name}
+    TEACHER: {teacher_key, name, email, title}
+  Relationships (lowercase snake_case):
+    major_offers_subject      {from_major_code, to_subject_code, semester, required_type}
+    major_leads_to_career     {from_major_code, to_career_key}
+    subject_provides_skill    {from_subject_code, to_skill_key, mastery_level}
+    career_requires_skill     {from_career_key, to_skill_key, required_level}
+    teacher_instructs_subject {from_teacher_key, to_subject_code}
+
+PHASE 2: Sau khi extract xong TẤT CẢ files, tự động mapping mã ngành
+  cho CAREER nodes từ curriculum JSONs đã extract.
 """
 
 import os
+import re
 import json
-import asyncio
 import logging
 import time
 from pathlib import Path
@@ -40,13 +57,13 @@ MINIO_BUCKET      = os.getenv("MINIO_BUCKET")
 MINIO_SECURE      = os.getenv("MINIO_SECURE", "false").lower() == "true"
 MINIO_BASE_FOLDER = os.getenv("MINIO_BASE_FOLDER", "courses-processed")
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL   = os.getenv("OPENAI_MODEL", "gpt-4o")
+OPENAI_API_KEY   = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL     = os.getenv("OPENAI_MODEL", "gpt-4o")
 
-INPUT_FOLDERS = ["curriculum", "career_description", "syllabus"]
-LOCAL_OUT_DIR = Path("./cache/output")
-MAX_WORKERS   = int(os.getenv("MAX_WORKERS", "10"))   # tăng lên vì I/O bound
-MAX_RETRIES   = int(os.getenv("MAX_RETRIES", "3"))
+INPUT_FOLDERS    = ["curriculum", "career_description", "syllabus"]
+LOCAL_OUT_DIR    = Path("./cache/output")
+MAX_WORKERS      = int(os.getenv("MAX_WORKERS", "10"))
+MAX_RETRIES      = int(os.getenv("MAX_RETRIES", "3"))
 RETRY_BASE_DELAY = 2.0  # seconds
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -56,133 +73,172 @@ DOCTYPE_MAP = {
     "syllabus":           "syllabus",
 }
 
-# ─── VALID NODE LABELS & RELATIONSHIPS PER DOCTYPE ────────────────────────────
+# ─── VALID NODE TYPES & REL TYPES PER DOCTYPE ─────────────────────────────────
 VALID_NODES_BY_DOCTYPE = {
-    "syllabus":           {"DOCUMENT", "SUBJECT", "TEACHER", "SKILL", "MAJOR"},
-    "curriculum":         {"DOCUMENT", "MAJOR", "SUBJECT", "CAREER"},
-    "career_description": {"DOCUMENT", "CAREER", "SKILL", "MAJOR"},
+    "syllabus":           {"SUBJECT", "TEACHER", "SKILL"},
+    "curriculum":         {"MAJOR", "SUBJECT", "CAREER", "TEACHER"},
+    "career_description": {"CAREER", "SKILL"},
 }
 
 VALID_REL_TYPES = {
-    "OFFERS", "TEACH", "PROVIDES", "REQUIRES",
-    "PREREQUISITE_FOR", "LEADS_TO", "MENTIONED_IN",
+    "major_offers_subject",
+    "major_leads_to_career",
+    "subject_provides_skill",
+    "career_requires_skill",
+    "teacher_instructs_subject",
 }
 
-REQUIRED_CODE_LABELS = {"MAJOR", "SUBJECT"}  # phải có code thực sự (trừ career_description MAJOR)
+# ─── PROMPTS ──────────────────────────────────────────────────────────────────
 
-# ─── SYSTEM PROMPTS ───────────────────────────────────────────────────────────
+SYSTEM_PROMPT_BASE = """Bạn là chuyên gia trích xuất dữ liệu Knowledge Graph.
+Nhiệm vụ: Trích xuất thông tin sang Nodes và Relationships theo Schema nghiêm ngặt.
 
-SYSTEM_PROMPT_BASE = """Bạn là chuyên gia Knowledge Graph. Nhiệm vụ của bạn là đọc tài liệu JSON và trích xuất các thực thể (nodes) và quan hệ (relationships) theo schema đã cho.
+1. DANH SÁCH NODES (CHỈ 5 LOẠI NÀY):
+- MAJOR:   {major_code, major_name_vi, major_name_en}
+- SUBJECT: {subject_code, subject_name_vi, subject_name_en}
+- SKILL:   {skill_key, skill_name, skill_type}
+- CAREER:  {career_key, career_name_vi, career_name_en, field_name}
+- TEACHER: {teacher_key, name, email, title}
 
-ONTOLOGY:
-- Node Labels: MAJOR {name, code}, SUBJECT {name, code}, SKILL {name}, CAREER {name}, TEACHER {name}, DOCUMENT {name, docid, doctype}
-- Relationships chính:
-  (MAJOR)-[:OFFERS]->(SUBJECT)
-  (TEACHER)-[:TEACH]->(SUBJECT)
-  (SUBJECT)-[:PROVIDES]->(SKILL)
-  (CAREER)-[:REQUIRES]->(SKILL)
-  (SUBJECT)-[:PREREQUISITE_FOR]->(SUBJECT)
-  (MAJOR)-[:LEADS_TO]->(CAREER)
-- Relationships phụ (truy xuất nguồn gốc):
-  (MAJOR|TEACHER|SUBJECT|CAREER|SKILL)-[:MENTIONED_IN]->(DOCUMENT)
+2. QUY TẮC TẠO KEY (SLUGIFY):
+- CODE (MAJOR, SUBJECT): Dùng mã có sẵn (VD: CNTT1168). Nếu thiếu, tạo: [TEN_MON_KHONG_DAU].
+- KEY (SKILL, CAREER, TEACHER): Viết thường, không dấu, thay khoảng trắng bằng "_".
+  * TEACHER: Bỏ qua học hàm/học vị (TS, ThS, GS, PGS) khi tạo key.
+    Ví dụ: "TS. Nguyễn Văn A" → teacher_key = "nguyen_van_a"
+  * SKILL:   Tên kỹ năng ngắn gọn. Ví dụ: "lap_trinh_python", "phan_tich_du_lieu"
+  * CAREER:  Tên nghề ngắn gọn.  Ví dụ: "lap_trinh_vien", "ky_su_phan_mem"
 
-NGUYÊN TẮC CHUNG:
-1. Tên thực thể (name) phải VIẾT HOA tất cả chữ cái sau khi chuẩn hóa.
-2. Nếu cùng tên (đã chuẩn hóa) → cùng thực thể (dùng lại id).
-3. Bỏ qua thuộc tính null/thiếu thay vì để null.
-4. Mọi thực thể phải có quan hệ MENTIONED_IN tới node DOCUMENT.
-5. CHỈ trả về JSON hợp lệ, không có markdown, không có giải thích.
-6. Nhất quán: Đại từ (anh ấy, học phần này, ngành này,...) → dùng tên gốc VIẾT HOA.
+3. HỆ THỐNG QUAN HỆ (RELATIONSHIPS):
+- major_offers_subject:      {from_major_code, to_subject_code, semester, required_type}
+- major_leads_to_career:     {from_major_code, to_career_key}
+- subject_provides_skill:    {from_subject_code, to_skill_key, mastery_level}
+- career_requires_skill:     {from_career_key, to_skill_key, required_level}
+- teacher_instructs_subject: {from_teacher_key, to_subject_code}
 
-RÀNG BUỘC THEO LOẠI TÀI LIỆU:
-- syllabus: chứa SUBJECT (1 duy nhất, bắt buộc có code thực sự), TEACHER, SKILL, MAJOR (nếu có). KHÔNG tạo CAREER.
-- curriculum: chứa MAJOR (1 duy nhất, bắt buộc có code), SUBJECT (bắt buộc có code). KHÔNG tạo TEACHER.
-- career_description: chứa CAREER (1 duy nhất), SKILL, MAJOR (không cần code). KHÔNG tạo SUBJECT, TEACHER.
+4. DEDUP (CHỐNG TRÙNG):
+Luôn MERGE dựa trên Code hoặc Key. Không tạo Node mới nếu Key/Code đã tồn tại.
 
-QUAN TRỌNG:
-- SUBJECT và MAJOR bắt buộc phải có code thực sự (ví dụ: IT001, 7480201). Nếu không có code → KHÔNG tạo node đó.
-- KHÔNG dùng code='', code='SKILL' hoặc các giá trị vô nghĩa.
-- KHÔNG tạo node với label sai loại tài liệu (xem ràng buộc trên).
-
-Định dạng output:
+5. OUTPUT FORMAT — CHỈ trả về JSON hợp lệ, không markdown, không giải thích:
 {
-  "metadata": {"docid": "...", "doctype": "..."},
   "nodes": [
-    {"id": "DOC1", "label": "DOCUMENT", "properties": {"name": "...", "docid": "...", "doctype": "..."}},
-    {"id": "S1",   "label": "SUBJECT",  "properties": {"name": "...", "code": "IT001"}},
-    ...
+    {"type": "MAJOR",   "major_code": "...", "major_name_vi": "...", "major_name_en": "..."},
+    {"type": "SUBJECT", "subject_code": "...", "subject_name_vi": "...", "subject_name_en": "..."},
+    {"type": "SKILL",   "skill_key": "...", "skill_name": "...", "skill_type": "hard|soft"},
+    {"type": "CAREER",  "career_key": "...", "career_name_vi": "...", "career_name_en": "...", "field_name": "..."},
+    {"type": "TEACHER", "teacher_key": "...", "name": "...", "email": "...", "title": "..."}
   ],
   "relationships": [
-    {"source": "T1", "target": "S1",   "type": "TEACH"},
-    {"source": "S1", "target": "DOC1", "type": "MENTIONED_IN"},
-    ...
+    {"rel_type": "major_offers_subject",      "from_major_code": "...",   "to_subject_code": "...", "semester": 1, "required_type": "required|elective"},
+    {"rel_type": "major_leads_to_career",     "from_major_code": "...",   "to_career_key": "..."},
+    {"rel_type": "subject_provides_skill",    "from_subject_code": "...", "to_skill_key": "...", "mastery_level": "basic|intermediate|advanced"},
+    {"rel_type": "career_requires_skill",     "from_career_key": "...",   "to_skill_key": "...", "required_level": "basic|intermediate|advanced"},
+    {"rel_type": "teacher_instructs_subject", "from_teacher_key": "...",  "to_subject_code": "..."}
   ]
 }"""
 
-SYSTEM_PROMPT_BY_DOCTYPE = {
-    "syllabus": SYSTEM_PROMPT_BASE + """
+PROMPT_SYLLABUS = SYSTEM_PROMPT_BASE + """
 
-Tài liệu này là ĐỀ CƯƠNG MÔN HỌC (syllabus).
+Tài liệu: SYLLABUS (Đề cương chi tiết môn học).
 
-QUY TẮC TRÍCH XUẤT:
-- Bản thân tài liệu đại diện cho DUY NHẤT 1 node SUBJECT (môn học). SUBJECT phải có code môn học thực sự.
-- TEACHER: các giảng viên phụ trách môn đó.
-- MAJOR: ngành nào đang giảng dạy môn này (nếu có đề cập).
-- KHÔNG tạo CAREER.
+CÁC BƯỚC TRÍCH XUẤT:
+1. SUBJECT: Trích xuất từ "course_code", "course_name_vi" (và "course_name_en" nếu có).
+   - Đây là node trung tâm của tài liệu này.
 
-TRÍCH XUẤT SKILL — RẤT QUAN TRỌNG:
-- Nguồn CHÍNH: phần "Chuẩn đầu ra học phần" / "course_learning_outcomes" / "learning_outcomes".
-- Mỗi chuẩn đầu ra (CLO) → tạo 1 node SKILL ngắn gọn, súc tích.
-  Ví dụ đúng: "LẬP TRÌNH PYTHON", "PHÂN TÍCH DỮ LIỆU"
-  Ví dụ sai: "SINH VIÊN CÓ KHẢ NĂNG VIẾT ĐƯỢC CHƯƠNG TRÌNH..."
-- Tạo relationship: (SUBJECT)-[:PROVIDES]->(SKILL)
+2. TEACHER: Tìm trong "management.instructors" (hoặc field tương đương).
+   - Tạo node TEACHER {teacher_key, name, email, title}.
+   - Bỏ qua học hàm/học vị khi tạo teacher_key. Ví dụ: "TS. Nguyễn Văn A" → "nguyen_van_a".
+   - Tạo relationship: teacher_instructs_subject {from_teacher_key, to_subject_code}.
+   - Ghi evidence_ref = "instructors".
 
-Quan hệ hợp lệ: TEACHER-[TEACH]->SUBJECT, SUBJECT-[PROVIDES]->SKILL, MAJOR-[OFFERS]->SUBJECT.""",
+3. SKILL: Tìm trong "course_learning_outcomes" / "learning_outcomes" / CLO.
+   - Mỗi CLO → tạo 1 node SKILL {skill_key, skill_name, skill_type}.
+   - skill_name phải NGẮN GỌN, súc tích (không phải cả câu CLO).
+     Ví dụ đúng: "Lập trình Python", "Phân tích dữ liệu"
+     Ví dụ sai:  "Sinh viên có khả năng viết được chương trình..."
+   - skill_type: "hard" cho kỹ năng kỹ thuật, "soft" cho kỹ năng mềm.
+   - Tạo relationship: subject_provides_skill {from_subject_code, to_skill_key, mastery_level}.
+   - Lưu mastery_level (basic/intermediate/advanced) nếu có, ghi vào field "note" của quan hệ.
+   - Ghi evidence_ref = "course_learning_outcomes".
 
-    "curriculum": SYSTEM_PROMPT_BASE + """
+CHỈ tạo SUBJECT, TEACHER, SKILL. KHÔNG tạo MAJOR, CAREER."""
 
-Tài liệu này là CHƯƠNG TRÌNH ĐÀO TẠO (curriculum).
+PROMPT_CURRICULUM = SYSTEM_PROMPT_BASE + """
 
-QUY TẮC TRÍCH XUẤT:
-- Bản thân tài liệu đại diện cho DUY NHẤT 1 node MAJOR (ngành học). MAJOR phải có code ngành thực sự.
-- SUBJECT: tất cả môn học trong chương trình, bắt buộc có code. Nếu không có code → bỏ qua.
-- KHÔNG tạo TEACHER.
+Tài liệu: CURRICULUM (Chương trình đào tạo).
 
-TRÍCH XUẤT CAREER — RẤT QUAN TRỌNG:
-- Nguồn CHÍNH: phần "Cơ hội làm việc và khả năng học tập nâng cao" / "career_opportunities" / "job_opportunities".
-- Mỗi vị trí/nghề nghiệp được nhắc tới → tạo 1 node CAREER, tên VIẾT HOA, cụ thể.
-  Ví dụ đúng: "LẬP TRÌNH VIÊN", "KỸ SƯ PHẦN MỀM", "GIẢNG VIÊN ĐẠI HỌC"
-  Ví dụ sai: "LÀM VIỆC TRONG LĨNH VỰC CÔNG NGHỆ"
-- Tạo relationship: (MAJOR)-[:LEADS_TO]->(CAREER) cho mỗi nghề.
-- KHÔNG bỏ sót bất kỳ nghề nào, kể cả nghề phi kỹ thuật.
+CÁC BƯỚC TRÍCH XUẤT:
+1. MAJOR: Trích xuất từ "major.code" và "major.name_vi" (và "name_en" nếu có).
+   - Đây là node trung tâm của tài liệu này.
 
-MAJOR: name VIẾT HOA đầy đủ (ví dụ: "CÔNG NGHỆ THÔNG TIN"), code chính xác từ tài liệu (ví dụ: "7480201").
-Quan hệ hợp lệ: MAJOR-[OFFERS]->SUBJECT, MAJOR-[LEADS_TO]->CAREER, SUBJECT-[PREREQUISITE_FOR]->SUBJECT.""",
+2. SUBJECT LIST: Duyệt "teaching_plan_and_course_list.courses" (hoặc field tương đương).
+   - Mỗi môn học → tạo node SUBJECT {subject_code, subject_name_vi}.
+   - Nếu môn không có code → BỎ QUA.
+   - Tạo relationship: major_offers_subject {from_major_code, to_subject_code, semester, required_type}.
+   - Lưu "semester_no" và "required_type" vào field "note" của quan hệ.
+   - "semester" = semester_no (số nguyên). "required_type" = "required" hoặc "elective".
 
-    "career_description": SYSTEM_PROMPT_BASE + """
+3. CAREER: Tìm trong "career_opportunities" / "job_opportunities" (hoặc field tương đương).
+   - Mỗi vị trí/nghề nghiệp → tạo node CAREER {career_key, career_name_vi}.
+   - Tên nghề cụ thể, không bỏ sót.
+   - Tạo relationship: major_leads_to_career {from_major_code, to_career_key}.
 
-Tài liệu này là MÔ TẢ NGHỀ NGHIỆP (career_description).
+4. TEACHER (Lãnh đạo ngành): Trích xuất tên người ký / Viện trưởng ở cuối file (nếu có).
+   - Tạo node TEACHER {teacher_key, name, title}.
+   - Bỏ qua học hàm/học vị khi tạo teacher_key.
+   - Có thể dùng quan hệ tự định nghĩa để ghi nhận (không bắt buộc rel chuẩn).
 
-QUY TẮC TRÍCH XUẤT:
-- Bản thân tài liệu đại diện cho DUY NHẤT 1 node CAREER (nghề nghiệp). BẮT BUỘC tạo node CAREER này.
-- SKILL: tất cả kỹ năng nghề này yêu cầu (hard + soft skill).
-  Lấy từ: required_skills, skills, key_skills, responsibilities, job_description.
-- MAJOR: các ngành học được khuyến nghị. Lấy từ recommended_majors. MAJOR KHÔNG cần code.
-- TUYỆT ĐỐI KHÔNG tạo SUBJECT. TUYỆT ĐỐI KHÔNG tạo TEACHER.
+CHỈ tạo MAJOR, SUBJECT, CAREER, TEACHER. KHÔNG tạo SKILL."""
 
-CAREER: tên nghề VIẾT HOA.
-Relationship: (CAREER)-[:REQUIRES]->(SKILL), (MAJOR)-[:LEADS_TO]->(CAREER), (CAREER)-[:MENTIONED_IN]->(DOCUMENT).
+PROMPT_CAREER = SYSTEM_PROMPT_BASE + """
 
-MAJOR name phải VIẾT HOA, khớp chính xác với tên ngành trong curriculum.
-Ví dụ đúng: "CÔNG NGHỆ THÔNG TIN", "KỸ THUẬT PHẦN MỀM"
-Ví dụ sai: "CNTT", "Công nghệ thông tin", "IT".""",
+Tài liệu: CAREER_DESCRIPTION (Mô tả nghề nghiệp).
+
+CÁC BƯỚC TRÍCH XUẤT:
+1. CAREER: Trích xuất từ "name_vi" (và "name_en", "field_name" nếu có).
+   - Đây là node trung tâm duy nhất. BẮT BUỘC tạo node CAREER này.
+
+2. SKILL: Duyệt "hard_skills" và "soft_skills" (hoặc "required_skills", "skills").
+   - Mỗi kỹ năng → tạo node SKILL {skill_key, skill_name, skill_type}.
+   - skill_type = "hard" hoặc "soft" tương ứng với nguồn.
+   - Tạo relationship: career_requires_skill {from_career_key, to_skill_key, required_level}.
+   - BẮT BUỘC lưu "required_level" (basic/intermediate/advanced) dựa trên nội dung.
+   - Ghi evidence_ref = "hard_skills" hoặc "soft_skills".
+
+CHỈ tạo CAREER, SKILL. KHÔNG tạo MAJOR, SUBJECT, TEACHER."""
+
+PROMPTS_BY_DOCTYPE = {
+    "syllabus":           PROMPT_SYLLABUS,
+    "curriculum":         PROMPT_CURRICULUM,
+    "career_description": PROMPT_CAREER,
 }
 
 
 # ─── VALIDATION ───────────────────────────────────────────────────────────────
 
+def _get_node_key(node: dict) -> str | None:
+    """Lấy key/code định danh của node."""
+    t = node.get("type", "")
+    if t == "MAJOR":   return node.get("major_code")
+    if t == "SUBJECT": return node.get("subject_code")
+    if t == "SKILL":   return node.get("skill_key")
+    if t == "CAREER":  return node.get("career_key")
+    if t == "TEACHER": return node.get("teacher_key")
+    return None
+
+
+def _get_node_name(node: dict) -> str | None:
+    """Lấy tên chính của node."""
+    t = node.get("type", "")
+    if t == "MAJOR":   return node.get("major_name_vi")
+    if t == "SUBJECT": return node.get("subject_name_vi")
+    if t == "SKILL":   return node.get("skill_name")
+    if t == "CAREER":  return node.get("career_name_vi")
+    if t == "TEACHER": return node.get("name")
+    return None
+
+
 def validate_extracted(data: dict, doctype: str) -> tuple[bool, list[str]]:
-    """Validate extracted JSON. Returns (is_valid, list_of_warnings)."""
+    """Validate extracted JSON. Returns (is_valid, list_of_errors)."""
     errors = []
 
     if not isinstance(data, dict):
@@ -195,103 +251,100 @@ def validate_extracted(data: dict, doctype: str) -> tuple[bool, list[str]]:
         return False, ["Không có nodes nào"]
 
     valid_labels = VALID_NODES_BY_DOCTYPE.get(doctype, set())
-    node_ids = {n["id"] for n in nodes if "id" in n}
-    doc_node_ids = {n["id"] for n in nodes if n.get("label") == "DOCUMENT"}
 
-    if not doc_node_ids:
-        errors.append("Thiếu node DOCUMENT")
+    # Build key sets cho rel validation
+    all_major_codes   = {n["major_code"]   for n in nodes if n.get("type") == "MAJOR"   and n.get("major_code")}
+    all_subject_codes = {n["subject_code"] for n in nodes if n.get("type") == "SUBJECT" and n.get("subject_code")}
+    all_skill_keys    = {n["skill_key"]    for n in nodes if n.get("type") == "SKILL"   and n.get("skill_key")}
+    all_career_keys   = {n["career_key"]   for n in nodes if n.get("type") == "CAREER"  and n.get("career_key")}
+    all_teacher_keys  = {n["teacher_key"]  for n in nodes if n.get("type") == "TEACHER" and n.get("teacher_key")}
 
     for node in nodes:
-        label = node.get("label", "")
-        props = node.get("properties", {})
+        ntype = node.get("type", "")
+        if ntype not in valid_labels:
+            errors.append(f"Node type '{ntype}' không hợp lệ cho doctype '{doctype}'")
+            continue
+        if not _get_node_key(node):
+            errors.append(f"Node {ntype} thiếu key/code: {node}")
+        if not _get_node_name(node):
+            errors.append(f"Node {ntype} (key={_get_node_key(node)}) thiếu name")
 
-        # Label không hợp lệ
-        if label and label not in valid_labels and label != "DOCUMENT":
-            errors.append(f"Node label '{label}' không hợp lệ cho doctype '{doctype}'")
-
-        # SUBJECT/MAJOR cần code (trừ MAJOR trong career_description)
-        if label in REQUIRED_CODE_LABELS and doctype != "career_description":
-            code = props.get("code", "")
-            if not code or code.upper() in {"", "SKILL", "MAJOR", "SUBJECT", "CAREER"}:
-                errors.append(f"Node {node.get('id')} ({label}) thiếu code hợp lệ: '{code}'")
-
-        # Name phải tồn tại
-        if not props.get("name"):
-            errors.append(f"Node {node.get('id')} thiếu name")
-
-    # Kiểm tra relationship endpoints tồn tại
     for rel in rels:
-        src, tgt, rtype = rel.get("source"), rel.get("target"), rel.get("type")
-        if src not in node_ids:
-            errors.append(f"Relationship source '{src}' không tồn tại trong nodes")
-        if tgt not in node_ids:
-            errors.append(f"Relationship target '{tgt}' không tồn tại trong nodes")
-        if rtype and rtype not in VALID_REL_TYPES:
-            errors.append(f"Relationship type '{rtype}' không hợp lệ")
+        rtype = rel.get("rel_type", "")
+        if rtype not in VALID_REL_TYPES:
+            errors.append(f"rel_type '{rtype}' không hợp lệ")
+            continue
 
-    # Kiểm tra MENTIONED_IN tới DOCUMENT
-    mentioned_sources = {r["source"] for r in rels if r.get("type") == "MENTIONED_IN"}
-    non_doc_nodes = [n["id"] for n in nodes if n.get("label") != "DOCUMENT"]
-    missing_mentioned = [nid for nid in non_doc_nodes if nid not in mentioned_sources]
-    if missing_mentioned:
-        errors.append(f"Các nodes thiếu MENTIONED_IN: {missing_mentioned}")
+        if rtype == "major_offers_subject":
+            if rel.get("from_major_code") not in all_major_codes:
+                errors.append(f"major_offers_subject: from_major_code '{rel.get('from_major_code')}' không tồn tại")
+            if rel.get("to_subject_code") not in all_subject_codes:
+                errors.append(f"major_offers_subject: to_subject_code '{rel.get('to_subject_code')}' không tồn tại")
+        elif rtype == "major_leads_to_career":
+            if rel.get("from_major_code") not in all_major_codes:
+                errors.append(f"major_leads_to_career: from_major_code '{rel.get('from_major_code')}' không tồn tại")
+            if rel.get("to_career_key") not in all_career_keys:
+                errors.append(f"major_leads_to_career: to_career_key '{rel.get('to_career_key')}' không tồn tại")
+        elif rtype == "subject_provides_skill":
+            if rel.get("from_subject_code") not in all_subject_codes:
+                errors.append(f"subject_provides_skill: from_subject_code '{rel.get('from_subject_code')}' không tồn tại")
+            if rel.get("to_skill_key") not in all_skill_keys:
+                errors.append(f"subject_provides_skill: to_skill_key '{rel.get('to_skill_key')}' không tồn tại")
+        elif rtype == "career_requires_skill":
+            if rel.get("from_career_key") not in all_career_keys:
+                errors.append(f"career_requires_skill: from_career_key '{rel.get('from_career_key')}' không tồn tại")
+            if rel.get("to_skill_key") not in all_skill_keys:
+                errors.append(f"career_requires_skill: to_skill_key '{rel.get('to_skill_key')}' không tồn tại")
+        elif rtype == "teacher_instructs_subject":
+            if rel.get("from_teacher_key") not in all_teacher_keys:
+                errors.append(f"teacher_instructs_subject: from_teacher_key '{rel.get('from_teacher_key')}' không tồn tại")
+            if rel.get("to_subject_code") not in all_subject_codes:
+                errors.append(f"teacher_instructs_subject: to_subject_code '{rel.get('to_subject_code')}' không tồn tại")
 
-    is_valid = len(errors) == 0
-    return is_valid, errors
+    return len(errors) == 0, errors
 
 
 def fix_extracted(data: dict, doctype: str) -> dict:
     """
     Auto-fix các lỗi nhỏ:
-    - Xóa nodes có label sai
-    - Xóa SUBJECT/MAJOR thiếu code (trừ career_description MAJOR)
-    - Xóa relationships có endpoint không tồn tại
-    - Thêm MENTIONED_IN còn thiếu
+    - Xóa nodes có type sai hoặc thiếu key/name
+    - Xóa relationships có endpoint không tồn tại hoặc rel_type sai
     """
-    valid_labels = VALID_NODES_BY_DOCTYPE.get(doctype, set()) | {"DOCUMENT"}
+    valid_labels = VALID_NODES_BY_DOCTYPE.get(doctype, set())
     nodes = data.get("nodes", [])
     rels  = data.get("relationships", [])
 
-    # Tìm DOC node id
-    doc_node_ids = [n["id"] for n in nodes if n.get("label") == "DOCUMENT"]
-    doc_id = doc_node_ids[0] if doc_node_ids else None
-
-    # Lọc nodes hợp lệ
-    clean_nodes = []
-    for node in nodes:
-        label = node.get("label", "")
-        props = node.get("properties", {})
-
-        if label not in valid_labels:
-            continue
-
-        if label in REQUIRED_CODE_LABELS and doctype != "career_description":
-            code = props.get("code", "")
-            if not code or code.upper() in {"", "SKILL", "MAJOR", "SUBJECT", "CAREER"}:
-                continue
-
-        if not props.get("name"):
-            continue
-
-        clean_nodes.append(node)
-
-    valid_ids = {n["id"] for n in clean_nodes}
-
-    # Lọc relationships
-    clean_rels = [
-        r for r in rels
-        if r.get("source") in valid_ids
-        and r.get("target") in valid_ids
-        and r.get("type") in VALID_REL_TYPES
+    clean_nodes = [
+        n for n in nodes
+        if n.get("type") in valid_labels
+        and _get_node_key(n)
+        and _get_node_name(n)
     ]
 
-    # Thêm MENTIONED_IN còn thiếu
-    if doc_id and doc_id in valid_ids:
-        mentioned_sources = {r["source"] for r in clean_rels if r.get("type") == "MENTIONED_IN"}
-        non_doc = [n["id"] for n in clean_nodes if n.get("label") != "DOCUMENT"]
-        for nid in non_doc:
-            if nid not in mentioned_sources:
-                clean_rels.append({"source": nid, "target": doc_id, "type": "MENTIONED_IN"})
+    all_major_codes   = {n["major_code"]   for n in clean_nodes if n.get("type") == "MAJOR"   and n.get("major_code")}
+    all_subject_codes = {n["subject_code"] for n in clean_nodes if n.get("type") == "SUBJECT" and n.get("subject_code")}
+    all_skill_keys    = {n["skill_key"]    for n in clean_nodes if n.get("type") == "SKILL"   and n.get("skill_key")}
+    all_career_keys   = {n["career_key"]   for n in clean_nodes if n.get("type") == "CAREER"  and n.get("career_key")}
+    all_teacher_keys  = {n["teacher_key"]  for n in clean_nodes if n.get("type") == "TEACHER" and n.get("teacher_key")}
+
+    clean_rels = []
+    for rel in rels:
+        rtype = rel.get("rel_type", "")
+        if rtype not in VALID_REL_TYPES:
+            continue
+        ok = True
+        if rtype == "major_offers_subject":
+            ok = rel.get("from_major_code") in all_major_codes and rel.get("to_subject_code") in all_subject_codes
+        elif rtype == "major_leads_to_career":
+            ok = rel.get("from_major_code") in all_major_codes and rel.get("to_career_key") in all_career_keys
+        elif rtype == "subject_provides_skill":
+            ok = rel.get("from_subject_code") in all_subject_codes and rel.get("to_skill_key") in all_skill_keys
+        elif rtype == "career_requires_skill":
+            ok = rel.get("from_career_key") in all_career_keys and rel.get("to_skill_key") in all_skill_keys
+        elif rtype == "teacher_instructs_subject":
+            ok = rel.get("from_teacher_key") in all_teacher_keys and rel.get("to_subject_code") in all_subject_codes
+        if ok:
+            clean_rels.append(rel)
 
     data["nodes"] = clean_nodes
     data["relationships"] = clean_rels
@@ -342,6 +395,11 @@ def save_local(data: dict, folder: str, filename: str):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def _normalize_name(name: str) -> str:
+    """Chuẩn hóa tên ngành để so sánh: uppercase + strip whitespace."""
+    return re.sub(r"\s+", " ", name.strip().upper())
+
+
 # ─── LLM EXTRACTION WITH RETRY ───────────────────────────────────────────────
 
 def extract_via_llm(ai_client: OpenAI, doc_json: dict, docid: str, doctype: str) -> dict:
@@ -352,12 +410,14 @@ def extract_via_llm(ai_client: OpenAI, doc_json: dict, docid: str, doctype: str)
         f"Trả về JSON hợp lệ theo schema."
     )
 
+    system_prompt = PROMPTS_BY_DOCTYPE.get(doctype, SYSTEM_PROMPT_BASE)
+
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = ai_client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT_BY_DOCTYPE.get(doctype, SYSTEM_PROMPT_BASE)},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user",   "content": user_msg},
                 ],
                 temperature=0,
@@ -427,9 +487,177 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
         return "error"
 
 
+# ─── PHASE 2: MAJOR CODE MAPPING FOR CAREER NODES ────────────────────────────
+
+def build_major_code_index() -> dict[str, str]:
+    """
+    Đọc toàn bộ curriculum JSONs đã extract.
+    Trả về dict: normalized_major_name → major_code
+
+    Ví dụ:
+      {"CÔNG NGHỆ THÔNG TIN": "7480201", "KỸ THUẬT PHẦN MỀM": "7480103"}
+    """
+    index: dict[str, str] = {}
+    cur_dir = LOCAL_OUT_DIR / "curriculum"
+
+    if not cur_dir.exists():
+        log.warning("[Phase 2] Thư mục curriculum không tồn tại, bỏ qua mapping.")
+        return index
+
+    files = list(cur_dir.glob("*.json"))
+    log.info(f"[Phase 2] Đọc {len(files)} curriculum files để build major index...")
+
+    for jf in files:
+        try:
+            with open(jf, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            log.warning(f"[Phase 2] Lỗi đọc {jf.name}: {e}")
+            continue
+
+        for node in data.get("nodes", []):
+            if node.get("type") != "MAJOR":
+                continue
+            name = node.get("major_name_vi", "").strip()
+            code = node.get("major_code", "").strip()
+            if not name or not code:
+                continue
+            norm = _normalize_name(name)
+            if norm in index and index[norm] != code:
+                log.warning(
+                    f"[Phase 2] Tên ngành '{norm}' có nhiều code: "
+                    f"'{index[norm]}' vs '{code}' — giữ code đầu tiên."
+                )
+            else:
+                index[norm] = code
+
+    log.info(f"[Phase 2] Major index: {len(index)} ngành")
+    for name, code in sorted(index.items()):
+        log.info(f"  {code}  {name}")
+    return index
+
+
+def _partial_match(norm_name: str, major_index: dict[str, str]) -> str | None:
+    """
+    Partial match: norm_name là substring của key hoặc ngược lại.
+    Chỉ nhận khi unambiguous (duy nhất 1 kết quả).
+    """
+    candidates = []
+    for key, code in major_index.items():
+        if norm_name in key or key in norm_name:
+            candidates.append(code)
+    unique = list(dict.fromkeys(candidates))
+    return unique[0] if len(unique) == 1 else None
+
+
+def map_major_codes_for_career(data: dict, major_index: dict[str, str]) -> tuple[dict, list[str], list[str]]:
+    """
+    Với 1 career_description JSON (schema v2 không có MAJOR nodes):
+    - Nếu có field "major_names" trong CAREER node → map sang codes
+    - Gắn major_codes vào CAREER node
+
+    Trả về: (updated_data, mapped_codes, unmatched_names)
+    """
+    nodes = data.get("nodes", [])
+
+    career_node = next((n for n in nodes if n.get("type") == "CAREER"), None)
+    if not career_node:
+        return data, [], []
+
+    # Schema v2: career_description chỉ extract CAREER + SKILL
+    # major_names có thể được LLM ghi vào field phụ nếu có trong tài liệu
+    major_names = career_node.get("major_names", [])
+    if not major_names:
+        career_node["major_codes"] = []
+        return data, [], []
+
+    mapped_codes: list[str] = []
+    unmatched:    list[str] = []
+
+    for name in major_names:
+        norm = _normalize_name(name)
+        code = major_index.get(norm)
+        if code:
+            if code not in mapped_codes:
+                mapped_codes.append(code)
+        else:
+            partial = _partial_match(norm, major_index)
+            if partial and partial not in mapped_codes:
+                mapped_codes.append(partial)
+            else:
+                unmatched.append(name)
+
+    career_node["major_codes"] = mapped_codes
+    return data, mapped_codes, unmatched
+
+
+def run_phase2_mapping():
+    """Phase 2: Map major_codes cho CAREER nodes trong career_description JSONs."""
+    log.info(f"\n{'='*60}")
+    log.info("PHASE 2: Mapping major_codes cho CAREER nodes")
+    log.info(f"{'='*60}")
+
+    major_index = build_major_code_index()
+    if not major_index:
+        log.error("[Phase 2] Major index rỗng — không thể mapping. Kiểm tra lại curriculum files.")
+        return
+
+    career_dir = LOCAL_OUT_DIR / "career_description"
+    if not career_dir.exists():
+        log.warning("[Phase 2] Thư mục career_description không tồn tại.")
+        return
+
+    files = list(career_dir.glob("*.json"))
+    log.info(f"[Phase 2] Xử lý {len(files)} career_description files...")
+
+    total_mapped    = 0
+    total_unmatched = 0
+    files_updated   = 0
+
+    for jf in files:
+        try:
+            with open(jf, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            log.error(f"[Phase 2] Lỗi đọc {jf.name}: {e}")
+            continue
+
+        career_node = next((n for n in data.get("nodes", []) if n.get("type") == "CAREER"), None)
+        career_name = career_node.get("career_name_vi", "?") if career_node else "?"
+
+        updated_data, mapped_codes, unmatched = map_major_codes_for_career(data, major_index)
+        total_mapped    += len(mapped_codes)
+        total_unmatched += len(unmatched)
+
+        if mapped_codes:
+            log.info(f"  ✓ {jf.name} | CAREER: {career_name} | major_codes: {mapped_codes}")
+        else:
+            log.warning(f"  ⚠ {jf.name} | CAREER: {career_name} | Không map được major_codes")
+
+        if unmatched:
+            log.warning(
+                f"    Không tìm thấy code cho: {unmatched}\n"
+                f"    → Kiểm tra xem tên ngành có khớp với curriculum không."
+            )
+
+        with open(jf, "w", encoding="utf-8") as f:
+            json.dump(updated_data, f, ensure_ascii=False, indent=2)
+        files_updated += 1
+
+    log.info(
+        f"\n[Phase 2] Hoàn tất: {files_updated} files cập nhật, "
+        f"{total_mapped} codes mapped, {total_unmatched} tên ngành không match."
+    )
+    if total_unmatched > 0:
+        log.warning(
+            "[Phase 2] Có tên ngành không match. Nguyên nhân thường gặp: "
+            "LLM viết tên ngành khác với tên trong curriculum."
+        )
+
+
 # ─── MAIN PIPELINE ────────────────────────────────────────────────────────────
 
-def process_folder(minio_client: Minio, ai_client: OpenAI, folder: str):
+def process_folder(minio_client: Minio, ai_client: OpenAI, folder: str) -> dict:
     log.info(f"\n{'='*60}\nProcessing folder: {folder}")
     objects = list_json_objects(minio_client, MINIO_BUCKET, f"{MINIO_BASE_FOLDER}/{folder}")
     if not objects:
@@ -463,14 +691,25 @@ def main():
     minio_client = get_minio_client()
     ai_client    = OpenAI(api_key=OPENAI_API_KEY)
 
+    # Phase 1: curriculum trước để Phase 2 có dữ liệu
+    ordered_folders = ["curriculum", "syllabus", "career_description"]
     total = {"ok": 0, "skip": 0, "error": 0}
-    for folder in INPUT_FOLDERS:
+    for folder in ordered_folders:
+        if folder not in INPUT_FOLDERS:
+            continue
         counts = process_folder(minio_client, ai_client, folder)
         for k in total:
             total[k] += counts.get(k, 0)
 
-    log.info(f"\n✅ Extraction complete. Tổng: ✓{total['ok']}  skip={total['skip']}  ✗{total['error']}")
-    log.info("Results saved to ./cache/output/")
+    log.info(
+        f"\n✅ Phase 1 complete. "
+        f"Tổng: ✓{total['ok']}  skip={total['skip']}  ✗{total['error']}"
+    )
+
+    # Phase 2: Map major_codes cho CAREER nodes
+    run_phase2_mapping()
+
+    log.info("\n✅ Pipeline hoàn tất. Results saved to ./cache/output/")
 
 
 if __name__ == "__main__":
