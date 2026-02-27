@@ -7,7 +7,7 @@ Script 1 (OPTIMIZED): Extract entities & relationships from MinIO JSON files
 - Structured logging
 
 Schema v2:
-  Nodes: MAJOR, SUBJECT, SKILL, CAREER, TEACHER  (bỏ DOCUMENT)
+  Nodes: MAJOR, SUBJECT, SKILL, CAREER, TEACHER 
   Fields:
     MAJOR:   {major_code, major_name_vi, major_name_en}
     SUBJECT: {subject_code, subject_name_vi, subject_name_en}
@@ -76,7 +76,7 @@ DOCTYPE_MAP = {
 # ─── VALID NODE TYPES & REL TYPES PER DOCTYPE ─────────────────────────────────
 VALID_NODES_BY_DOCTYPE = {
     "syllabus":           {"SUBJECT", "TEACHER", "SKILL"},
-    "curriculum":         {"MAJOR", "SUBJECT", "CAREER", "TEACHER"},
+    "curriculum":         {"MAJOR", "SUBJECT", "CAREER"},
     "career_description": {"CAREER", "SKILL"},
 }
 
@@ -86,6 +86,7 @@ VALID_REL_TYPES = {
     "subject_provides_skill",
     "career_requires_skill",
     "teacher_instructs_subject",
+    "subject_is_prerequisite_of_subject"
 }
 
 # ─── PROMPTS ──────────────────────────────────────────────────────────────────
@@ -101,9 +102,9 @@ Nhiệm vụ: Trích xuất thông tin sang Nodes và Relationships theo Schema 
 - TEACHER: {teacher_key, name, email, title}
 
 2. QUY TẮC TẠO KEY (SLUGIFY):
-- CODE (MAJOR, SUBJECT): Dùng mã có sẵn (VD: CNTT1168). Nếu thiếu, tạo: [TEN_MON_KHONG_DAU].
+- CODE (MAJOR, SUBJECT): Dùng mã có sẵn (VD: CNTT1168). Nếu không tìm thấy CODE, không tạo node.
 - KEY (SKILL, CAREER, TEACHER): Viết thường, không dấu, thay khoảng trắng bằng "_".
-  * TEACHER: Bỏ qua học hàm/học vị (TS, ThS, GS, PGS) khi tạo key.
+  * TEACHER: Bỏ qua học hàm/học vị (TS., ThS., GS., PGS.) khi tạo key.
     Ví dụ: "TS. Nguyễn Văn A" → teacher_key = "nguyen_van_a"
   * SKILL:   Tên kỹ năng ngắn gọn. Ví dụ: "lap_trinh_python", "phan_tich_du_lieu"
   * CAREER:  Tên nghề ngắn gọn.  Ví dụ: "lap_trinh_vien", "ky_su_phan_mem"
@@ -114,6 +115,7 @@ Nhiệm vụ: Trích xuất thông tin sang Nodes và Relationships theo Schema 
 - subject_provides_skill:    {from_subject_code, to_skill_key, mastery_level}
 - career_requires_skill:     {from_career_key, to_skill_key, required_level}
 - teacher_instructs_subject: {from_teacher_key, to_subject_code}
+- subject_is_prerequisite_of_subject: {from_subject_code, to_subject_code}
 
 4. DEDUP (CHỐNG TRÙNG):
 Luôn MERGE dựa trên Code hoặc Key. Không tạo Node mới nếu Key/Code đã tồn tại.
@@ -132,7 +134,8 @@ Luôn MERGE dựa trên Code hoặc Key. Không tạo Node mới nếu Key/Code 
     {"rel_type": "major_leads_to_career",     "from_major_code": "...",   "to_career_key": "..."},
     {"rel_type": "subject_provides_skill",    "from_subject_code": "...", "to_skill_key": "...", "mastery_level": "basic|intermediate|advanced"},
     {"rel_type": "career_requires_skill",     "from_career_key": "...",   "to_skill_key": "...", "required_level": "basic|intermediate|advanced"},
-    {"rel_type": "teacher_instructs_subject", "from_teacher_key": "...",  "to_subject_code": "..."}
+    {"rel_type": "teacher_instructs_subject", "from_teacher_key": "...",  "to_subject_code": "..."},
+    {"rel_type": "subject_is_prerequisite_of_subject", "from_subject_code": "...", "to_subject_code": "..."}
   ]
 }"""
 
@@ -143,10 +146,14 @@ Tài liệu: SYLLABUS (Đề cương chi tiết môn học).
 CÁC BƯỚC TRÍCH XUẤT:
 1. SUBJECT: Trích xuất từ "course_code", "course_name_vi" (và "course_name_en" nếu có).
    - Đây là node trung tâm của tài liệu này.
+   Cần tìm các môn là tiên quyết (prerequisite) để tạo relationship subject_is_prerequisite_of_subject. Nếu không có môn tiên quyết -> không tạo relationship này.
 
 2. TEACHER: Tìm trong "management.instructors" (hoặc field tương đương).
    - Tạo node TEACHER {teacher_key, name, email, title}.
    - Bỏ qua học hàm/học vị khi tạo teacher_key. Ví dụ: "TS. Nguyễn Văn A" → "nguyen_van_a".
+   - Nếu có email, ghi vào field "email". 
+   - Tên giáo viên nên ghi đầy đủ, có dấu, không viết tắt. Ví dụ: "Nguyễn Văn A" chứ không phải "Nguyen Van A".
+   - Học hàm, học vị (TS., ThS., GS., PGS.) ghi vào field "title" nếu có, nhưng KHÔNG ghi vào "name" hoặc "teacher_key".
    - Tạo relationship: teacher_instructs_subject {from_teacher_key, to_subject_code}.
    - Ghi evidence_ref = "instructors".
 
@@ -155,7 +162,7 @@ CÁC BƯỚC TRÍCH XUẤT:
    - skill_name phải NGẮN GỌN, súc tích (không phải cả câu CLO).
      Ví dụ đúng: "Lập trình Python", "Phân tích dữ liệu"
      Ví dụ sai:  "Sinh viên có khả năng viết được chương trình..."
-   - skill_type: "hard" cho kỹ năng kỹ thuật, "soft" cho kỹ năng mềm.
+   - skill_type: "hard" cho kỹ năng kỹ thuật, dùng các công cụ; "soft" cho kỹ năng mềm, chẳng hạn như kỹ nằng làm việc nhóm, giao tiếp, quản lý thời gian...
    - Tạo relationship: subject_provides_skill {from_subject_code, to_skill_key, mastery_level}.
    - Lưu mastery_level (basic/intermediate/advanced) nếu có, ghi vào field "note" của quan hệ.
    - Ghi evidence_ref = "course_learning_outcomes".
@@ -175,19 +182,15 @@ CÁC BƯỚC TRÍCH XUẤT:
    - Nếu môn không có code → BỎ QUA.
    - Tạo relationship: major_offers_subject {from_major_code, to_subject_code, semester, required_type}.
    - Lưu "semester_no" và "required_type" vào field "note" của quan hệ.
-   - "semester" = semester_no (số nguyên). "required_type" = "required" hoặc "elective".
+   - Nếu một subject là bắt buộc trong một major thì subject đó sẽ được ưu tiên xuất hiện khi hỏi về ngành đó. Nếu một subject là tự chọn thì subject đó sẽ được xuất hiện sau khi đã xuất hết các subject bắt buộc khi hỏi về ngành đó.
+   - "semester" = semester_no (số nguyên). "required_type" = "required"(bắt buộc) hoặc "elective"(tự chọn).
 
 3. CAREER: Tìm trong "career_opportunities" / "job_opportunities" (hoặc field tương đương).
    - Mỗi vị trí/nghề nghiệp → tạo node CAREER {career_key, career_name_vi}.
    - Tên nghề cụ thể, không bỏ sót.
    - Tạo relationship: major_leads_to_career {from_major_code, to_career_key}.
 
-4. TEACHER (Lãnh đạo ngành): Trích xuất tên người ký / Viện trưởng ở cuối file (nếu có).
-   - Tạo node TEACHER {teacher_key, name, title}.
-   - Bỏ qua học hàm/học vị khi tạo teacher_key.
-   - Có thể dùng quan hệ tự định nghĩa để ghi nhận (không bắt buộc rel chuẩn).
-
-CHỈ tạo MAJOR, SUBJECT, CAREER, TEACHER. KHÔNG tạo SKILL."""
+CHỈ tạo MAJOR, SUBJECT, CAREER. KHÔNG tạo SKILL, TEACHER."""
 
 PROMPT_CAREER = SYSTEM_PROMPT_BASE + """
 
@@ -198,10 +201,10 @@ CÁC BƯỚC TRÍCH XUẤT:
    - Đây là node trung tâm duy nhất. BẮT BUỘC tạo node CAREER này.
 
 2. SKILL: Duyệt "hard_skills" và "soft_skills" (hoặc "required_skills", "skills").
-   - Mỗi kỹ năng → tạo node SKILL {skill_key, skill_name, skill_type}.
+   - Mỗi kỹ năng → tạo node SKILL {skill_key, skill_name, skill_type}. 
    - skill_type = "hard" hoặc "soft" tương ứng với nguồn.
    - Tạo relationship: career_requires_skill {from_career_key, to_skill_key, required_level}.
-   - BẮT BUỘC lưu "required_level" (basic/intermediate/advanced) dựa trên nội dung.
+   - BẮT BUỘC lưu "required_level" (basic/intermediate/advanced) dựa trên nội dung. Các level được liệt kê gồm cơ bản, trung cấp và thành thạo. Nếu không tìm thấy level nào phù hợp, hãy để trống trường này.
    - Ghi evidence_ref = "hard_skills" hoặc "soft_skills".
 
 CHỈ tạo CAREER, SKILL. KHÔNG tạo MAJOR, SUBJECT, TEACHER."""
@@ -300,6 +303,11 @@ def validate_extracted(data: dict, doctype: str) -> tuple[bool, list[str]]:
                 errors.append(f"teacher_instructs_subject: from_teacher_key '{rel.get('from_teacher_key')}' không tồn tại")
             if rel.get("to_subject_code") not in all_subject_codes:
                 errors.append(f"teacher_instructs_subject: to_subject_code '{rel.get('to_subject_code')}' không tồn tại")
+        elif rtype == "subject_is_prerequisite_of_subject":
+            if rel.get("from_subject_code") not in all_subject_codes:
+                errors.append(f"subject_is_prerequisite_of_subject: from_subject_code '{rel.get('from_subject_code')}' không tồn tại")
+            if rel.get("to_subject_code") not in all_subject_codes:
+                errors.append(f"subject_is_prerequisite_of_subject: to_subject_code '{rel.get('to_subject_code')}' không tồn tại")
 
     return len(errors) == 0, errors
 
@@ -343,6 +351,8 @@ def fix_extracted(data: dict, doctype: str) -> dict:
             ok = rel.get("from_career_key") in all_career_keys and rel.get("to_skill_key") in all_skill_keys
         elif rtype == "teacher_instructs_subject":
             ok = rel.get("from_teacher_key") in all_teacher_keys and rel.get("to_subject_code") in all_subject_codes
+        elif rtype == "subject_is_prerequisite_of_subject":
+            ok = rel.get("from_subject_code") in all_subject_codes and rel.get("to_subject_code") in all_subject_codes
         if ok:
             clean_rels.append(rel)
 
