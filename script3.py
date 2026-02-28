@@ -769,10 +769,16 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
     ("CAREER", "SUBJECT"): """
         MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(n:SUBJECT)
         WHERE toLower(start.name) CONTAINS toLower($kw)
+        OPTIONAL MATCH (m:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(n)
+        WHERE m.code IN start.major_codes
+        WITH start, sk, n,
+             count(DISTINCT m) AS major_match,
+             size([(s2:SUBJECT)-[:PROVIDES]->(sk) | s2]) AS skill_breadth
+        ORDER BY major_match DESC, skill_breadth ASC, n.name ASC
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                ['REQUIRES','PROVIDES'] AS rel_types,
                [start.name, sk.name, n.name] AS node_names, 2 AS hops
-        ORDER BY n.name LIMIT 50
+        LIMIT 30
     """,
     ("MAJOR", "SUBJECT"): """
         MATCH (start:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(n:SUBJECT)
@@ -935,10 +941,17 @@ def multihop_traversal_community_aware(
                     continue
                 seen_names.add(seed_name)
 
+                # FIX: Thêm community filter để chỉ lấy node cùng community
+                comm_filter = ""
+                if level >= 2:
+                    prop_key = f"community_L{level}"
+                    comm_filter = f"AND (n.{prop_key} IS NULL OR start.{prop_key} IS NULL OR n.{prop_key} = start.{prop_key})"
+
                 traversal_query = f"""
                     MATCH path = (start)-[*1..{max_hops}]-(n)
                     WHERE start.name = $seed_name
                       AND ({label_clauses})
+                      {comm_filter}
                     WITH n, path,
                          [r IN relationships(path) | type(r)] AS rel_types,
                          [x IN nodes(path) | x.name]          AS node_names
@@ -967,10 +980,16 @@ def multihop_traversal_community_aware(
              "RETURN n.name AS name, 'CAREER' AS label, null AS code, "
              "['LEADS_TO'] AS rel_types, [m.name, n.name] AS node_names, 1 AS hops"),
             ("L2_CAREER_ALIGNMENT", "SUBJECT",
+             # FIX: Ưu tiên subjects thuộc major liên quan tới career
              "MATCH (c:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(n:SUBJECT) "
              "WHERE c.name IN $names "
+             "OPTIONAL MATCH (m:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(n) WHERE m.code IN c.major_codes "
+             "WITH c, sk, n, count(DISTINCT m) AS major_match, "
+             "size([(s2:SUBJECT)-[:PROVIDES]->(sk) | s2]) AS skill_breadth "
+             "ORDER BY major_match DESC, skill_breadth ASC "
              "RETURN n.name AS name, 'SUBJECT' AS label, n.code AS code, "
-             "['REQUIRES','PROVIDES'] AS rel_types, [c.name, sk.name, n.name] AS node_names, 2 AS hops"),
+             "['REQUIRES','PROVIDES'] AS rel_types, [c.name, sk.name, n.name] AS node_names, 2 AS hops "
+             "LIMIT 20"),
         ]
         seed_names = list({n["name"] for n in all_nodes if n.get("name")})[:20]
 
