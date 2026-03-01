@@ -77,7 +77,7 @@ DOCTYPE_MAP = {
 VALID_NODES_BY_DOCTYPE = {
     "syllabus":           {"SUBJECT", "TEACHER", "SKILL"},
     "curriculum":         {"MAJOR", "SUBJECT", "CAREER"},
-    "career_description": {"CAREER", "SKILL"},
+    "career_description": {"CAREER", "SKILL", "MAJOR"},
 }
 
 VALID_REL_TYPES = {
@@ -119,6 +119,11 @@ Nhiệm vụ: Trích xuất thông tin sang Nodes và Relationships theo Schema 
 
 4. DEDUP (CHỐNG TRÙNG):
 Luôn MERGE dựa trên Code hoặc Key. Không tạo Node mới nếu Key/Code đã tồn tại.
+KẾT NỐI QUAN HỆ VÀ GỘP NHẰM CHỐNG TRÙNG:
+Các SKILL trích xuất ra từ đề cương sẽ được gộp với SKILL trích xuất ra từ mô tả nghề nghiệp thông qua tên skill hoặc skill key.
+Các SUBJECT trích xuất ra từ chương trình đào tạo sẽ được gộp với SUBJECT đại diện cho đề cương thông qua subject_code
+Các CAREER trích xuất ra từ chương trình đào tạo sẽ được gộp với CAREER đại diện cho mô tả nghề nghiệp thông qua tên career hoặc career key
+Các MAJOR trích xuất ra từ mô tả nghề nghiệp sẽ được gộp với MAJOR đại diện cho chương trình đào tạo thông qua việc nhận diện tên major và nối major_code tương ứng.
 
 5. OUTPUT FORMAT — CHỈ trả về JSON hợp lệ, không markdown, không giải thích:
 {
@@ -147,6 +152,7 @@ CÁC BƯỚC TRÍCH XUẤT:
 1. SUBJECT: Trích xuất từ "course_code", "course_name_vi" (và "course_name_en" nếu có).
    - Đây là node trung tâm của tài liệu này.
    Cần tìm các môn là tiên quyết (prerequisite) để tạo relationship subject_is_prerequisite_of_subject. Nếu không có môn tiên quyết -> không tạo relationship này.
+   - QUAN TRỌNG: "from_subject_code" và "to_subject_code" trong relationship này BẮT BUỘC phải là MÃ MÔN HỌC (VD: KTTC1121), KHÔNG được dùng tên môn (VD: "Kế toán tài chính 2"). Nếu môn tiên quyết không có mã → KHÔNG tạo relationship này.
 
 2. TEACHER: Tìm trong "management.instructors" (hoặc field tương đương).
    - Tạo node TEACHER {teacher_key, name, email, title}.
@@ -156,6 +162,7 @@ CÁC BƯỚC TRÍCH XUẤT:
    - Học hàm, học vị (TS., ThS., GS., PGS.) ghi vào field "title" nếu có, nhưng KHÔNG ghi vào "name" hoặc "teacher_key".
    - Tạo relationship: teacher_instructs_subject {from_teacher_key, to_subject_code}.
    - Ghi evidence_ref = "instructors".
+   - QUAN TRỌNG: Mỗi teacher_key trong relationship teacher_instructs_subject BẮT BUỘC phải có node TEACHER tương ứng trong "nodes". Tạo node TEACHER trước, rồi mới tạo relationship.
 
 3. SKILL: Tìm trong "course_learning_outcomes" / "learning_outcomes" / CLO.
    - Mỗi CLO → tạo 1 node SKILL {skill_key, skill_name, skill_type}.
@@ -167,7 +174,17 @@ CÁC BƯỚC TRÍCH XUẤT:
    - Lưu mastery_level (basic/intermediate/advanced) nếu có, ghi vào field "note" của quan hệ.
    - Ghi evidence_ref = "course_learning_outcomes".
 
-CHỈ tạo SUBJECT, TEACHER, SKILL. KHÔNG tạo MAJOR, CAREER."""
+CHỈ tạo SUBJECT, TEACHER, SKILL. KHÔNG tạo MAJOR, CAREER.
+
+Đối với SUBJECT, hãy chú ý trích xuất bổ sung thêm nội dung văn bản những mục sau trong đề cương và đưa vào thuộc tính của node SUBJECT này:
+Mô tả học phần (course_description)
+Tài liệu học tập (learning_resources)
+Mục tiêu học phần (courses_goals)
+Đánh giá học phần (assessment)
+Quy định của học phần (course_requirements_and_expectations)
+Thời điểm điều chỉnh đề cương (syllabus_adjustment_time)
+ĐẶC BIỆT QUAN TRỌNG cho Đề cương: Trích xuất phần Chuẩn đầu ra học phần (course_learning_outcomes) thành các node riêng có loai là SKILL, gắn với SUBJECT từ đề cương đang trích xuất hiện tại. Phần Chuẩn đầu ra học phần này có các CLO (clo_code), mỗi CLO sẽ tương ứng với 1 node SKILL, mỗi node SKILL này sẽ được nối với SUBJECT từ đề cương mà nó được trích xuất ra. 
+Thêm vào đó, trích xuất phần kế hoạch dạy học (lesson_plan) và đưa vào làm thuộc tính của SUBJECT. Mỗi một tuần học sẽ tương ứng 1 thẻ thuộc tính, lấy từ mục Tuần (week_no) (ví dụ SUBJECT có các thuộc tính gồm week_1, week_2,...,), và nội dung của các, thuộc tính đó sẽ là văn bản gồm nội dung học (contents), tài liệu đọc (reading_materials), hoạt động dạy và học (teaching_learning_activities), đánh giá (assessment_activities) và CLO của tuần đó (clos)."""
 
 PROMPT_CURRICULUM = SYSTEM_PROMPT_BASE + """
 
@@ -190,7 +207,21 @@ CÁC BƯỚC TRÍCH XUẤT:
    - Tên nghề cụ thể, không bỏ sót.
    - Tạo relationship: major_leads_to_career {from_major_code, to_career_key}.
 
-CHỈ tạo MAJOR, SUBJECT, CAREER. KHÔNG tạo SKILL, TEACHER."""
+CHỈ tạo MAJOR, SUBJECT, CAREER. KHÔNG tạo SKILL, TEACHER.
+ĐỐI VỚI MAJOR, hãy chú ý trích xuất bổ sung thêm nội dung văn bản những mục sau trong chương trình đào tạo và đưa vào thuộc tính của node MAJOR này:
+Triết lý, mục tiêu đào tạo và định hướng nơi làm việc sau tốt nghiệp (philosophy_and_objectives), trong đó có các mục tiêu cụ thể (specific_objectives) gồm nhiều PO code.
+Chuẩn đầu vào (admission_requirements)
+Chuẩn đầu ra (learning_outcomes), gồm các PLO (plo_groups)
+Ma trận đáp ứng mục tiêu đào tạo và chuẩn đầu ra (po_plo_matrix)
+Quy trình đào tạo, điều kiện tốt nghiệp (training_process_and_graduation_conditions)
+Cấu trúc và nội dung của chương trình đào tạo (curriculum_structure_and_content)
+Phương pháp giảng dạy và đánh giá kết quả học tập (teaching_and_assessment_methods)
+Các chương trình đào tạo tham khảo (reference_programs)
+Tiêu chuẩn đội ngũ giảng viên, trợ giảng (lecturer_and_teaching_assistant_standards)
+Cơ sở vật chất, công nghệ và học liệu (facilities_and_learning_resources)
+ĐẶC BIỆT QUAN TRỌNG cho Chương trình đào tạo: Trích xuất phần Nội dung và kế hoạch giảng dạy (teaching_plan_and_course_list) thành các node có loại là SUBJECT, gắn với MAJOR từ chương trình đào tạo đang trích xuất hiện tại. Mỗi một môn học (course) tương ứng với 1 node SUBJECT - gồm tên môn, mã môn (code), số tín chỉ, và được nối với MAJOR từ chương trình đào tạo mà nó được trích xuất ra.
+Thêm vào đó, trích xuất phần Cơ hội làm việc và khả năng học tập nâng cao (career_and_further_study_opportunities) thành các node riêng có loại là CAREER, gắn với MAJOR từ chương trình đào tạo đang trích xuất hiện tại. Các node CAREER này được nối với node MAJOR từ chương trình đào tạo mà nó được trích xuất ra.
+"""
 
 PROMPT_CAREER = SYSTEM_PROMPT_BASE + """
 
@@ -207,7 +238,16 @@ CÁC BƯỚC TRÍCH XUẤT:
    - BẮT BUỘC lưu "required_level" (basic/intermediate/advanced) dựa trên nội dung. Các level được liệt kê gồm cơ bản, trung cấp và thành thạo. Nếu không tìm thấy level nào phù hợp, hãy để trống trường này.
    - Ghi evidence_ref = "hard_skills" hoặc "soft_skills".
 
-CHỈ tạo CAREER, SKILL. KHÔNG tạo MAJOR, SUBJECT, TEACHER."""
+CHỈ tạo CAREER, SKILL. KHÔNG tạo MAJOR, SUBJECT, TEACHER.
+Đối với CAREER, hãy chú ý trích xuất bổ sung thêm nội dung văn bản những mục sau trong mô tả nghề nghiệp và đưa vào thuộc tính của node:
+Nhóm nghề / lĩnh vực (field_name)
+Mô tả nghề nghiệp (description), gồm Mô tả ngắn (short_description) và Vai trò trong tổ chức/doanh nghiệp (role_in_organization)
+Công việc chính (job_tasks)
+Yêu cầu học vấn và chứng chỉ (education_certification)
+Cơ hội việc làm và thị trường (market)
+ĐẶC BIỆT QUAN TRỌNG cho Mô tả nghề nghiệp: Trích xuất phần Kỹ năng yêu cầu (skills) thành các node có loại là SKILL, gắn với CAREER. Các SKILL này gồm kỹ năng cứng (hard_skills) và kỹ năng mềm (soft_skills)
+Thêm vào đó, trích xuất phần Ngành học phù hợp (recommended_majors) bên trong phần Yêu cầu học vấn và chứng chỉ thành các node riêng có loại là MAJOR - gồm tên ngành, gắn với CAREER từ mô tả nghề nghiệp đang trích xuất hiện tại. Yêu cầu chỉ lấy ra tên ngành ngắn gọn.
+"""
 
 PROMPTS_BY_DOCTYPE = {
     "syllabus":           PROMPT_SYLLABUS,
@@ -312,11 +352,31 @@ def validate_extracted(data: dict, doctype: str) -> tuple[bool, list[str]]:
     return len(errors) == 0, errors
 
 
+def _slugify(text: str) -> str:
+    """Chuyển tên tiếng Việt → snake_case không dấu (dùng cho teacher_key)."""
+    import unicodedata
+    text = text.strip()
+    # Bỏ học hàm/học vị ở đầu
+    for prefix in ("GS.TS.", "PGS.TS.", "GS.", "PGS.", "TS.", "ThS.", "CN.", "Ths."):
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    # Normalize unicode → ASCII
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(c for c in text if unicodedata.category(c) != "Mn")
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9\s]", "", text)
+    text = re.sub(r"\s+", "_", text.strip())
+    return text
+
+
 def fix_extracted(data: dict, doctype: str) -> dict:
     """
-    Auto-fix các lỗi nhỏ:
-    - Xóa nodes có type sai hoặc thiếu key/name
-    - Xóa relationships có endpoint không tồn tại hoặc rel_type sai
+    Auto-fix các lỗi phổ biến:
+    1. Xóa nodes có type sai hoặc thiếu key/name
+    2. teacher_instructs_subject: nếu thiếu node TEACHER → tự tạo stub node từ teacher_key
+    3. subject_is_prerequisite_of_subject: nếu to_subject_code là tên môn (không phải mã) → bỏ rel đó
+    4. Xóa relationships có endpoint không tồn tại sau khi đã recover
     """
     valid_labels = VALID_NODES_BY_DOCTYPE.get(doctype, set())
     nodes = data.get("nodes", [])
@@ -329,17 +389,59 @@ def fix_extracted(data: dict, doctype: str) -> dict:
         and _get_node_name(n)
     ]
 
+    # ── Fix 1: Teacher stub recovery ─────────────────────────────────────────
+    # Nếu rel teacher_instructs_subject có from_teacher_key nhưng không có node TEACHER
+    # → tự tạo node TEACHER stub với tên suy ra từ key
+    existing_teacher_keys = {n["teacher_key"] for n in clean_nodes if n.get("type") == "TEACHER" and n.get("teacher_key")}
+    stubs_added: set[str] = set()
+    for rel in rels:
+        if rel.get("rel_type") != "teacher_instructs_subject":
+            continue
+        tkey = rel.get("from_teacher_key", "")
+        if not tkey or tkey in existing_teacher_keys or tkey in stubs_added:
+            continue
+        # Suy ra tên từ key: "nguyen_van_a" → "Nguyen Van A" (giữ dạng ASCII, không có dấu)
+        stub_name = " ".join(w.capitalize() for w in tkey.split("_"))
+        clean_nodes.append({
+            "type":        "TEACHER",
+            "teacher_key": tkey,
+            "name":        stub_name,
+            "email":       "",
+            "title":       "",
+        })
+        stubs_added.add(tkey)
+        log.warning(f"  [fix] Tạo stub TEACHER '{tkey}' (name='{stub_name}') cho relationship bị thiếu node")
+
+    # Rebuild key sets sau khi đã recover
     all_major_codes   = {n["major_code"]   for n in clean_nodes if n.get("type") == "MAJOR"   and n.get("major_code")}
     all_subject_codes = {n["subject_code"] for n in clean_nodes if n.get("type") == "SUBJECT" and n.get("subject_code")}
     all_skill_keys    = {n["skill_key"]    for n in clean_nodes if n.get("type") == "SKILL"   and n.get("skill_key")}
     all_career_keys   = {n["career_key"]   for n in clean_nodes if n.get("type") == "CAREER"  and n.get("career_key")}
     all_teacher_keys  = {n["teacher_key"]  for n in clean_nodes if n.get("type") == "TEACHER" and n.get("teacher_key")}
 
+    # ── Fix 2: prerequisite rel dùng tên môn thay vì mã môn ──────────────────
+    # Nhận diện: to_subject_code không khớp bất kỳ subject_code nào và chứa khoảng trắng
+    # → đây là tên môn → bỏ rel này (không thể ánh xạ an toàn)
     clean_rels = []
+    skipped_prereq = 0
     for rel in rels:
         rtype = rel.get("rel_type", "")
         if rtype not in VALID_REL_TYPES:
             continue
+
+        if rtype == "subject_is_prerequisite_of_subject":
+            from_code = rel.get("from_subject_code", "")
+            to_code   = rel.get("to_subject_code", "")
+            # Nếu to_subject_code trông như tên môn (có khoảng trắng, không phải mã)
+            if " " in str(to_code) and to_code not in all_subject_codes:
+                skipped_prereq += 1
+                log.warning(f"  [fix] Bỏ prerequisite rel: to_subject_code \'{to_code}\' là tên môn, không phải mã môn")
+                continue
+            if from_code not in all_subject_codes or to_code not in all_subject_codes:
+                continue
+            clean_rels.append(rel)
+            continue
+
         ok = True
         if rtype == "major_offers_subject":
             ok = rel.get("from_major_code") in all_major_codes and rel.get("to_subject_code") in all_subject_codes
@@ -351,10 +453,11 @@ def fix_extracted(data: dict, doctype: str) -> dict:
             ok = rel.get("from_career_key") in all_career_keys and rel.get("to_skill_key") in all_skill_keys
         elif rtype == "teacher_instructs_subject":
             ok = rel.get("from_teacher_key") in all_teacher_keys and rel.get("to_subject_code") in all_subject_codes
-        elif rtype == "subject_is_prerequisite_of_subject":
-            ok = rel.get("from_subject_code") in all_subject_codes and rel.get("to_subject_code") in all_subject_codes
         if ok:
             clean_rels.append(rel)
+
+    if skipped_prereq:
+        log.warning(f"  [fix] Đã bỏ {skipped_prereq} prerequisite rel dùng tên môn thay vì mã môn")
 
     data["nodes"] = clean_nodes
     data["relationships"] = clean_rels
@@ -736,8 +839,8 @@ def main():
     minio_client = get_minio_client()
     ai_client    = OpenAI(api_key=OPENAI_API_KEY)
 
-    # Phase 1: curriculum trước để Phase 2 có dữ liệu
-    ordered_folders = ["curriculum", "syllabus", "career_description"]
+    # Phase 1: syllabus trước, rồi curriculum, cuối cùng career_description (để Phase 2 có dữ liệu)
+    ordered_folders = ["syllabus", "curriculum", "career_description"]
     total = {"ok": 0, "skip": 0, "error": 0}
     for folder in ordered_folders:
         if folder not in INPUT_FOLDERS:
@@ -755,7 +858,6 @@ def main():
     run_phase2_mapping()
 
     log.info("\n✅ Pipeline hoàn tất. Results saved to ./cache/output/")
-
 
 if __name__ == "__main__":
     main()

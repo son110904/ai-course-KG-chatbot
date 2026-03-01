@@ -1,11 +1,11 @@
 """
-Script 2 (OPTIMIZED v3): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
+Script 2 (OPTIMIZED v4): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
 → push to Neo4j Aura
 
 Hỗ trợ 3 schema thực tế:
   - CUR  (curriculum):         type MAJOR/SUBJECT/CAREER, rel: major_offers_subject, major_leads_to_career
   - SYL  (syllabus):           type SUBJECT/TEACHER/SKILL, rel: teach, provides, prerequisite_for
-  - CAR  (career_description): type CAREER/SKILL,          rel: requires
+  - CAR  (career_description): type CAREER/SKILL/MAJOR,   rel: requires
 
 Relationship names trong Neo4j (đồng bộ với script 1 & 3):
   MAJOR    -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT
@@ -16,6 +16,13 @@ Relationship names trong Neo4j (đồng bộ với script 1 & 3):
   CAREER   -[:REQUIRES]->            SKILL
 
 Tất cả idempotent (MERGE everywhere), không dùng LLM.
+
+Thay đổi v4 (đồng bộ script1 v2):
+  - CAR: xử lý thêm node MAJOR từ recommended_majors
+  - detect_schema: career_description có thể chứa MAJOR
+  - SUBJECT: SET thêm các thuộc tính mở rộng (course_description, lesson_plan theo tuần, ...)
+  - MAJOR:   SET thêm các thuộc tính mở rộng (philosophy_and_objectives, admission_requirements, ...)
+  - CAREER:  SET thêm các thuộc tính mở rộng (description, job_tasks, market, ...)
 """
 
 import os
@@ -60,27 +67,45 @@ def _esc(value) -> str:
     return _s(value).replace("\\", "\\\\").replace("'", "\\'")
 
 
+def _json_prop(value) -> str:
+    """Serialize giá trị phức tạp (dict/list) thành JSON string để lưu vào Neo4j property."""
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list)):
+        return _esc(json.dumps(value, ensure_ascii=False))
+    return _esc(str(value))
+
+
 # ─── SCHEMA DETECTOR ──────────────────────────────────────────────────────────
 
 def detect_schema(kg_data: dict) -> str:
     """
     Tự động nhận dạng loại file từ nội dung JSON.
     Returns: 'curriculum' | 'syllabus' | 'career' | 'unknown'
+
+    Lưu ý: career_description (v4) có thể chứa node MAJOR (từ recommended_majors),
+    nên không dùng sự vắng mặt của MAJOR để phân biệt career vs curriculum nữa.
+    Thay vào đó ưu tiên nhận diện qua rel_type rõ ràng hơn.
     """
-    nodes     = kg_data.get("nodes", [])
-    rels      = kg_data.get("relationships", [])
+    nodes      = kg_data.get("nodes", [])
+    rels       = kg_data.get("relationships", [])
     node_types = {n.get("type", "") for n in nodes}
     rel_types  = {r.get("rel_type", "") for r in rels}
 
-    # career_description: có CAREER + career_requires_skill, KHÔNG có MAJOR
-    if ("CAREER" in node_types or "career_requires_skill" in rel_types) \
-            and "MAJOR" not in node_types:
-        return "career"
     # syllabus: có TEACHER hoặc teacher_instructs_subject
     if "TEACHER" in node_types or "teacher_instructs_subject" in rel_types:
         return "syllabus"
-    # curriculum: có MAJOR hoặc major_offers_subject
-    if "MAJOR" in node_types or "major_offers_subject" in rel_types:
+
+    # curriculum: có major_offers_subject hoặc major_leads_to_career
+    if "major_offers_subject" in rel_types or "major_leads_to_career" in rel_types:
+        return "curriculum"
+
+    # career_description: có CAREER + career_requires_skill
+    if "CAREER" in node_types or "career_requires_skill" in rel_types:
+        return "career"
+
+    # fallback: nếu chỉ có MAJOR không rel → curriculum
+    if "MAJOR" in node_types:
         return "curriculum"
 
     return "unknown"
@@ -102,9 +127,34 @@ def cur_node_cypher(node: dict) -> str | None:
         name_en = _esc(node.get("major_name_en"))
         if not code:
             return None
+
+        sets = [
+            f"n.name = '{name_vi}'",
+            f"n.name_vi = '{name_vi}'",
+            f"n.name_en = '{name_en}'",
+        ]
+
+        # Thuộc tính mở rộng (script1 v2)
+        extended_fields = [
+            ("philosophy_and_objectives",              "philosophy_and_objectives"),
+            ("admission_requirements",                 "admission_requirements"),
+            ("learning_outcomes",                      "learning_outcomes"),
+            ("po_plo_matrix",                          "po_plo_matrix"),
+            ("training_process_and_graduation_conditions", "training_process_and_graduation_conditions"),
+            ("curriculum_structure_and_content",       "curriculum_structure_and_content"),
+            ("teaching_and_assessment_methods",        "teaching_and_assessment_methods"),
+            ("reference_programs",                     "reference_programs"),
+            ("lecturer_and_teaching_assistant_standards", "lecturer_and_teaching_assistant_standards"),
+            ("facilities_and_learning_resources",      "facilities_and_learning_resources"),
+        ]
+        for node_field, prop_name in extended_fields:
+            val = node.get(node_field)
+            if val is not None:
+                sets.append(f"n.{prop_name} = '{_json_prop(val)}'")
+
         return (
             f"MERGE (n:MAJOR {{code: '{code}'}})"
-            f" SET n.name = '{name_vi}', n.name_vi = '{name_vi}', n.name_en = '{name_en}'"
+            f" SET {', '.join(sets)}"
         )
 
     if t == "SUBJECT":
@@ -113,9 +163,21 @@ def cur_node_cypher(node: dict) -> str | None:
         name_en = _esc(node.get("subject_name_en"))
         if not code:
             return None
+
+        sets = [
+            f"n.name = '{name_vi}'",
+            f"n.name_vi = '{name_vi}'",
+            f"n.name_en = '{name_en}'",
+        ]
+
+        # Thuộc tính mở rộng từ curriculum (số tín chỉ nếu có)
+        credits = node.get("credits")
+        if credits is not None:
+            sets.append(f"n.credits = {int(credits)}")
+
         return (
             f"MERGE (n:SUBJECT {{code: '{code}'}})"
-            f" SET n.name = '{name_vi}', n.name_vi = '{name_vi}', n.name_en = '{name_en}'"
+            f" SET {', '.join(sets)}"
         )
 
     if t == "CAREER":
@@ -125,11 +187,13 @@ def cur_node_cypher(node: dict) -> str | None:
         name    = name_vi or name_en
         if not name:
             return None
+
         stmt = f"MERGE (n:CAREER {{name: '{name}'}})"
         sets = []
         if key:     sets.append(f"n.career_key = '{key}'")
         if name_vi: sets.append(f"n.name_vi = '{name_vi}'")
         if name_en: sets.append(f"n.name_en = '{name_en}'")
+
         if sets:
             stmt += " SET " + ", ".join(sets)
         return stmt
@@ -166,7 +230,6 @@ def cur_rel_cypher(rel: dict) -> str | None:
         career_key  = _esc(rel.get("to_career_key"))
         if not major_code or not career_key:
             return None
-        # CAREER node được MERGE bằng name, match bằng career_key property
         return (
             f"MATCH (a:MAJOR {{code: '{major_code}'}}), (b:CAREER {{career_key: '{career_key}'}})"
             f" MERGE (a)-[:LEADS_TO]->(b)"
@@ -189,9 +252,35 @@ def syl_node_cypher(node: dict) -> str | None:
         name_en = _esc(node.get("subject_name_en"))
         if not code:
             return None
+
+        sets = [
+            f"n.name = '{name_vi}'",
+            f"n.name_vi = '{name_vi}'",
+            f"n.name_en = '{name_en}'",
+        ]
+
+        # Thuộc tính mở rộng (script1 v2)
+        simple_fields = [
+            "course_description",
+            "learning_resources",
+            "courses_goals",
+            "assessment",
+            "course_requirements_and_expectations",
+            "syllabus_adjustment_time",
+        ]
+        for field in simple_fields:
+            val = node.get(field)
+            if val is not None:
+                sets.append(f"n.{field} = '{_json_prop(val)}'")
+
+        # lesson_plan: week_1, week_2, ... (mỗi tuần là 1 property)
+        for key, val in node.items():
+            if key.startswith("week_") and val is not None:
+                sets.append(f"n.{key} = '{_json_prop(val)}'")
+
         return (
             f"MERGE (n:SUBJECT {{code: '{code}'}})"
-            f" SET n.name = '{name_vi}', n.name_vi = '{name_vi}', n.name_en = '{name_en}'"
+            f" SET {', '.join(sets)}"
         )
 
     if t == "TEACHER":
@@ -283,7 +372,7 @@ def syl_rel_cypher(rel: dict) -> str | None:
 # ══════════════════════════════
 
 def car_node_cypher(node: dict) -> str | None:
-    """CAR: CAREER | SKILL"""
+    """CAR: CAREER | SKILL | MAJOR (recommended_majors từ script1 v2)"""
     t = node.get("type", "")
 
     if t == "CAREER":
@@ -295,6 +384,7 @@ def car_node_cypher(node: dict) -> str | None:
         name     = name_vi or name_en
         if not name:
             return None
+
         stmt = f"MERGE (n:CAREER {{name: '{name}'}})"
         sets = []
         if key:     sets.append(f"n.career_key = '{key}'")
@@ -304,6 +394,19 @@ def car_node_cypher(node: dict) -> str | None:
         if majors:
             codes_lit = "[" + ", ".join(f"'{_esc(str(c))}'" for c in majors) + "]"
             sets.append(f"n.major_codes = {codes_lit}")
+
+        # Thuộc tính mở rộng (script1 v2)
+        extended_fields = [
+            "description",
+            "job_tasks",
+            "education_certification",
+            "market",
+        ]
+        for field_name in extended_fields:
+            val = node.get(field_name)
+            if val is not None:
+                sets.append(f"n.{field_name} = '{_json_prop(val)}'")
+
         if sets:
             stmt += " SET " + ", ".join(sets)
         return stmt
@@ -322,33 +425,64 @@ def car_node_cypher(node: dict) -> str | None:
             stmt += " SET " + ", ".join(sets)
         return stmt
 
+    # MAJOR từ recommended_majors — chỉ có tên, chưa có code
+    # MERGE bằng name, chờ Phase 2 mapping để gắn code
+    if t == "MAJOR":
+        name_vi = _esc(node.get("major_name_vi"))
+        name_en = _esc(node.get("major_name_en"))
+        code    = _esc(node.get("major_code"))
+        name    = name_vi or name_en
+        if not name:
+            return None
+        stmt = f"MERGE (n:MAJOR {{name: '{name}'}})"
+        sets = []
+        if name_vi: sets.append(f"n.name_vi = '{name_vi}'")
+        if name_en: sets.append(f"n.name_en = '{name_en}'")
+        if code:    sets.append(f"n.code = '{code}'")
+        if sets:
+            stmt += " SET " + ", ".join(sets)
+        return stmt
+
     return None
 
 
 def car_rel_cypher(rel: dict) -> str | None:
     """
-    CAR: career_requires_skill → CAREER -[:REQUIRES]-> SKILL
-    Match CAREER bằng career_key (consistent với MERGE node).
+    CAR:
+      career_requires_skill  → CAREER -[:REQUIRES]-> SKILL
+      major_leads_to_career  → MAJOR  -[:LEADS_TO]-> CAREER  (nếu có major_code từ Phase 2)
     """
-    if rel.get("rel_type") != "career_requires_skill":
-        return None
+    rtype = rel.get("rel_type", "")
 
-    career_key = _esc(rel.get("from_career_key"))
-    skill_key  = _esc(rel.get("to_skill_key"))
-    req_level  = _esc(rel.get("required_level"))
-
-    if not career_key or not skill_key:
-        return None
-
-    if req_level:
+    # ── CAREER -[:REQUIRES]-> SKILL ───────────────────────────────────────────
+    if rtype == "career_requires_skill":
+        career_key = _esc(rel.get("from_career_key"))
+        skill_key  = _esc(rel.get("to_skill_key"))
+        req_level  = _esc(rel.get("required_level"))
+        if not career_key or not skill_key:
+            return None
+        if req_level:
+            return (
+                f"MATCH (a:CAREER {{career_key: '{career_key}'}}), (b:SKILL {{skill_key: '{skill_key}'}})"
+                f" MERGE (a)-[:REQUIRES {{required_level: '{req_level}'}}]->(b)"
+            )
         return (
             f"MATCH (a:CAREER {{career_key: '{career_key}'}}), (b:SKILL {{skill_key: '{skill_key}'}})"
-            f" MERGE (a)-[:REQUIRES {{required_level: '{req_level}'}}]->(b)"
+            f" MERGE (a)-[:REQUIRES]->(b)"
         )
-    return (
-        f"MATCH (a:CAREER {{career_key: '{career_key}'}}), (b:SKILL {{skill_key: '{skill_key}'}})"
-        f" MERGE (a)-[:REQUIRES]->(b)"
-    )
+
+    # ── MAJOR -[:LEADS_TO]-> CAREER (từ recommended_majors nếu có code) ───────
+    if rtype == "major_leads_to_career":
+        major_code = _esc(rel.get("from_major_code"))
+        career_key = _esc(rel.get("to_career_key"))
+        if not major_code or not career_key:
+            return None
+        return (
+            f"MATCH (a:MAJOR {{code: '{major_code}'}}), (b:CAREER {{career_key: '{career_key}'}})"
+            f" MERGE (a)-[:LEADS_TO]->(b)"
+        )
+
+    return None
 
 
 # ─── DISPATCH ─────────────────────────────────────────────────────────────────
@@ -520,7 +654,7 @@ def process_files(driver):
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
-    log.info("Starting Neo4j ingestion pipeline (v3 – synchronized)...")
+    log.info("Starting Neo4j ingestion pipeline (v4 – synchronized with script1 v2)...")
 
     if not NEO4J_URI:
         raise ValueError("DB_URL không tìm thấy trong .env")
