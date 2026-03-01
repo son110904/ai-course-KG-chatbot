@@ -1,47 +1,6 @@
 """
 Script 3: Knowledge Graph Q&A Chatbot
 v9 — GraphRAG 3-Tier Community Detection (synchronized với script1 v2, script2 v4)
-
-Dữ liệu thực tế trong Neo4j (6778 nodes, 13724 rels):
-  MAJOR    (37):   code, name, name_vi, name_en, philosophy_and_objectives,
-                   admission_requirements, learning_outcomes, po_plo_matrix,
-                   training_process_and_graduation_conditions,
-                   curriculum_structure_and_content, teaching_and_assessment_methods,
-                   reference_programs, lecturer_and_teaching_assistant_standards,
-                   facilities_and_learning_resources
-                   community_L2=2
-
-  SUBJECT  (802):  code, name, name_vi, name_en,
-                   course_description, courses_goals, assessment,
-                   learning_resources, course_requirements_and_expectations,
-                   syllabus_adjustment_time, week_1..week_N
-                   community_L2=2, community_L3=0
-
-  CAREER   (27):   career_key, name, name_vi, name_en, field_name,
-                   description, job_tasks, education_certification, market, major_codes
-                   community_L2=1, community_L3=1
-
-  SKILL    (5217): skill_key, name, skill_type
-                   community_L2=0, community_L3=2
-
-  TEACHER  (695):  teacher_key, name, email, title
-                   community_L2=0, community_L3=1
-
-Relationships:
-  MAJOR    -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT   (1421)
-  SUBJECT  -[:PROVIDES]->             SKILL     (8069)
-  TEACHER  -[:TEACH]->               SUBJECT   (3981)
-  CAREER   -[:REQUIRES]->            SKILL     (223)
-  SUBJECT  -[:PREREQUISITE_FOR]->    SUBJECT   (24)
-  MAJOR    -[:LEADS_TO]->            CAREER    (6)
-
-QUAN TRỌNG — Community filter:
-  Community numbers KHÔNG đồng nhất trong 1 cluster:
-    L2_ACADEMIC:         MAJOR(L2=2), SUBJECT(L2=2), TEACHER(L2=0) — khác nhau
-    L2_CAREER_ALIGNMENT: SKILL(L2=0), CAREER(L2=1), SUBJECT(L2=2) — khác nhau
-    L3_MAJOR_CENTRIC:    SUBJECT(L3=0), TEACHER(L3=1), SKILL(L3=2) — khác nhau
-  → BFS dùng allowed_labels filter (label-based), KHÔNG dùng community number filter.
-  → community_Lx props chỉ dùng cho initialize_communities / Louvain.
 """
 
 import os
@@ -606,15 +565,9 @@ RELATIONSHIP_CONSTRAINTS = {
         "môn tiên quyết nếu có (PREREQUISITE_FOR)."
     ),
     ("CAREER", "CAREER"):  (
-        "Trả lời đầy đủ 4 phần: "
-        "1. Mô tả nghề: lấy từ description (field short_description hoặc role_in_organization). "
-        "2. Công việc chính: liệt kê từ job_tasks. "
-        "3. Thị trường lao động: tóm tắt từ field market. "
-        "4. ĐỀ XUẤT NGÀNH HỌC: BẮT BUỘC liệt kê các ngành theo recommended_majors "
-        "(tên ngành + mã ngành). Nếu không có recommended_majors, "
-        "dùng education_certification.recommended_majors làm tên gợi ý. "
-        "Format: Tên ngành (mã ngành) - VD: Công nghệ thông tin (7480201). "
-        "Nếu không có ngành nào trong DB - nói rõ chưa có dữ liệu ngành phù hợp."
+        "Trả lời: mô tả nghề (description.short_description), "
+        "công việc chính (job_tasks), lĩnh vực (field_name), "
+        "thị trường (market), kỹ năng yêu cầu (REQUIRES→SKILL)."
     ),
     ("TEACHER", "TEACHER"): (
         "Trả lời: học hàm/học vị (title), email, "
@@ -654,12 +607,6 @@ SỬ DỤNG THUỘC TÍNH MỞ RỘNG KHI CÓ:
 - CAREER:  dùng description, job_tasks, market khi hỏi về nghề nghiệp.
 - MAJOR:   dùng philosophy_and_objectives, learning_outcomes khi hỏi về ngành.
 - Nếu field là JSON string → parse và trình bày ngắn gọn phần liên quan.
-
-ĐỀ XUẤT NGÀNH HỌC (BẮT BUỘC khi trả lời về CAREER):
-- Luôn kiểm tra field "recommended_majors" trong dữ liệu — đây là các MAJOR node được map qua major_codes.
-- Nếu có → liệt kê "Tên ngành (mã ngành)" ở cuối câu trả lời.
-- Nếu không có recommended_majors nhưng có education_certification → dùng tên trong recommended_majors của nó làm gợi ý (không có mã).
-- KHÔNG bịa ngành không có trong [DỮ LIỆU GRAPH].
 
 RÀNG BUỘC THEO LOẠI CÂU HỎI:
 {constraint}
@@ -1013,7 +960,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                null AS semester, null AS required_type, null AS course_description
         ORDER BY n.name LIMIT 50
     """,
-    # Self: thông tin chi tiết nghề nghiệp + ngành học đề xuất qua major_codes
+    # Self: thông tin chi tiết nghề nghiệp
     ("CAREER", "CAREER"): """
         MATCH (start:CAREER)
         WHERE toLower(start.name) CONTAINS toLower($kw)
@@ -1022,16 +969,6 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                [] AS rel_types, [start.name] AS node_names, 0 AS hops,
                null AS semester, null AS required_type, null AS course_description
         ORDER BY start.name LIMIT 10
-        UNION
-        MATCH (start:CAREER)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-           OR toLower(start.career_key) CONTAINS toLower($kw)
-        MATCH (m:MAJOR) WHERE m.code IN start.major_codes
-        RETURN m.name AS name, labels(m)[0] AS label, m.code AS code,
-               ['RECOMMENDED_MAJOR'] AS rel_types,
-               [start.name, m.name] AS node_names, 1 AS hops,
-               null AS semester, null AS required_type, null AS course_description
-        ORDER BY m.name LIMIT 20
     """,
     # Skill self-lookup
     ("SKILL", "SKILL"): """
@@ -1112,16 +1049,11 @@ def fetch_node_details(driver, nodes: list[dict]) -> list[dict]:
         if to_fetch["CAREER"]:
             rows = session.run("""
                 MATCH (n:CAREER) WHERE n.name IN $names
-                OPTIONAL MATCH (m:MAJOR) WHERE m.code IN n.major_codes
-                WITH n, collect({name: m.name, code: m.code}) AS recommended_majors
                 RETURN n.name AS name,
                        n.description AS description,
                        n.job_tasks AS job_tasks,
                        n.field_name AS field_name,
-                       n.market AS market,
-                       n.education_certification AS education_certification,
-                       n.major_codes AS major_codes,
-                       recommended_majors
+                       n.market AS market
             """, names=to_fetch["CAREER"]).data()
             for r in rows:
                 if r["name"] in node_map:
