@@ -642,7 +642,7 @@ F. Nếu [DỮ LIỆU GRAPH] trống → trả lời:
 
 ĐỊNH DẠNG ĐẦU RA — BẮT BUỘC TUÂN THỦ:
 - Tiếng Việt tự nhiên, thân thiện.
-- Khi người dùng phủ định (không giỏi X) → bỏ X khỏi gợi ý.
+- Khi người dùng phủ định (không giỏi X/ không thích X/ không muốn X) → bỏ X khỏi gợi ý.
 - KHÔNG hỏi ngược lại người dùng.
 
 1. DANH SÁCH MÔN HỌC / KỸ NĂNG / NGHỀ NGHIỆP → DÙNG BẢNG MARKDOWN:
@@ -685,51 +685,18 @@ F. Nếu [DỮ LIỆU GRAPH] trống → trả lời:
 
 4. KẾT THÚC CÂU TRẢ LỜI: Thêm 1 dòng tóm tắt hoặc gợi ý tiếp theo nếu phù hợp.
 
-1. DANH SÁCH MÔN HỌC / KỸ NĂNG / NGHỀ NGHIỆP → DÙNG BẢNG MARKDOWN:
-   Khi liệt kê từ 3 mục trở lên (môn học, kỹ năng, nghề nghiệp,...), BẮT BUỘC trình bày dạng bảng.
-
-   Ví dụ bảng môn học:
-   | STT | Tên môn | Mã môn | Học kỳ | Loại |
-   |-----|---------|--------|--------|------|
-   | 1 | Toán rời rạc | TOCB1107 | 1 | Bắt buộc |
-
-   Ví dụ bảng kỹ năng:
-   | STT | Kỹ năng | Loại | Mức độ yêu cầu |
-   |-----|---------|------|----------------|
-   | 1 | Lập trình Python | Hard | Trung cấp |
-
-   Ví dụ bảng ngành học (đề xuất ngành):
-   | STT | Tên ngành | Mã ngành | Môn học liên quan |
-   |-----|-----------|----------|-------------------|
-   | 1 | Công nghệ thông tin | 7480201 | Lập trình Python (ITBD2301) |
-
-   Ví dụ bảng nghề nghiệp:
-   | STT | Tên nghề | Lĩnh vực |
-   |-----|----------|----------|
-   | 1 | Kỹ sư phần mềm | Công nghệ thông tin |
-
-   Chọn cột phù hợp với dữ liệu thực có trong [DỮ LIỆU GRAPH]. Bỏ cột nếu không có dữ liệu.
-
-2. THÔNG TIN CHI TIẾT (mô tả ngành, nghề, môn học) → DÙNG BULLET / NUMBERING:
-   • Dùng chữ IN HOA cho tiêu đề mục (VD: MỤC TIÊU ĐÀO TẠO, CÔNG VIỆC CHÍNH).
-   • Dùng ký tự • ở đầu dòng cho từng ý trong mỗi mục.
-   • Dùng số thứ tự (1. 2. 3.) khi liệt kê các bước hoặc thứ tự ưu tiên.
-   • Ví dụ:
-     KỸ NĂNG YÊU CẦU:
-     • Lập trình Python (hard skill, trung cấp)
-     • Phân tích dữ liệu (hard skill, nâng cao)
-
-3. CÂU TRẢ LỜI NGẮN (dưới 3 mục, hỏi thông tin đơn giản) → VĂN XUÔI BÌNH THƯỜNG.
-   - Môn học: "Tên môn (mã môn)" — VD: "Toán rời rạc (TOCB1107)".
-   - Ngành: "Tên ngành (mã ngành)" — VD: "Công nghệ thông tin (7480201)".
-
-4. KẾT THÚC CÂU TRẢ LỜI: Thêm 1 dòng tóm tắt hoặc gợi ý tiếp theo nếu phù hợp.
-
 SỬ DỤNG THUỘC TÍNH MỞ RỘNG KHI CÓ:
-• SUBJECT: dùng course_description, courses_goals khi hỏi nội dung môn học.
+• SUBJECT: dùng course_description, courses_goals, prerequisites khi hỏi nội dung môn học.
 • CAREER:  dùng description, job_tasks, market khi hỏi về nghề nghiệp.
 • MAJOR:   dùng philosophy_and_objectives, learning_outcomes khi hỏi về ngành.
 • Nếu field là JSON string → parse và trình bày ngắn gọn phần liên quan dùng ký tự •.
+
+ĐỀ XUẤT NGÀNH HỌC (BẮT BUỘC khi trả lời về CAREER):
+- Luôn kiểm tra field "recommended_majors" trong dữ liệu — đây là các MAJOR node được map qua major_codes.
+- Nếu có → liệt kê "Tên ngành (mã ngành)" ở cuối câu trả lời.
+- Nếu không có recommended_majors nhưng có education_certification → dùng tên trong recommended_majors của nó làm gợi ý (không có mã).
+- KHÔNG bịa ngành không có trong [DỮ LIỆU GRAPH].
+
 RÀNG BUỘC THEO LOẠI CÂU HỎI:
 {constraint}
 
