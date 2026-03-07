@@ -62,6 +62,10 @@ MAX_WORKERS      = int(os.getenv("MAX_WORKERS", "10"))
 MAX_RETRIES      = int(os.getenv("MAX_RETRIES", "3"))
 RETRY_BASE_DELAY = 2.0
 
+# Đặt FORCE_REPROCESS=true để xử lý lại tất cả file (bỏ qua cache).
+# Hoặc để mặc định: tự động reprocess nếu output cũ có 0 nodes (bị lỗi lần trước).
+FORCE_REPROCESS  = os.getenv("FORCE_REPROCESS", "false").lower() == "true"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SHARED UTILITIES
@@ -236,17 +240,19 @@ def extract_career(doc: dict) -> dict:
 
     for text in texts:
         # Tên nghề
-        m = re.search(r"tên nghề.*?(?:vi\s*/\s*en|vi|en)?\s*[:\s]+(.+)", text, re.IGNORECASE)
+        m = re.search(r"tên nghề\s*(?:\([^)]*\))?\s*[:\s]+(.+)", text, re.IGNORECASE)
         if m and not career_info["name_vi"]:
             raw = m.group(1).strip()
             # Tách vi / en nếu có dạng "Tên vi / Tên en"
             if "/" in raw:
                 parts = raw.split("/", 1)
-                career_info["name_vi"] = parts[0].strip()
-                career_info["name_en"] = parts[1].strip()
+                # Bỏ phần dịch trong ngoặc: "Sales Representative (Đại diện kinh doanh)" → "Sales Representative"
+                career_info["name_vi"] = re.sub(r"\s*\([^)]+\)\s*$", "", parts[0]).strip()
+                career_info["name_en"] = re.sub(r"\s*\([^)]+\)\s*$", "", parts[1]).strip()
             else:
-                career_info["name_vi"] = raw
-                career_info["name_en"] = raw
+                cleaned = re.sub(r"\s*\([^)]+\)\s*$", "", raw).strip()
+                career_info["name_vi"] = cleaned
+                career_info["name_en"] = cleaned
 
         # Nhóm nghề
         m = re.search(r"nhóm nghề.*?lĩnh vực.*?[:\s]+(.+)", text, re.IGNORECASE)
@@ -283,12 +289,32 @@ def extract_career(doc: dict) -> dict:
     major_names = []
 
     for text in texts:
-        # Nhận diện section header
+        # Nhận diện section header — và parse phần inline nếu có nội dung sau ":"
         if _HARD_SKILL_SECTION.search(text):
             current_section = "hard"
+            inline = re.sub(r".*?(?:hard skill[s]?|kỹ năng chuyên môn)\s*[:\(][^:)]*\)\s*[:\s]*\*?\s*", "", text, flags=re.IGNORECASE).strip()
+            if inline:
+                result = _parse_skill_line(inline, "hard")
+                if result and result["node"]["skill_key"] not in seen_keys:
+                    seen_keys.add(result["node"]["skill_key"])
+                    skill_nodes.append(result["node"])
+                    rel = {"rel_type": "career_requires_skill", "from_career_key": career_key, "to_skill_key": result["node"]["skill_key"]}
+                    if result["level"]:
+                        rel["required_level"] = result["level"]
+                    skill_rels.append(rel)
             continue
         if _SOFT_SKILL_SECTION.search(text):
             current_section = "soft"
+            inline = re.sub(r".*?(?:soft skill[s]?|kỹ năng mềm)\s*[:\(][^:)]*\)\s*[:\s]*\*?\s*", "", text, flags=re.IGNORECASE).strip()
+            if inline:
+                result = _parse_skill_line(inline, "soft")
+                if result and result["node"]["skill_key"] not in seen_keys:
+                    seen_keys.add(result["node"]["skill_key"])
+                    skill_nodes.append(result["node"])
+                    rel = {"rel_type": "career_requires_skill", "from_career_key": career_key, "to_skill_key": result["node"]["skill_key"]}
+                    if result["level"]:
+                        rel["required_level"] = result["level"]
+                    skill_rels.append(rel)
             continue
         if _JOB_TASK_SECTION.search(text):
             current_section = "job_tasks"
@@ -325,7 +351,6 @@ def extract_career(doc: dict) -> dict:
                 if result["level"]:
                     rel["required_level"] = result["level"]
                 skill_rels.append(rel)
-
         elif current_section == "job_tasks":
             if text and not re.match(r"^\d+\.", text):
                 job_tasks.append(text)
@@ -370,7 +395,15 @@ def extract_career(doc: dict) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _parse_syllabus_info_table(doc: dict) -> dict:
-    """Parse bảng thông tin chung (table_index=1 dạng key_value)."""
+    """
+    Parse thông tin chung của syllabus từ paragraphs (không dùng table_index cứng).
+    Hỗ trợ nhiều format khác nhau:
+      - "Mã học phần: CNTT1197"          (paragraph riêng)
+      - "Mã số học phần: NLKT1126"       (variant label)
+      - "Mã HP: TIKT1134"                (viết tắt)
+      - Thông tin nằm trong key_value table
+    Fallback cuối: lấy code từ source_file nếu không parse được.
+    """
     info = {
         "subject_code": "",
         "subject_name_vi": "",
@@ -379,51 +412,137 @@ def _parse_syllabus_info_table(doc: dict) -> dict:
         "prerequisites_raw": [],
     }
 
+    # ── Bước 1: Thử parse từ key_value table (một số syllabus dùng format này) ──
     stream = doc.get("content", {}).get("stream", [])
     for item in stream:
-        if item.get("table_index") != 1:
+        if item.get("table_type") != "key_value":
+            continue
+        data = item.get("data", {})
+        for k, v in data.items():
+            k_lower = k.lower()
+            v_str = str(v).strip() if v else ""
+            if not v_str:
+                continue
+            if re.search(r"mã.*?(học phần|hp|môn|số)", k_lower):
+                m = re.search(r"([A-Z]{2,6}\d{4,})", v_str, re.IGNORECASE)
+                if m:
+                    info["subject_code"] = m.group(1).strip()
+            elif re.search(r"tên.*?việt|tiếng việt", k_lower):
+                info["subject_name_vi"] = v_str
+            elif re.search(r"tên.*?anh|tiếng anh|english", k_lower):
+                info["subject_name_en"] = v_str
+            elif re.search(r"tín chỉ|credits", k_lower):
+                m = re.search(r"\d+", v_str)
+                if m and not info["credits"]:
+                    info["credits"] = m.group(0)
+            elif re.search(r"tiên quyết|prerequisite", k_lower):
+                for p in re.split(r"[\n,;]+", v_str):
+                    p = p.strip().lstrip("+-")
+                    if p:
+                        info["prerequisites_raw"].append(p)
+        if info["subject_code"]:
+            break
+
+    # ── Bước 2: Parse từ paragraphs ───────────────────────────────────────────
+    paragraphs = get_paragraphs(doc)
+    texts = [p.get("text", "").strip() for p in paragraphs]
+
+    # Pattern bắt mọi biến thể label mã học phần
+    CODE_PATTERN = re.compile(
+        r"(?:mã|ma)\s*(?:số\s*)?(?:học phần|hp|môn học|lớp|lh)?\s*[:\s]+([A-Z]{2,8}\d{3,})",
+        re.IGNORECASE
+    )
+
+    in_prereq = False
+    for text in texts:
+        if not text:
             continue
 
-        # Lấy tên từ headers của table 1
-        headers = item.get("headers", [])
-        if len(headers) >= 2:
-            # header[0] = "- Tên học phần (tiếng Việt):", header[1] = tên môn
-            info["subject_name_vi"] = headers[1].strip()
+        # Tên học phần tiếng Việt
+        m = re.search(r"tên học phần.*?(?:tiếng việt|vi).*?[:\s]+(.+)", text, re.IGNORECASE)
+        if m:
+            info["subject_name_vi"] = m.group(1).strip()
+            in_prereq = False
+            continue
 
-        # Duyệt rows
-        for row in item.get("rows", []):
-            for k, v in row.items():
-                k_lower = k.lower()
-                v_str = str(v).strip() if v else ""
+        # Tên học phần tiếng Anh
+        m = re.search(r"tên học phần.*?(?:tiếng anh|en|english).*?[:\s]+(.+)", text, re.IGNORECASE)
+        if m:
+            info["subject_name_en"] = m.group(1).strip()
+            in_prereq = False
+            continue
 
-                if "tiếng anh" in k_lower or "english" in k_lower:
-                    info["subject_name_en"] = v_str
-                elif "mã số" in k_lower or "mã hp" in k_lower or "course code" in k_lower:
-                    info["subject_code"] = v_str
-                elif "số tín chỉ" in k_lower or "tín chỉ" in k_lower:
-                    # Chuẩn hóa: "3TC" → "3"
-                    m = re.search(r"\d+", v_str)
-                    if m:
-                        info["credits"] = m.group(0)
-                elif "tiên quyết" in k_lower or "prerequisite" in k_lower:
-                    # Parse danh sách môn tiên quyết (dạng "mã1\nmã2" hoặc "tên môn")
-                    raw_prereqs = re.split(r"[\n,;]+", v_str)
-                    for p in raw_prereqs:
-                        p = p.strip().lstrip("+-")
-                        p = re.sub(r"^(các học phần tiên quyết|tiên quyết)\s*", "", p, flags=re.IGNORECASE).strip()
-                        if p:
-                            info["prerequisites_raw"].append(p)
-        break  # chỉ cần table_index=1
+        # Mã học phần — dùng pattern rộng hơn
+        if not info["subject_code"]:
+            m = CODE_PATTERN.search(text)
+            if m:
+                info["subject_code"] = m.group(1).strip()
+                in_prereq = False
+                continue
+
+        # Số tín chỉ
+        m = re.search(r"số tín chỉ\s*[:\s]+(\d+)", text, re.IGNORECASE)
+        if m and not info["credits"]:
+            info["credits"] = m.group(1)
+            in_prereq = False
+            continue
+
+        # Header tiên quyết
+        if re.search(r"các học phần tiên quyết|tiên quyết", text, re.IGNORECASE):
+            rest = re.sub(r"^.*?tiên quyết\s*[:\s]*", "", text, flags=re.IGNORECASE).strip()
+            if rest:
+                for p in re.split(r"[\n,;]+", rest):
+                    p = p.strip().lstrip("+-")
+                    if p:
+                        info["prerequisites_raw"].append(p)
+            in_prereq = True
+            continue
+
+        # Dòng tiếp theo sau header tiên quyết
+        if in_prereq:
+            if re.match(r"^\d+\.", text) or re.search(
+                r"(mã|số tín chỉ|giảng viên|khoa|viện|mô tả|số giờ|trình độ)",
+                text, re.IGNORECASE
+            ):
+                in_prereq = False
+            else:
+                for p in re.split(r"[\n,;]+", text):
+                    p = p.strip().lstrip("+-")
+                    if p:
+                        info["prerequisites_raw"].append(p)
+
+    # ── Bước 3: Fallback — lấy code từ source_file nếu vẫn chưa có ──────────
+    if not info["subject_code"]:
+        src = doc.get("source_file", "")
+        m = re.search(r"_([A-Z]{2,8}\d{3,})(?:\.\w+)?$", src, re.IGNORECASE)
+        if m:
+            info["subject_code"] = m.group(1).strip()
+            log.debug(f"subject_code fallback từ filename: {info['subject_code']}")
+
+    # ── Bước 4: Fallback tên môn từ source_file nếu chưa có ─────────────────
+    if not info["subject_name_vi"]:
+        src = doc.get("source_file", "")
+        stem = Path(src).stem  # "An ninh không gian mạng_CNTT1197"
+        name_part = re.sub(r"_[A-Z]{2,8}\d{3,}$", "", stem, flags=re.IGNORECASE).strip()
+        if name_part:
+            info["subject_name_vi"] = name_part
 
     return info
 
 
 def _parse_teachers(doc: dict) -> list[dict]:
-    """Parse bảng giảng viên (thường là table_index=2)."""
+    """
+    Parse bảng giảng viên bằng cách nhận diện header, không dùng table_index cứng.
+    Thực tế: bảng GV ở table_index=1 và nhận diện qua cột 'Họ và tên'.
+    """
     teachers = []
     stream = doc.get("content", {}).get("stream", [])
     for item in stream:
-        if item.get("table_index") != 2:
+        if "table_index" not in item:
+            continue
+        headers = item.get("headers", [])
+        # Nhận diện bảng giảng viên theo nội dung header
+        if not any("họ" in str(h).lower() and "tên" in str(h).lower() for h in headers):
             continue
         for row in item.get("rows", []):
             # Tìm cột họ tên
@@ -432,7 +551,7 @@ def _parse_teachers(doc: dict) -> list[dict]:
             for k, v in row.items():
                 k_lower = k.lower()
                 v_str = str(v).strip() if v else ""
-                if "họ" in k_lower or "tên" in k_lower or "name" in k_lower:
+                if ("họ" in k_lower and "tên" in k_lower) or "name" in k_lower:
                     name_raw = v_str
                 elif "email" in k_lower:
                     email = v_str
@@ -459,13 +578,18 @@ def _parse_teachers(doc: dict) -> list[dict]:
 
 def _parse_clos(doc: dict) -> list[dict]:
     """
-    Parse bảng CLO (thường table_index=4).
-    Trả về list dict: {clo_code, description, mastery_level}
+    Parse bảng CLO bằng cách nhận diện header chứa 'CLO', không dùng table_index cứng.
+    Thực tế: bảng CLO ở table_index=3, headers = ["Mục tiêu", "CLOij", "Mô tả CLO", "Mức độ đạt được"].
     """
     clos = []
     stream = doc.get("content", {}).get("stream", [])
     for item in stream:
-        if item.get("table_index") != 4:
+        if "table_index" not in item:
+            continue
+        headers = item.get("headers", [])
+        # Nhận diện bảng CLO theo header chứa "CLO" và "mô tả"
+        headers_lower = [str(h).lower() for h in headers]
+        if not (any("clo" in h for h in headers_lower) and any("mô tả" in h or "description" in h for h in headers_lower)):
             continue
         for row in item.get("rows", []):
             clo_code = ""
@@ -477,15 +601,19 @@ def _parse_clos(doc: dict) -> list[dict]:
                 v_str = str(v).strip() if v else ""
                 if not v_str or v_str == k:
                     continue
-                if "clo" in k_lower and len(k) < 10:
-                    clo_code = v_str
-                elif "mô tả" in k_lower or "description" in k_lower or "clo" in v_str.lower():
+                # Cột mã CLO: "CLOij", "CLO", hoặc cột ngắn chứa "clo"
+                if ("clo" in k_lower and len(k) < 15) or k_lower in ("cloij", "clo"):
+                    if re.match(r"CLO\s*[\d.]+", v_str, re.IGNORECASE):
+                        clo_code = re.sub(r"\s+", " ", v_str).strip()
+                # Cột mô tả
+                elif "mô tả" in k_lower or "description" in k_lower:
                     if len(v_str) > 10:
                         description = v_str
-                elif "mức" in k_lower or "level" in k_lower:
+                # Cột mức độ / level
+                elif "mức" in k_lower or "level" in k_lower or "đạt" in k_lower:
                     mastery_level = v_str
 
-            # Fallback: dùng values theo vị trí
+            # Fallback: dùng values theo vị trí nếu chưa lấy được clo_code
             if not clo_code:
                 vals = list(row.values())
                 if len(vals) >= 2:
@@ -493,7 +621,7 @@ def _parse_clos(doc: dict) -> list[dict]:
                     description = str(vals[2]).strip() if len(vals) > 2 else ""
                     mastery_level = str(vals[3]).strip() if len(vals) > 3 else ""
 
-            if clo_code and re.match(r"CLO\d", clo_code, re.IGNORECASE):
+            if clo_code and re.match(r"CLO\s*[\d.]+", clo_code, re.IGNORECASE):
                 clos.append({
                     "clo_code": clo_code,
                     "description": description,
@@ -679,7 +807,7 @@ def extract_syllabus(doc: dict, ai_client: OpenAI | None) -> dict:
     subject_name_en = info["subject_name_en"]
 
     if not subject_code:
-        log.warning("Syllabus: Không tìm thấy subject_code")
+        log.warning(f"Syllabus: Không tìm thấy subject_code — bỏ qua {doc.get('source_file', '')}")
         return {"nodes": [], "relationships": []}
 
     # ── 2. Parse teachers ──────────────────────────────────────────────────────
@@ -804,12 +932,12 @@ Dưới đây là danh sách Chuẩn đầu ra (CLO). Với mỗi CLO, hãy trí
 Quy tắc:
 - Ngắn gọn, súc tích (VD: "Phân tích dữ liệu", "Lập trình Python", "Làm việc nhóm")
 - KHÔNG viết cả câu CLO
-- Trả về JSON array, thứ tự tương ứng với CLO đầu vào
+- Trả về JSON object với key "skills" là array, thứ tự tương ứng với CLO đầu vào
 
 CLOs:
 {clo_lines}
 
-Trả về ONLY JSON array, ví dụ: ["Phân tích dữ liệu", "Sử dụng phần mềm R", ...]"""
+Ví dụ format trả về: {{"skills": ["Phân tích dữ liệu", "Sử dụng phần mềm R", ...]}}"""
 
     try:
         response = ai_client.chat.completions.create(
@@ -826,7 +954,10 @@ Trả về ONLY JSON array, ví dụ: ["Phân tích dữ liệu", "Sử dụng p
         if isinstance(parsed, list):
             names = parsed
         elif isinstance(parsed, dict):
-            names = next((v for v in parsed.values() if isinstance(v, list)), [])
+            # Ưu tiên key "skills", fallback sang bất kỳ list nào
+            names = parsed.get("skills") or next(
+                (v for v in parsed.values() if isinstance(v, list)), []
+            )
         else:
             return heuristic_names
 
@@ -869,14 +1000,14 @@ def _parse_major_info(doc: dict) -> dict:
                 if "/" in v_str:
                     parts = v_str.split("/", 1)
                     major["major_name_vi"] = parts[0].strip()
-                    major["major_name_en"] = parts[1].strip()
+                    major["major_name_en"] = re.sub(r"[\n\r]+", " ", parts[1]).strip().strip("()")
                 else:
                     major["major_name_vi"] = v_str
             elif "chương trình" in k_lower or "programme" in k_lower:
                 if not major["major_name_vi"] and "/" in v_str:
                     parts = v_str.split("/", 1)
                     major["major_name_vi"] = parts[0].strip()
-                    major["major_name_en"] = parts[1].strip()
+                    major["major_name_en"] = re.sub(r"[\n\r]+", " ", parts[1]).strip().strip("()")
         if major["major_code"]:
             break
 
@@ -1223,30 +1354,40 @@ Không markdown, không giải thích."""
 # PHASE 2: CAREER → MAJOR MAPPING (giữ nguyên logic cũ)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Map dùng cả tên VI lẫn EN để tăng khả năng match.
+# career_description folder dùng tên VI; curriculum (LLM) có thể dùng tên khác.
 CAREER_MAJOR_MAP = {
+    # ── Tiếng Anh (từ career_description) ────────────────────────────────────
     "Automation tester":                ["7480201", "7340405", "7480101"],
+    "Automation Tester":                ["7480201", "7340405", "7480101"],
     "Business analyst":                 ["7480201", "7340405", "7480101"],
     "Business Analyst":                 ["7480201", "7340405", "7480101"],
-    "Chuyên viên dữ liệu":              ["7480201", "7310108", "7340405", "7480101"],
     "Customer Success":                 ["7340115"],
-    "Data Analyst":                     ["7480201", "7340405", "7480101", "7310108"],
+    "Data Analyst":                     ["7480201", "7340405", "7480101", "7310108","7460108"],
     "Data Engineer":                    ["7480201", "7480101", "7310108"],
-    "Kế toán quản trị":                 ["7340201"],
     "Key Account Manager":              ["7340115"],
+    "Marketing Offline":                ["7340115"],
+    "Media Planner":                    ["7340115"],
+    "Sales Representative":             ["7340115"],
+    "System Administrator":             ["7480201", "7480103", "7480101"],
+    "Tester":                           ["7480201", "7480103", "7480101"],
+    # ── Tiếng Việt ────────────────────────────────────────────────────────────
+    "Kiểm thử tự động":                 ["7480201", "7340405", "7480101"],
+    "Chuyên viên dữ liệu":              ["7480201", "7310108", "7340405", "7480101"],
+    "Lập trình viên":                   ["7480101", "7480201", "7480103", "7480202"],
+    "Kế toán quản trị":                 ["7340201"],
     "Kỹ sư cầu nối":                    ["7480201", "7480103"],
     "Kỹ sư phần mềm":                   ["7480101", "7480201", "7480103", "7480202"],
     "Lập trình game":                   ["7480101", "7480201", "7480103"],
     "Lập trình nhúng":                  ["7480101"],
-    "Marketing Offline":                ["7340115"],
-    "Media Planner":                    ["7340115"],
     "Nhân viên Bồi thường bảo hiểm":    ["7340204"],
     "Nhân viên kinh doanh tiếng Trung": ["7340120", "7340121"],
     "Nhân viên kinh doanh":             ["7340121", "7310101"],
     "Nhân viên triển khai phần mềm":    ["7480201", "7480101", "7480103"],
-    "Quản lý kinh doanh":               [],
-    "Sales Representative":             ["7340115"],
-    "System Administrator":             ["7480201", "7480103", "7480101"],
-    "Tester":                           ["7480201", "7480103", "7480101"],
+    "Quản lý kinh doanh":               ["7340101"],
+    "Chuyên viên phân tích dữ liệu": ["7310107","7310108","7460108"],
+    "System Admin": ["7480104"],
+    "Sales Representative": ["7340115","7340101"]
 }
 
 
@@ -1276,46 +1417,109 @@ def build_major_code_index() -> dict[str, str]:
     return index
 
 
+def _lookup_career_major_codes(career_name_vi: str, career_name_en: str,
+                               major_names: list, major_index: dict) -> list:
+    """
+    Tra cứu major_codes cho một CAREER node theo thứ tự ưu tiên:
+    1. CAREER_MAJOR_MAP theo tên VI
+    2. CAREER_MAJOR_MAP theo tên EN
+    3. major_names field → major_index (tên ngành → major_code)
+    """
+    # 1. Lookup theo tên tiếng Việt
+    if career_name_vi in CAREER_MAJOR_MAP:
+        return CAREER_MAJOR_MAP[career_name_vi]
+    # 2. Lookup theo tên tiếng Anh
+    if career_name_en and career_name_en in CAREER_MAJOR_MAP:
+        return CAREER_MAJOR_MAP[career_name_en]
+    # 3. Lookup từ major_names
+    codes = []
+    for mn in major_names:
+        code = major_index.get(_normalize_name(mn))
+        if code and code not in codes:
+            codes.append(code)
+    return codes
+
+
 def run_phase2_mapping():
     log.info("\n" + "=" * 60)
     log.info("PHASE 2: Mapping major_codes cho CAREER nodes")
     log.info("=" * 60)
 
     major_index = build_major_code_index()
-    career_dir  = LOCAL_OUT_DIR / "career_description"
-    if not career_dir.exists():
-        return
 
-    for jf in career_dir.glob("*.json"):
-        try:
-            with open(jf, encoding="utf-8") as f:
-                data = json.load(f)
-        except Exception as e:
-            log.error(f"Lỗi đọc {jf.name}: {e}")
-            continue
-
-        for node in data.get("nodes", []):
-            if node.get("type") != "CAREER":
+    # ── Xử lý career_description folder ──────────────────────────────────────
+    career_dir = LOCAL_OUT_DIR / "career_description"
+    if career_dir.exists():
+        for jf in career_dir.glob("*.json"):
+            try:
+                with open(jf, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as e:
+                log.error(f"Lỗi đọc {jf.name}: {e}")
                 continue
-            career_name = node.get("career_name_vi", "")
 
-            # Ưu tiên bảng thủ công
-            if career_name in CAREER_MAJOR_MAP:
-                node["major_codes"] = CAREER_MAJOR_MAP[career_name]
-            else:
-                # Fallback: dùng major_names field
-                major_names = node.get("major_names", [])
-                codes = []
-                for mn in major_names:
-                    code = major_index.get(_normalize_name(mn))
-                    if code and code not in codes:
-                        codes.append(code)
+            changed = False
+            for node in data.get("nodes", []):
+                if node.get("type") != "CAREER":
+                    continue
+                name_vi  = node.get("career_name_vi", "")
+                name_en  = node.get("career_name_en", "")
+                codes = _lookup_career_major_codes(
+                    name_vi, name_en, node.get("major_names", []), major_index
+                )
                 node["major_codes"] = codes
                 if not codes:
-                    log.warning(f"  ⚠ {career_name}: không map được major_codes")
+                    log.warning(f"  ⚠ {name_vi or name_en or '(unknown)'}: không map được major_codes")
+                else:
+                    changed = True
 
-        with open(jf, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            if changed:
+                with open(jf, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+
+    # ── Xử lý curriculum folder — CAREER nodes kèm MAJOR trong cùng file ─────
+    # Với careers trích xuất từ curriculum, major_code lấy trực tiếp từ MAJOR
+    # node cùng file (chúng đã có quan hệ major_leads_to_career).
+    cur_dir = LOCAL_OUT_DIR / "curriculum"
+    if cur_dir.exists():
+        for jf in cur_dir.glob("*.json"):
+            try:
+                with open(jf, encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception as e:
+                log.error(f"Lỗi đọc curriculum {jf.name}: {e}")
+                continue
+
+            # Lấy major_code từ MAJOR node trong file
+            file_major_codes = [
+                n["major_code"] for n in data.get("nodes", [])
+                if n.get("type") == "MAJOR" and n.get("major_code")
+            ]
+
+            changed = False
+            for node in data.get("nodes", []):
+                if node.get("type") != "CAREER":
+                    continue
+                name_vi = node.get("career_name_vi", "")
+                name_en = node.get("career_name_en", "")
+
+                # Ưu tiên 1: bảng thủ công
+                codes = _lookup_career_major_codes(
+                    name_vi, name_en, node.get("major_names", []), major_index
+                )
+                # Ưu tiên 2: major_code từ MAJOR node cùng file
+                if not codes and file_major_codes:
+                    codes = file_major_codes
+
+                node["major_codes"] = codes
+                if not codes:
+                    log.warning(f"  ⚠ curriculum career {name_vi or name_en or '(unknown)'}: không map được major_codes")
+                else:
+                    changed = True
+
+            if changed:
+                with open(jf, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
 
     log.info("[Phase 2] Hoàn tất")
 
@@ -1351,9 +1555,18 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
     docid    = make_docid(folder, filename)
     out_path = LOCAL_OUT_DIR / folder / f"{docid}.json"
 
-    if out_path.exists():
-        log.debug(f"[skip] {filename}")
-        return "skip"
+    if out_path.exists() and not FORCE_REPROCESS:
+        # Tự động reprocess nếu output cũ có 0 nodes (lần chạy trước bị lỗi)
+        try:
+            with open(out_path, encoding="utf-8") as _f:
+                _cached = json.load(_f)
+            if len(_cached.get("nodes", [])) == 0:
+                log.info(f"[reprocess] {filename} — cached output có 0 nodes")
+            else:
+                log.debug(f"[skip] {filename}")
+                return "skip"
+        except Exception:
+            pass  # file lỗi → reprocess
 
     log.info(f"[start] {filename} ({docid})")
     try:

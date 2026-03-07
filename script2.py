@@ -173,7 +173,10 @@ def cur_node_cypher(node: dict) -> str | None:
         # Thuộc tính mở rộng từ curriculum (số tín chỉ nếu có)
         credits = node.get("credits")
         if credits is not None:
-            sets.append(f"n.credits = {int(credits)}")
+            try:
+                sets.append(f"n.credits = {int(credits)}")
+            except (ValueError, TypeError):
+                log.debug(f"  [skip credits] Invalid credits value: {credits}")
 
         return (
             f"MERGE (n:SUBJECT {{code: '{code}'}})"
@@ -209,20 +212,24 @@ def cur_rel_cypher(rel: dict) -> str | None:
     if rtype == "major_offers_subject":
         major_code   = _esc(rel.get("from_major_code"))
         subject_code = _esc(rel.get("to_subject_code"))
-        semester     = rel.get("semester", "")
+        semester     = rel.get("semester")
         req_type     = _esc(rel.get("required_type"))
         if not major_code or not subject_code:
             return None
-        if semester != "" and req_type:
-            return (
-                f"MATCH (a:MAJOR {{code: '{major_code}'}}), (b:SUBJECT {{code: '{subject_code}'}})"
-                f" MERGE (a)-[:MAJOR_OFFERS_SUBJECT {{semester: {int(semester)}, required_type: '{req_type}'}}]->(b)"
-            )
-        else:
-            return (
-                f"MATCH (a:MAJOR {{code: '{major_code}'}}), (b:SUBJECT {{code: '{subject_code}'}})"
-                f" MERGE (a)-[:MAJOR_OFFERS_SUBJECT]->(b)"
-            )
+        # Only add semester/req_type if both are provided and valid
+        if semester is not None and req_type:
+            try:
+                semester_int = int(semester)
+                return (
+                    f"MATCH (a:MAJOR {{code: '{major_code}'}}), (b:SUBJECT {{code: '{subject_code}'}})"
+                    f" MERGE (a)-[:MAJOR_OFFERS_SUBJECT {{semester: {semester_int}, required_type: '{req_type}'}}]->(b)"
+                )
+            except (ValueError, TypeError):
+                pass  # Fall back to without semester/req_type
+        return (
+            f"MATCH (a:MAJOR {{code: '{major_code}'}}), (b:SUBJECT {{code: '{subject_code}'}})"
+            f" MERGE (a)-[:MAJOR_OFFERS_SUBJECT]->(b)"
+        )
 
     # ── MAJOR -[:LEADS_TO]-> CAREER ───────────────────────────────────────────
     if rtype == "major_leads_to_career":
