@@ -1,5 +1,6 @@
 """
 Script 3: Knowledge Graph Q&A Chatbot
+v9 — GraphRAG 3-Tier Community Detection (synchronized với script1 v2, script2 v4)
 
 Dữ liệu thực tế trong Neo4j (6778 nodes, 13724 rels):
   MAJOR    (37):   code, name, name_vi, name_en, philosophy_and_objectives,
@@ -198,8 +199,12 @@ def route_to_community(intent: dict) -> tuple[str, dict]:
         if MAJOR_CODE_PATTERN.search(str(kw)):
             return "L3_MAJOR_CENTRIC", COMMUNITY_LEVELS["L3_MAJOR_CENTRIC"]
 
-    # L3_SKILL_CENTRIC: hỏi về skill cụ thể → career hoặc subject
-    if asked in ("CAREER", "SUBJECT") and "SKILL" in mentioned:
+    # L3_SKILL_CENTRIC: hỏi về 1 SKILL CỤ THỂ (keyword là tên kỹ năng, dài ≥ 2 từ)
+    # Điều kiện: SKILL là label duy nhất được đề cập (không có CAREER trong mentioned)
+    # VD đúng: "Kỹ năng Python có giá trị thế nào?" → mentioned=[SKILL], asked=CAREER
+    # VD sai:  "Nghề Tester cần kỹ năng gì?" → mentioned=[CAREER, SKILL], asked=CAREER → L2
+    skill_only = "SKILL" in mentioned and "CAREER" not in mentioned
+    if asked in ("CAREER", "SUBJECT") and skill_only:
         long_kws = [k for k in keywords if len(k.split()) >= 2]
         if long_kws:
             return "L3_SKILL_CENTRIC", COMMUNITY_LEVELS["L3_SKILL_CENTRIC"]
@@ -547,21 +552,10 @@ RELATIONSHIP_CONSTRAINTS = {
         "MAJOR -[:LEADS_TO]-> CAREER. "
         "Liệt kê Career mà Major dẫn đến. KHÔNG đề cập SUBJECT trừ khi được hỏi."
     ),
-    ("CAREER", "SKILL"):   (
-        "CAREER -[:REQUIRES]-> SKILL và SUBJECT -[:PROVIDES]-> SKILL. "
-        "Trả lời kỹ năng cần thiết, chỉ nêu kỹ năng cứng (hard skills, là các skill có skill_type = 'hard') + môn cung cấp kỹ năng đó."
-    ),
-    ("MAJOR", "SKILL"):    (
-        "MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT -[:PROVIDES]-> SKILL. "
-        "Kỹ năng đạt được từ các môn trong chương trình, chỉ nêu kỹ năng cứng (hard skills, là các skill có skill_type = 'hard'). Kèm tên môn (mã môn)."
-    ),
-    ("SKILL", "MAJOR"):    (
-        "SKILL <-[:PROVIDES]- SUBJECT <-[:MAJOR_OFFERS_SUBJECT]- MAJOR. "
-        "Ngành học có môn cung cấp kỹ năng đó. Kèm mã ngành, tên môn trung gian."
-    ),
+
     ("CAREER", "SUBJECT"): (
         "CAREER -[:REQUIRES]-> SKILL <-[:PROVIDES]- SUBJECT. "
-        "Môn học cung cấp kỹ năng nghề yêu cầu, chỉ nêu kỹ năng cứng (hard skills, là các skill có skill_type = 'hard'). Kèm mã môn + kỹ năng cứng tương ứng."
+        "Môn học cung cấp kỹ năng nghề yêu cầu. Kèm mã môn + kỹ năng tương ứng."
     ),
     ("MAJOR", "SUBJECT"):  (
         "MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT. "
@@ -598,30 +592,63 @@ RELATIONSHIP_CONSTRAINTS = {
         "So sánh: MAJOR -[:LEADS_TO]-> CAREER và MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT. "
         "So sánh cơ hội nghề nghiệp và môn học đặc trưng của từng ngành."
     ),
-    # Self-queries
+    # ── Skill constraints: luôn kèm môn học ─────────────────────────────────
+    ("SUBJECT", "SKILL"):  (
+        "SUBJECT -[:PROVIDES]-> SKILL. "
+        "Liệt kê kỹ năng đạt được sau khi học môn đó, kèm tên môn (mã môn)."
+    ),
+    ("SKILL", "SUBJECT"):  (
+        "SKILL <-[:PROVIDES]- SUBJECT. "
+        "Liệt kê môn học (tên + mã môn) cung cấp kỹ năng đó."
+    ),
+    ("MAJOR", "SKILL"):    (
+        "MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT -[:PROVIDES]-> SKILL. "
+        "Với mỗi kỹ năng, kèm tên môn (mã môn) trung gian cung cấp kỹ năng đó."
+    ),
+    ("SKILL", "MAJOR"):    (
+        "SKILL <-[:PROVIDES]- SUBJECT <-[:MAJOR_OFFERS_SUBJECT]- MAJOR. "
+        "Kèm tên môn (mã môn) trung gian giữa skill và ngành."
+    ),
+    # ── Self-queries: truy thuộc tính thực thể ────────────────────────────────
     ("SUBJECT", "SUBJECT"): (
-        "Trả lời: mã môn (code), mô tả môn học (course_description), "
-        "mục tiêu (courses_goals), đánh giá (assessment), "
-        "môn tiên quyết nếu có (PREREQUISITE_FOR)."
+        "Trả lời theo đúng nội dung câu hỏi, ưu tiên field tương ứng:\n"
+        "- Hỏi mã môn → dùng field code.\n"
+        "- Hỏi mô tả / giới thiệu → dùng course_description.\n"
+        "- Hỏi mục tiêu / chuẩn đầu ra → dùng courses_goals.\n"
+        "- Hỏi tài liệu / sách tham khảo → dùng learning_resources.\n"
+        "- Hỏi đánh giá / hình thức thi → dùng assessment.\n"
+        "- Hỏi yêu cầu / điều kiện → dùng course_requirements_and_expectations.\n"
+        "- Hỏi môn tiên quyết → dùng PREREQUISITE_FOR.\n"
+        "Nếu câu hỏi hỏi chung (giới thiệu, thông tin, cho biết về...) → "
+        "trả lời: code, course_description, courses_goals, môn tiên quyết nếu có."
     ),
     ("CAREER", "CAREER"):  (
-        "Trả lời đầy đủ 4 phần: "
-        "1. Mô tả nghề: lấy từ description (field short_description hoặc role_in_organization). "
-        "2. Công việc chính: liệt kê từ job_tasks. "
-        "3. Thị trường lao động: tóm tắt từ field market. "
-        "4. ĐỀ XUẤT NGÀNH HỌC: BẮT BUỘC liệt kê các ngành theo recommended_majors "
-        "(tên ngành + mã ngành). Nếu không có recommended_majors, "
-        "dùng education_certification.recommended_majors làm tên gợi ý. "
-        "Format: Tên ngành (mã ngành) - VD: Công nghệ thông tin (7480201). "
-        "Nếu không có ngành nào trong DB - nói rõ chưa có dữ liệu ngành phù hợp."
+        "Trả lời đầy đủ 4 phần:\n"
+        "1. Mô tả nghề: dùng description.short_description hoặc role_in_organization.\n"
+        "2. Công việc chính: liệt kê từ job_tasks.\n"
+        "3. Kỹ năng và môn học tương ứng:\n"
+        "   - Dùng field skill_to_subjects trong [DỮ LIỆU GRAPH] để biết skill nào được dạy ở môn nào.\n"
+        "   - Format mỗi dòng: • [Tên skill] → [Tên môn (mã môn)].\n"
+        "   - Nếu skill không có trong skill_to_subjects → chỉ liệt kê tên skill, không bịa môn.\n"
+        "4. ĐỀ XUẤT NGÀNH HỌC: liệt kê recommended_majors (tên + mã ngành). "
+        "   Nếu không có → dùng education_certification.recommended_majors làm gợi ý.\n"
+        "Thị trường lao động: tóm tắt market nếu câu hỏi hỏi về cơ hội việc làm."
     ),
     ("TEACHER", "TEACHER"): (
-        "Trả lời: học hàm/học vị (title), email, "
-        "môn đang dạy (TEACH→SUBJECT)."
+        "Trả lời theo đúng câu hỏi, ưu tiên field tương ứng:\n"
+        "- Hỏi thông tin chung → title, email, danh sách môn đang dạy (TEACH→SUBJECT).\n"
+        "- Hỏi email → dùng field email.\n"
+        "- Hỏi học hàm/học vị → dùng field title.\n"
+        "- Hỏi dạy môn gì → liệt kê SUBJECT (tên + mã môn)."
     ),
-    ("MAJOR", "MAJOR_DETAIL"): (
-        "Trả lời chi tiết ngành: mục tiêu đào tạo (philosophy_and_objectives), "
-        "chuẩn đầu ra (learning_outcomes), cơ hội nghề nghiệp (LEADS_TO→CAREER)."
+    ("MAJOR", "MAJOR"):    (
+        "Trả lời theo đúng câu hỏi, ưu tiên field tương ứng:\n"
+        "- Hỏi thông tin chung / giới thiệu → code, philosophy_and_objectives, learning_outcomes.\n"
+        "- Hỏi cơ hội nghề nghiệp → LEADS_TO→CAREER (tên nghề).\n"
+        "- Hỏi môn học → MAJOR_OFFERS_SUBJECT→SUBJECT (tên + mã môn).\n"
+        "- So sánh 2 ngành → so sánh CAREER và SUBJECT đặc trưng.\n"
+        "- Hỏi yêu cầu đầu vào → dùng admission_requirements.\n"
+        "- Hỏi chuẩn đầu ra → dùng learning_outcomes."
     ),
 }
 
@@ -640,56 +667,20 @@ E. Mọi mã môn (code) phải lấy nguyên văn từ field "code".
 F. Nếu [DỮ LIỆU GRAPH] trống → trả lời:
    "Dữ liệu hiện tại chưa đủ để tư vấn về [chủ đề]. Bạn có thể liên hệ phòng đào tạo."
 
-ĐỊNH DẠNG ĐẦU RA — BẮT BUỘC TUÂN THỦ:
+ĐỊNH DẠNG:
 - Tiếng Việt tự nhiên, thân thiện.
+- Môn học: "Tên môn (mã môn)" — VD: "Toán rời rạc (TOCB1107)".
+- Ngành: "Tên ngành (mã ngành)" — VD: "Công nghệ thông tin (7480201)".
+- Môn bắt buộc/tự chọn: lấy từ field required_type (required=bắt buộc, elective=tự chọn).
 - Khi người dùng phủ định (không giỏi X) → bỏ X khỏi gợi ý.
 - KHÔNG hỏi ngược lại người dùng.
 
-1. DANH SÁCH MÔN HỌC / KỸ NĂNG / NGHỀ NGHIỆP → DÙNG BẢNG MARKDOWN:
-   Khi liệt kê từ 3 mục trở lên (môn học, kỹ năng, nghề nghiệp,...), BẮT BUỘC trình bày dạng bảng.
-
-   Ví dụ bảng môn học:
-   | STT | Tên môn | Mã môn | Học kỳ | Loại |
-   |-----|---------|--------|--------|------|
-   | 1 | Toán rời rạc | TOCB1107 | 1 | Bắt buộc |
-
-   Ví dụ bảng kỹ năng:
-   | STT | Kỹ năng | Loại | Mức độ yêu cầu |
-   |-----|---------|------|----------------|
-   | 1 | Lập trình Python | Hard | Trung cấp |
-
-   Ví dụ bảng ngành học (đề xuất ngành):
-   | STT | Tên ngành | Mã ngành | Môn học liên quan |
-   |-----|-----------|----------|-------------------|
-   | 1 | Công nghệ thông tin | 7480201 | Lập trình Python (ITBD2301) |
-
-   Ví dụ bảng nghề nghiệp:
-   | STT | Tên nghề | Lĩnh vực |
-   |-----|----------|----------|
-   | 1 | Kỹ sư phần mềm | Công nghệ thông tin |
-
-   Chọn cột phù hợp với dữ liệu thực có trong [DỮ LIỆU GRAPH]. Bỏ cột nếu không có dữ liệu.
-
-2. THÔNG TIN CHI TIẾT (mô tả ngành, nghề, môn học) → DÙNG BULLET / NUMBERING:
-   • Dùng chữ IN HOA cho tiêu đề mục (VD: MỤC TIÊU ĐÀO TẠO, CÔNG VIỆC CHÍNH).
-   • Dùng ký tự • ở đầu dòng cho từng ý trong mỗi mục.
-   • Dùng số thứ tự (1. 2. 3.) khi liệt kê các bước hoặc thứ tự ưu tiên.
-   • Ví dụ:
-     KỸ NĂNG YÊU CẦU:
-     • Lập trình Python (hard skill, trung cấp)
-     • Phân tích dữ liệu (hard skill, nâng cao)
-
-3. CÂU TRẢ LỜI NGẮN (dưới 3 mục, hỏi thông tin đơn giản) → VĂN XUÔI BÌNH THƯỜNG.
-   - Môn học: "Tên môn (mã môn)" — VD: "Toán rời rạc (TOCB1107)".
-   - Ngành: "Tên ngành (mã ngành)" — VD: "Công nghệ thông tin (7480201)".
-
-4. KẾT THÚC CÂU TRẢ LỜI: Thêm 1 dòng tóm tắt hoặc gợi ý tiếp theo nếu phù hợp.
-
 SỬ DỤNG THUỘC TÍNH MỞ RỘNG KHI CÓ:
-• SUBJECT: dùng course_description, courses_goals, prerequisites khi hỏi nội dung môn học.
-• CAREER:  dùng description, job_tasks, market khi hỏi về nghề nghiệp.
-• MAJOR:   dùng philosophy_and_objectives, learning_outcomes khi hỏi về ngành.
-• Nếu field là JSON string → parse và trình bày ngắn gọn phần liên quan dùng ký tự •.
+- SUBJECT: dùng course_description, courses_goals khi hỏi nội dung môn học.
+- CAREER:  dùng description, job_tasks, market khi hỏi về nghề nghiệp.
+- MAJOR:   dùng philosophy_and_objectives, learning_outcomes khi hỏi về ngành.
+- skill_to_subjects: map sẵn skill → danh sách môn dạy skill đó. Khi liệt kê kỹ năng, LUÔN kiểm tra field này và kèm môn học tương ứng.
+- Nếu field là JSON string → parse và trình bày ngắn gọn phần liên quan.
 
 ĐỀ XUẤT NGÀNH HỌC (BẮT BUỘC khi trả lời về CAREER):
 - Luôn kiểm tra field "recommended_majors" trong dữ liệu — đây là các MAJOR node được map qua major_codes.
@@ -738,6 +729,41 @@ ABBREVIATION_MAP: dict[str, list[str]] = {
 }
 
 
+# Stopwords xuất hiện đầu keyword do LLM thêm vào
+_KW_STOPWORDS = re.compile(
+    r"^(môn học|học phần|môn |kỹ năng |kỹ năng$|nghề |ngành học|ngành |"
+    r"giảng viên |thầy |cô |sinh viên ngành |tài liệu môn |"
+    r"mã môn |mã của môn |thông tin môn |giới thiệu môn )",
+    re.IGNORECASE | re.UNICODE,
+)
+
+# Pattern loại bỏ suffix thừa
+_KW_SUFFIX = re.compile(
+    r"\s*(là gì|như thế nào|có gì|không|ạ|\?|\.)$",
+    re.IGNORECASE | re.UNICODE,
+)
+
+def _normalize_keyword(kw: str) -> str:
+    """
+    Loại bỏ prefix/suffix stopword thừa khỏi keyword để match DB.
+    VD: "môn lập trình web" → "lập trình web"
+        "mã của môn lập trình web" → "lập trình web"
+        "kỹ năng python là gì" → "python"
+    """
+    kw = kw.strip()
+    # Bỏ suffix thừa
+    kw = _KW_SUFFIX.sub("", kw).strip()
+    # Lặp bỏ prefix thừa (tối đa 4 lần cho nested: "mã của môn học lập trình web")
+    for _ in range(4):
+        new = _KW_STOPWORDS.sub("", kw).strip()
+        if new == kw:
+            break
+        kw = new
+    # Bỏ "của " đầu còn sót (VD: "của môn lập trình" sau khi bỏ "mã")
+    kw = re.sub(r"^của\s+", "", kw, flags=re.IGNORECASE | re.UNICODE).strip()
+    return kw
+
+
 def expand_abbreviations(question: str) -> tuple[str, list[str]]:
     q_lower  = question.lower()
     expanded = question
@@ -775,12 +801,13 @@ def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
         "  CNTT/IT → công nghệ thông tin\n"
         "  KTPM → kỹ thuật phần mềm | HTTT → hệ thống thông tin\n"
         "  developer/DEV → lập trình viên | tester/QA → kiểm thử\n\n"
-        "Quy tắc xác định asked_label:\n"
+        "Quy tắc xác định asked_label (chỉ 1 giá trị, KHÔNG dùng | hay /):\n"
+        "  - Hỏi về nghề (kỹ năng cần, cơ hội việc làm, phù hợp ngành nào) → asked=CAREER\n"
         "  - Hỏi thông tin môn học (mô tả, mã môn, nội dung, kế hoạch giảng dạy) → asked=SUBJECT\n"
-        "  - Hỏi thông tin nghề nghiệp (mô tả nghề, công việc, thị trường lao động) → asked=CAREER\n"
         "  - Hỏi thông tin giảng viên (email, học hàm, dạy môn gì) → asked=TEACHER\n"
         "  - Hỏi thông tin ngành học (chương trình, chuẩn đầu ra, mục tiêu) → asked=MAJOR\n"
-        "  - Hỏi kỹ năng → asked=SKILL\n\n"
+        "  - Hỏi kỹ năng đơn thuần (kỹ năng X là gì, môn nào dạy) → asked=SKILL\n"
+        "  - Khi hỏi kết hợp nghề + kỹ năng + ngành → ưu tiên asked=CAREER\n\n"
         "Trả về JSON:\n"
         "{\n"
         '  "keywords": ["tên thực thể để tìm trong KG"],\n'
@@ -800,16 +827,103 @@ def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
         response_format={"type": "json_object"},
     )
     parsed = json.loads(response.choices[0].message.content)
+    asked_raw = parsed.get("asked_label", "UNKNOWN")
+    # Normalize: LLM đôi khi trả "SKILL|CAREER", "MAJOR|CAREER" → tách lấy label đầu
+    valid_labels = {"MAJOR", "SUBJECT", "SKILL", "CAREER", "TEACHER"}
+    if "|" in str(asked_raw):
+        parts = [p.strip() for p in asked_raw.split("|")]
+        asked_raw = next((p for p in parts if p in valid_labels), "UNKNOWN")
+    elif asked_raw not in valid_labels:
+        asked_raw = "UNKNOWN"
+
     return {
         "keywords":         parsed.get("keywords", []),
-        "mentioned_labels": parsed.get("mentioned_labels", []),
-        "asked_label":      parsed.get("asked_label", "UNKNOWN"),
+        "mentioned_labels": [l for l in parsed.get("mentioned_labels", []) if l in valid_labels],
+        "asked_label":      asked_raw,
         "negated_keywords": parsed.get("negated_keywords", []),
         "is_comparison":    parsed.get("is_comparison", False),
     }
 
 
-def get_relationship_constraint(intent: dict) -> str:
+# Keyword → field hint mapping cho single-entity queries
+_KEYWORD_FIELD_HINTS: list[tuple[list[str], str]] = [
+    # SUBJECT fields
+    (["tài liệu", "sách", "giáo trình", "tham khảo", "học liệu"],
+     "→ dùng field learning_resources"),
+    (["mã môn", "mã của", "mã số"],
+     "→ dùng field code"),
+    (["mô tả", "giới thiệu", "nội dung", "về môn"],
+     "→ dùng field course_description"),
+    (["mục tiêu", "chuẩn đầu ra", "sau khi học"],
+     "→ dùng field courses_goals"),
+    (["đánh giá", "thi", "kiểm tra", "điểm", "hình thức thi"],
+     "→ dùng field assessment"),
+    (["yêu cầu", "điều kiện", "tiên quyết", "cần gì để học"],
+     "→ dùng field course_requirements_and_expectations"),
+    (["kế hoạch", "lịch học", "tuần", "week"],
+     "→ dùng field week_1..week_N (kế hoạch giảng dạy từng tuần)"),
+    # CAREER fields
+    (["mô tả", "là gì", "làm gì", "vai trò"],
+     "→ dùng field description.short_description"),
+    (["công việc", "nhiệm vụ", "task"],
+     "→ dùng field job_tasks"),
+    (["thị trường", "cơ hội", "nhu cầu", "lương", "triển vọng"],
+     "→ dùng field market"),
+    (["chứng chỉ", "bằng cấp", "học vấn"],
+     "→ dùng field education_certification"),
+    # MAJOR fields
+    (["triết lý", "mục tiêu đào tạo", "tầm nhìn"],
+     "→ dùng field philosophy_and_objectives"),
+    (["chuẩn đầu ra", "kết quả học tập", "năng lực"],
+     "→ dùng field learning_outcomes"),
+    (["yêu cầu đầu vào", "điều kiện tuyển sinh", "xét tuyển"],
+     "→ dùng field admission_requirements"),
+    # TEACHER fields
+    (["email", "liên hệ", "địa chỉ"],
+     "→ dùng field email"),
+    (["học hàm", "học vị", "tiến sĩ", "thạc sĩ", "giáo sư", "phó giáo sư"],
+     "→ dùng field title"),
+]
+
+
+# SUBJECT-only hints (chỉ apply khi asked=SUBJECT)
+_SUBJECT_ONLY_HINTS: set[str] = {
+    "→ dùng field course_requirements_and_expectations",
+    "→ dùng field week_1..week_N (kế hoạch giảng dạy từng tuần)",
+    "→ dùng field courses_goals",
+    "→ dùng field course_description",
+    "→ dùng field assessment",
+    "→ dùng field learning_resources",
+    "→ dùng field code",
+}
+# CAREER-only hints
+_CAREER_ONLY_HINTS: set[str] = {
+    "→ dùng field job_tasks",
+    "→ dùng field market",
+    "→ dùng field education_certification",
+    "→ dùng field description.short_description",
+}
+
+
+def _detect_field_hint(question: str, asked: str) -> str:
+    """Phát hiện keyword trong câu hỏi → gợi ý field cần dùng, lọc theo asked label."""
+    q_lower = question.lower()
+    hints = []
+    for keywords, hint in _KEYWORD_FIELD_HINTS:
+        if not any(kw in q_lower for kw in keywords):
+            continue
+        # Lọc hint không phù hợp với asked label
+        if hint in _SUBJECT_ONLY_HINTS and asked != "SUBJECT":
+            continue
+        if hint in _CAREER_ONLY_HINTS and asked != "CAREER":
+            continue
+        hints.append(hint)
+    if hints:
+        return "Câu hỏi này yêu cầu: " + "; ".join(hints[:3])
+    return ""
+
+
+def get_relationship_constraint(intent: dict, question: str = "") -> str:
     mentioned = intent.get("mentioned_labels", [])
     asked     = intent.get("asked_label", "UNKNOWN")
     is_comp   = intent.get("is_comparison", False)
@@ -817,18 +931,29 @@ def get_relationship_constraint(intent: dict) -> str:
     if is_comp and "MAJOR" in mentioned:
         return RELATIONSHIP_CONSTRAINTS.get(("MAJOR", "MAJOR"), "")
 
+    base_constraint = ""
     for m in ([mentioned[0]] if mentioned else []) + mentioned:
         key = (m, asked)
         if key in RELATIONSHIP_CONSTRAINTS:
-            return RELATIONSHIP_CONSTRAINTS[key]
+            base_constraint = RELATIONSHIP_CONSTRAINTS[key]
+            break
 
     # Self-query fallback
-    if asked != "UNKNOWN":
+    if not base_constraint and asked != "UNKNOWN":
         self_key = (asked, asked)
-        if self_key in RELATIONSHIP_CONSTRAINTS:
-            return RELATIONSHIP_CONSTRAINTS[self_key]
+        base_constraint = RELATIONSHIP_CONSTRAINTS.get(self_key, "")
 
-    return "Trả lời theo đúng câu hỏi, chỉ dùng dữ liệu trong Knowledge Graph."
+    if not base_constraint:
+        base_constraint = "Trả lời theo đúng câu hỏi, chỉ dùng dữ liệu trong Knowledge Graph."
+
+    # Inject dynamic field hint nếu là single-entity self-query
+    is_self_query = (len(set(mentioned)) <= 1 or not mentioned) and asked != "UNKNOWN"
+    if is_self_query and question:
+        field_hint = _detect_field_hint(question, asked)
+        if field_hint:
+            base_constraint = field_hint + "\n" + base_constraint
+
+    return base_constraint
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -911,23 +1036,30 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                null AS semester, null AS required_type, null AS course_description
         ORDER BY n.name LIMIT 50
     """,
-    # Self: thông tin chi tiết môn học + môn tiên quyết
+    # Self: thông tin chi tiết môn học + môn tiên quyết (đầy đủ extended fields)
     ("SUBJECT", "SUBJECT"): """
         MATCH (start:SUBJECT)
         WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
+        WITH start LIMIT 10
         RETURN start.name AS name, labels(start)[0] AS label, start.code AS code,
                [] AS rel_types, [start.name] AS node_names, 0 AS hops,
                null AS semester, null AS required_type,
-               start.course_description AS course_description
-        ORDER BY start.name LIMIT 10
-        UNION
+               start.course_description AS course_description,
+               start.courses_goals AS courses_goals,
+               start.learning_resources AS learning_resources,
+               start.assessment AS assessment,
+               start.course_requirements_and_expectations AS course_requirements_and_expectations
+        UNION ALL
         MATCH (start:SUBJECT)-[:PREREQUISITE_FOR]->(n:SUBJECT)
         WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                ['PREREQUISITE_FOR'] AS rel_types,
                [start.name, n.name] AS node_names, 1 AS hops,
-               null AS semester, null AS required_type, null AS course_description
-        ORDER BY n.name LIMIT 30
+               null AS semester, null AS required_type,
+               null AS course_description, null AS courses_goals,
+               null AS learning_resources, null AS assessment,
+               null AS course_requirements_and_expectations
+        ORDER BY name LIMIT 30
     """,
     # Self: thông tin giảng viên
     ("TEACHER", "TEACHER"): """
@@ -959,6 +1091,31 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                1 AS hops,
                null AS semester, null AS required_type, null AS course_description
         ORDER BY n.name LIMIT 50
+        UNION
+        MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(sub:SUBJECT)
+              <-[:MAJOR_OFFERS_SUBJECT]-(m:MAJOR)
+        WHERE (toLower(start.name) CONTAINS toLower($kw)
+           OR toLower(start.career_key) CONTAINS toLower($kw))
+          AND m.code IN start.major_codes
+        RETURN sub.name AS name, labels(sub)[0] AS label, sub.code AS code,
+               ['REQUIRES','PROVIDES'] AS rel_types,
+               [start.name, sk.name, sub.name] AS node_names,
+               2 AS hops,
+               null AS semester, null AS required_type, sub.course_description AS course_description
+        ORDER BY sk.name, sub.name LIMIT 20
+        UNION
+        MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+           OR toLower(start.career_key) CONTAINS toLower($kw)
+        MATCH (sub:SUBJECT)
+        WHERE toLower(sub.name) CONTAINS toLower(sk.name)
+           OR toLower(sk.name) CONTAINS toLower(sub.name)
+        RETURN sub.name AS name, labels(sub)[0] AS label, sub.code AS code,
+               ['REQUIRES','NAME_MATCH'] AS rel_types,
+               [start.name, sk.name, sub.name] AS node_names,
+               2 AS hops,
+               null AS semester, null AS required_type, sub.course_description AS course_description
+        ORDER BY sk.name LIMIT 15
     """,
     ("CAREER", "SUBJECT"): """
         MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(n:SUBJECT)
@@ -979,14 +1136,22 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         LIMIT 30
     """,
     ("CAREER", "MAJOR"): """
-        MATCH (n:MAJOR)-[:LEADS_TO]->(start:CAREER)
+        MATCH (start:CAREER)
         WHERE toLower(start.name) CONTAINS toLower($kw)
            OR toLower(start.career_key) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
-               ['LEADS_TO'] AS rel_types, [n.name, start.name] AS node_names,
+        // Ưu tiên 1: MAJOR via LEADS_TO
+        OPTIONAL MATCH (m1:MAJOR)-[:LEADS_TO]->(start)
+        // Ưu tiên 2: MAJOR via major_codes
+        OPTIONAL MATCH (m2:MAJOR) WHERE m2.code IN start.major_codes
+        WITH start, collect(DISTINCT m1) + collect(DISTINCT m2) AS all_majors
+        UNWIND all_majors AS m
+        WITH DISTINCT m, start
+        WHERE m IS NOT NULL
+        RETURN m.name AS name, labels(m)[0] AS label, m.code AS code,
+               ['RECOMMENDED_MAJOR'] AS rel_types, [start.name, m.name] AS node_names,
                1 AS hops,
                null AS semester, null AS required_type, null AS course_description
-        ORDER BY n.name LIMIT 50
+        ORDER BY m.name LIMIT 10
     """,
     ("MAJOR", "SKILL"): """
         MATCH (start:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(sub:SUBJECT)-[:PROVIDES]->(n:SKILL)
@@ -1017,7 +1182,16 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                ['REQUIRES'] AS rel_types, [n.name, start.name] AS node_names,
                1 AS hops,
                null AS semester, null AS required_type, null AS course_description
-        ORDER BY n.name LIMIT 50
+        ORDER BY n.name LIMIT 30
+        UNION
+        MATCH (sub:SUBJECT)-[:PROVIDES]->(start:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+           OR toLower(start.skill_key) CONTAINS toLower($kw)
+        RETURN sub.name AS name, labels(sub)[0] AS label, sub.code AS code,
+               ['PROVIDES'] AS rel_types, [sub.name, start.name] AS node_names,
+               1 AS hops,
+               null AS semester, null AS required_type, sub.course_description AS course_description
+        ORDER BY sub.name LIMIT 30
     """,
     ("SKILL", "SUBJECT"): """
         MATCH (n:SUBJECT)-[:PROVIDES]->(start:SKILL)
@@ -1049,7 +1223,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                null AS semester, null AS required_type, null AS course_description
         ORDER BY n.name LIMIT 50
     """,
-    # Self: thông tin chi tiết nghề nghiệp + ngành học đề xuất qua major_codes
+    # Self: thông tin chi tiết nghề nghiệp + kỹ năng + môn học + ngành học đề xuất
     ("CAREER", "CAREER"): """
         MATCH (start:CAREER)
         WHERE toLower(start.name) CONTAINS toLower($kw)
@@ -1059,6 +1233,39 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                null AS semester, null AS required_type, null AS course_description
         ORDER BY start.name LIMIT 10
         UNION
+        MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+           OR toLower(start.career_key) CONTAINS toLower($kw)
+        RETURN sk.name AS name, labels(sk)[0] AS label, null AS code,
+               ['REQUIRES'] AS rel_types,
+               [start.name, sk.name] AS node_names, 1 AS hops,
+               null AS semester, null AS required_type, null AS course_description
+        ORDER BY sk.name LIMIT 50
+        UNION
+        MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(sub:SUBJECT)
+              <-[:MAJOR_OFFERS_SUBJECT]-(m:MAJOR)
+        WHERE (toLower(start.name) CONTAINS toLower($kw)
+           OR toLower(start.career_key) CONTAINS toLower($kw))
+          AND m.code IN start.major_codes
+        RETURN sub.name AS name, labels(sub)[0] AS label, sub.code AS code,
+               ['REQUIRES','PROVIDES'] AS rel_types,
+               [start.name, sk.name, sub.name] AS node_names, 2 AS hops,
+               null AS semester, null AS required_type, sub.course_description AS course_description
+        ORDER BY sk.name, sub.name LIMIT 20
+        UNION
+        MATCH (start:CAREER)-[:REQUIRES]->(sk:SKILL)
+        WHERE (toLower(start.name) CONTAINS toLower($kw)
+           OR toLower(start.career_key) CONTAINS toLower($kw))
+          AND NOT (sk)<-[:PROVIDES]-(:SUBJECT)<-[:MAJOR_OFFERS_SUBJECT]-(:MAJOR {code: start.major_codes[0]})
+        MATCH (sub:SUBJECT)
+        WHERE toLower(sub.name) CONTAINS toLower(sk.name)
+           OR toLower(sk.name) CONTAINS toLower(sub.name)
+        RETURN sub.name AS name, labels(sub)[0] AS label, sub.code AS code,
+               ['REQUIRES','NAME_MATCH'] AS rel_types,
+               [start.name, sk.name, sub.name] AS node_names, 2 AS hops,
+               null AS semester, null AS required_type, sub.course_description AS course_description
+        ORDER BY sk.name, sub.name LIMIT 15
+        UNION
         MATCH (start:CAREER)
         WHERE toLower(start.name) CONTAINS toLower($kw)
            OR toLower(start.career_key) CONTAINS toLower($kw)
@@ -1067,7 +1274,7 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                ['RECOMMENDED_MAJOR'] AS rel_types,
                [start.name, m.name] AS node_names, 1 AS hops,
                null AS semester, null AS required_type, null AS course_description
-        ORDER BY m.name LIMIT 20
+        ORDER BY m.name LIMIT 10
     """,
     # Skill self-lookup
     ("SKILL", "SKILL"): """
@@ -1090,8 +1297,16 @@ def _add_node_and_paths(rec, all_nodes: list, all_paths: list):
         "code":  rec.get("code"),
         "hops":  rec["hops"],
     }
-    # Extended props từ targeted query
-    for field in ("course_description", "semester", "required_type"):
+    # Capture tất cả extended fields có trong record (không hardcode)
+    _EXTRA_FIELDS = (
+        "course_description", "courses_goals", "learning_resources",
+        "assessment", "course_requirements_and_expectations",
+        "description", "job_tasks", "field_name", "market",
+        "philosophy_and_objectives", "learning_outcomes",
+        "email", "title", "skill_type",
+        "semester", "required_type",
+    )
+    for field in _EXTRA_FIELDS:
         val = rec.get(field)
         if val is not None:
             node[field] = val
@@ -1356,6 +1571,36 @@ def multihop_traversal_community_aware(
 # PHẦN 8: GENERATE ANSWER
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _build_skill_subject_map(traversal_paths: list[dict]) -> dict[str, list[str]]:
+    """
+    Từ traversal_paths, build mapping: skill_name → [subject_name (code)]
+    Dùng khi LLM cần trả lời "kỹ năng X được dạy ở môn nào".
+    """
+    # Bước 1: Collect skill→subject pairs từ paths
+    # Path chain: A -REQUIRES-> B -PROVIDES/NAME_MATCH-> C
+    # → requires_targets[A] = {B}, provides_sources[B] = {C}
+    requires_map: dict[str, set[str]] = {}   # career → skills
+    provides_map: dict[str, set[str]] = {}   # skill → subjects
+
+    for p in traversal_paths:
+        rel = p.get("relation", "")
+        frm = p.get("from", "")
+        to  = p.get("to", "")
+        if rel == "REQUIRES":
+            requires_map.setdefault(frm, set()).add(to)
+        elif rel in ("PROVIDES", "NAME_MATCH"):
+            provides_map.setdefault(frm, set()).add(to)
+
+    # Bước 2: Chỉ giữ skill có subject
+    result: dict[str, list[str]] = {}
+    for career_skills in requires_map.values():
+        for skill in career_skills:
+            subjects = provides_map.get(skill)
+            if subjects:
+                result[skill] = sorted(subjects)
+    return result
+
+
 def generate_answer(
     ai_client:    OpenAI,
     question:     str,
@@ -1365,14 +1610,33 @@ def generate_answer(
     community_def: dict | None = None,
     override_constraint: str | None = None,
 ) -> str:
+    # Pre-compute skill→subject mapping để LLM không cần tự trace paths
+    skill_subject_map = _build_skill_subject_map(traversal_paths)
+
+    # Build subject code lookup
+    subject_code: dict[str, str] = {}
+    for n in ranked_nodes:
+        if n.get("label") == "SUBJECT" and n.get("code"):
+            subject_code[n["name"]] = n["code"]
+
+    # Enrich map với code
+    skill_subject_display: dict[str, list[str]] = {}
+    for skill, subjects in skill_subject_map.items():
+        display = []
+        for s in subjects:
+            code = subject_code.get(s, "")
+            display.append(f"{s} ({code})" if code else s)
+        skill_subject_display[skill] = display
+
     context = json.dumps({
-        "ranked_results":  ranked_nodes,
-        "traversal_paths": traversal_paths[:60],
+        "ranked_results":      ranked_nodes,
+        "traversal_paths":     traversal_paths[:80],
+        "skill_to_subjects":   skill_subject_display,   # pre-computed map
     }, ensure_ascii=False, indent=2)
 
     constraint = (
         override_constraint if override_constraint is not None
-        else get_relationship_constraint(intent)
+        else get_relationship_constraint(intent, question=question)
     )
 
     negated = intent.get("negated_keywords", [])
@@ -1471,6 +1735,9 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
     # ── Bước 1: Extract intent ────────────────────────────────────────────────
     intent = extract_query_intent(ai_client, expanded_question)
     intent["keywords"] = list(dict.fromkeys(intent["keywords"] + abbrev_keywords))
+    # Normalize keywords: bỏ stopwords đầu/cuối để tránh miss match
+    intent["keywords"] = [_normalize_keyword(kw) for kw in intent["keywords"]]
+    intent["keywords"] = list(dict.fromkeys(kw for kw in intent["keywords"] if kw))
     keywords = intent["keywords"]
     print(f"  Keywords: {keywords}")
     print(f"  Intent: mentioned={intent['mentioned_labels']} "
@@ -1494,17 +1761,38 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
         key = (n.get("label", ""), n.get("name", ""))
         if key not in seen or (n.get("hops") or 99) < (seen[key].get("hops") or 99):
             seen[key] = n
-    context_nodes = [
+    deduplicated = [
         n for n in seen.values()
         if not any(neg in (n.get("name") or "").lower() for neg in negated_lower)
     ]
+
+    # Post-filter MAJOR: nếu có MAJOR từ targeted query (RECOMMENDED_MAJOR),
+    # loại bỏ MAJOR từ BFS (hops >= 2) để tránh ngành không liên quan
+    has_recommended_major = any(
+        n.get("label") == "MAJOR" and n.get("hops", 99) <= 1
+        for n in deduplicated
+    )
+    if has_recommended_major:
+        context_nodes = [
+            n for n in deduplicated
+            if not (n.get("label") == "MAJOR" and (n.get("hops") or 99) >= 2)
+        ]
+    else:
+        context_nodes = deduplicated
     print(f"  Context nodes (dedup+negation): {len(context_nodes)}")
 
     # ── Bước 4b: Enrich extended props khi cần ───────────────────────────────
     asked = intent.get("asked_label", "UNKNOWN")
-    if asked in ("SUBJECT", "CAREER", "MAJOR") and len(context_nodes) <= 20:
+    # Enrich: luôn fetch nếu là self-query (ít SUBJECT/CAREER/MAJOR nodes),
+    # hoặc khi tổng context nodes <= 50
+    subject_nodes = [n for n in context_nodes if n.get("label") == asked]
+    should_enrich = (
+        asked in ("SUBJECT", "CAREER", "MAJOR")
+        and (len(context_nodes) <= 50 or len(subject_nodes) <= 5)
+    )
+    if should_enrich:
         context_nodes = fetch_node_details(driver, context_nodes)
-        print(f"  [enrich] Extended props fetched for: {asked}")
+        print(f"  [enrich] Extended props fetched for: {asked} ({len(subject_nodes)} target nodes)")
 
     # ── Bước 5: LLM answer ───────────────────────────────────────────────────
     answer = generate_answer(
