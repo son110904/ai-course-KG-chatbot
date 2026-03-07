@@ -1,6 +1,5 @@
 """
 Script 3: Knowledge Graph Q&A Chatbot
-v9 — GraphRAG 3-Tier Community Detection (synchronized với script1 v2, script2 v4)
 
 Dữ liệu thực tế trong Neo4j (6778 nodes, 13724 rels):
   MAJOR    (37):   code, name, name_vi, name_en, philosophy_and_objectives,
@@ -550,7 +549,7 @@ RELATIONSHIP_CONSTRAINTS = {
     ),
     ("CAREER", "SKILL"):   (
         "CAREER -[:REQUIRES]-> SKILL và SUBJECT -[:PROVIDES]-> SKILL. "
-        "Trả lời kỹ năng cần + môn cung cấp kỹ năng đó."
+        "Trả lời kỹ năng cần thiết, chỉ nêu kỹ năng cứng (hard skills, là các skill có skill_type = 'hard') + môn cung cấp kỹ năng đó."
     ),
     ("MAJOR", "SKILL"):    (
         "MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT -[:PROVIDES]-> SKILL. "

@@ -177,6 +177,7 @@ CÁC BƯỚC TRÍCH XUẤT:
 CHỈ tạo SUBJECT, TEACHER, SKILL. KHÔNG tạo MAJOR, CAREER.
 
 Đối với SUBJECT, hãy chú ý trích xuất bổ sung thêm nội dung văn bản những mục sau trong đề cương và đưa vào thuộc tính của node SUBJECT này:
+Số tín chỉ (credits)
 Mô tả học phần (course_description)
 Tài liệu học tập (learning_resources)
 Mục tiêu học phần (courses_goals)
