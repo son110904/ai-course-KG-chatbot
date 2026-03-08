@@ -1085,6 +1085,36 @@ def generate_answer(
 # PHẦN 9: PIPELINE CHÍNH
 # ══════════════════════════════════════════════════════════════════════════════
 
+# ── CTĐT redirect helper ──────────────────────────────────────────────────────
+_CTDT_PATTERN = re.compile(
+    r"(?:xem|tìm|tải|download|file|chương trình đào tạo|ctđt|ct đt)\s*"
+    r"(?:file\s*)?(?:ctđt|ct\s*đt|chương trình đào tạo)?\s*(?:ngành|của ngành)?\s*"
+    r"(.+?)(?:\s*(?:ở đâu|tại đâu|tải ở đâu|xem ở đâu|download ở đâu)|\s*\?|$)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+def detect_ctdt_question(question: str) -> str | None:
+    """
+    Nếu câu hỏi hỏi về 'xem file CTĐT ngành X ở đâu' (hoặc biến thể),
+    trả về tên ngành X. Ngược lại trả về None.
+    """
+    q = question.strip()
+    if not re.search(r"ctđt|ct\s*đt|chương trình đào tạo", q, re.IGNORECASE | re.UNICODE):
+        return None
+    if not re.search(r"ở đâu|tại đâu|xem|tìm|tải|download|file", q, re.IGNORECASE | re.UNICODE):
+        return None
+    m = _CTDT_PATTERN.search(q)
+    if m:
+        major_name = m.group(1).strip(" ?")
+        # Loại bỏ các từ thừa ở cuối: "thì", "thì xem", "thì tải"...
+        major_name = re.sub(
+            r"\s+(?:thì|thì xem|thì tải|thì download|thì ở đâu|thì tại đâu)\s*$",
+            "", major_name, flags=re.IGNORECASE | re.UNICODE,
+        ).strip(" ?")
+        return major_name if major_name else "ngành bạn quan tâm"
+    return "ngành bạn quan tâm"
+
+
 def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -> dict:
     if query_id is None:
         query_id = "q" + uuid.uuid4().hex[:6]
@@ -1092,7 +1122,23 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
     print(f"\n{'='*60}")
     print(f"Q [{query_id}]: {question}")
 
-    # ── Bước 0: Aggregation Router ────────────────────────────────────────────
+    # ── Bước 0: CTĐT Redirect ─────────────────────────────────────────────────
+    ctdt_major = detect_ctdt_question(question)
+    if ctdt_major is not None:
+        answer = (
+            f"Để xem thêm thì hãy vào trang courses.neu.edu.vn "
+            f"và tìm ngành {ctdt_major} nhé!"
+        )
+        print(f"\nA: {answer}")
+        return _build_record(
+            query_id, question, answer, [ctdt_major],
+            {"asked_label": "CTDT_REDIRECT", "mentioned_labels": [],
+             "keywords": [ctdt_major], "negated_keywords": [],
+             "community_id": "CTDT_REDIRECT"},
+            [], [], "ctdt_redirect",
+        )
+
+    # ── Bước 1: Aggregation Router ────────────────────────────────────────────
     agg_type = detect_aggregation_type(question)
     if agg_type:
         print(f"  [aggregation] {agg_type}")
@@ -1125,7 +1171,7 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
         return _build_record(query_id, question, answer, [], agg_intent,
                              agg_nodes, [], "aggregation")
 
-    # ── Bước 0b: Expand viết tắt ──────────────────────────────────────────────
+    # ── Bước 1b: Expand viết tắt ─────────────────────────────────────────────
     expanded_question, abbrev_keywords = expand_abbreviations(question)
     if abbrev_keywords:
         print(f"  [abbrev] {abbrev_keywords}")
