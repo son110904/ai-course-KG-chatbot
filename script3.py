@@ -1084,8 +1084,6 @@ def generate_answer(
 # ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 9: PIPELINE CHÍNH
 # ══════════════════════════════════════════════════════════════════════════════
-
-# ── CTĐT redirect helper ──────────────────────────────────────────────────────
 _CTDT_PATTERN = re.compile(
     r"(?:xem|tìm|tải|download|file|chương trình đào tạo|ctđt|ct đt)\s*"
     r"(?:file\s*)?(?:ctđt|ct\s*đt|chương trình đào tạo)?\s*(?:ngành|của ngành)?\s*"
@@ -1114,14 +1112,12 @@ def detect_ctdt_question(question: str) -> str | None:
         return major_name if major_name else "ngành bạn quan tâm"
     return "ngành bạn quan tâm"
 
-
 def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -> dict:
     if query_id is None:
         query_id = "q" + uuid.uuid4().hex[:6]
 
     print(f"\n{'='*60}")
     print(f"Q [{query_id}]: {question}")
-
     # ── Bước 0: CTĐT Redirect ─────────────────────────────────────────────────
     ctdt_major = detect_ctdt_question(question)
     if ctdt_major is not None:
@@ -1171,12 +1167,12 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
         return _build_record(query_id, question, answer, [], agg_intent,
                              agg_nodes, [], "aggregation")
 
-    # ── Bước 1b: Expand viết tắt ─────────────────────────────────────────────
+    # ── Bước 1b: Expand viết tắt ──────────────────────────────────────────────
     expanded_question, abbrev_keywords = expand_abbreviations(question)
     if abbrev_keywords:
         print(f"  [abbrev] {abbrev_keywords}")
 
-    # ── Bước 1: Extract intent ────────────────────────────────────────────────
+    # ── Bước 2: Extract intent ────────────────────────────────────────────────
     intent = extract_query_intent(ai_client, expanded_question)
     intent["keywords"] = list(dict.fromkeys(intent["keywords"] + abbrev_keywords))
     keywords = intent["keywords"]
@@ -1184,18 +1180,18 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
     print(f"  Intent: mentioned={intent['mentioned_labels']} "
           f"asked={intent['asked_label']} negated={intent['negated_keywords']}")
 
-    # ── Bước 2: Community Routing ─────────────────────────────────────────────
+    # ── Bước 3: Community Routing ─────────────────────────────────────────────
     community_id, community_def = route_to_community(intent)
     intent["community_id"] = community_id
 
-    # ── Bước 3: Community-aware Traversal ────────────────────────────────────
+    # ── Bước 4: Community-aware Traversal ────────────────────────────────────
     raw_nodes, traversal_paths = multihop_traversal_community_aware(
         driver, keywords, max_hops=MAX_HOPS,
         intent=intent, community_def=community_def,
     )
     print(f"  Traversal: {len(raw_nodes)} nodes | {len(traversal_paths)} paths")
 
-    # ── Bước 4: Dedup + Negation filter ──────────────────────────────────────
+    # ── Bước 5: Dedup + Negation filter ──────────────────────────────────────
     negated_lower = [kw.lower() for kw in intent.get("negated_keywords", [])]
     seen: dict = {}
     for n in raw_nodes:
@@ -1208,7 +1204,13 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
     ]
     print(f"  Context nodes (dedup+negation): {len(context_nodes)}")
 
-    # ── Bước 5: LLM answer ───────────────────────────────────────────────────
+    # ── Bước 6: Enrich extended props khi cần ───────────────────────────────
+    asked = intent.get("asked_label", "UNKNOWN")
+    if asked in ("SUBJECT", "CAREER", "MAJOR") and len(context_nodes) <= 20:
+        context_nodes = fetch_node_details(driver, context_nodes)
+        print(f"  [enrich] Extended props fetched for: {asked}")
+
+    # ── Bước 7: LLM answer ───────────────────────────────────────────────────
     answer = generate_answer(
         ai_client, question, context_nodes, traversal_paths,
         intent=intent, community_def=community_def,
