@@ -6,7 +6,7 @@ from typing import List, Dict
 # =============================
 # IMPORT PIPELINE THẬT
 # =============================
-from script3 import ask          # hàm query GraphRAG của bạn
+from data.draft.script3kk import ask          # hàm query GraphRAG của bạn
 from graphrag import load_graph  # hàm load graph của bạn
 
 
