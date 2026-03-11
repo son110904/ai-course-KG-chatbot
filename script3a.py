@@ -565,7 +565,7 @@ RELATIONSHIP_CONSTRAINTS = {
     ),
     ("MAJOR", "SUBJECT"):  (
         "MAJOR -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT. "
-        "Môn học thuộc chương trình ngành, kèm mã môn, học kỳ (semester), "
+        "Môn học thuộc chương trình ngành, kèm mã môn "
         "loại (required_type: required=bắt buộc, elective=tự chọn)."
     ),
     ("SKILL", "CAREER"):   (
@@ -640,25 +640,56 @@ E. Mọi mã môn (code) phải lấy nguyên văn từ field "code".
 F. Nếu [DỮ LIỆU GRAPH] trống → trả lời:
    "Dữ liệu hiện tại chưa đủ để tư vấn về [chủ đề]. Bạn có thể liên hệ phòng đào tạo."
 
-ĐỊNH DẠNG:
+ĐỊNH DẠNG ĐẦU RA — BẮT BUỘC TUÂN THỦ:
 - Tiếng Việt tự nhiên, thân thiện.
-- Môn học: "Tên môn (mã môn)" — VD: "Toán rời rạc (TOCB1107)".
-- Ngành: "Tên ngành (mã ngành)" — VD: "Công nghệ thông tin (7480201)".
-- Môn bắt buộc/tự chọn: lấy từ field required_type (required=bắt buộc, elective=tự chọn).
 - Khi người dùng phủ định (không giỏi X) → bỏ X khỏi gợi ý.
 - KHÔNG hỏi ngược lại người dùng.
 
-SỬ DỤNG THUỘC TÍNH MỞ RỘNG KHI CÓ:
-- SUBJECT: dùng course_description, courses_goals, prerequisites khi hỏi nội dung môn học.
-- CAREER:  dùng description, job_tasks, market khi hỏi về nghề nghiệp.
-- MAJOR:   dùng philosophy_and_objectives, learning_outcomes khi hỏi về ngành.
-- Nếu field là JSON string → parse và trình bày ngắn gọn phần liên quan.
+1. DANH SÁCH MÔN HỌC / KỸ NĂNG / NGHỀ NGHIỆP → DÙNG BẢNG MARKDOWN:
+   Khi liệt kê từ 3 mục trở lên (môn học, kỹ năng, nghề nghiệp,...), BẮT BUỘC trình bày dạng bảng.
 
-ĐỀ XUẤT NGÀNH HỌC (BẮT BUỘC khi trả lời về CAREER):
-- Luôn kiểm tra field "recommended_majors" trong dữ liệu — đây là các MAJOR node được map qua major_codes.
-- Nếu có → liệt kê "Tên ngành (mã ngành)" ở cuối câu trả lời.
-- Nếu không có recommended_majors nhưng có education_certification → dùng tên trong recommended_majors của nó làm gợi ý (không có mã).
-- KHÔNG bịa ngành không có trong [DỮ LIỆU GRAPH].
+   Ví dụ bảng môn học:
+   | STT | Tên môn | Mã môn | 
+   |-----|---------|--------|
+   | 1 | Toán rời rạc | TOCB1107 |
+
+   Ví dụ bảng kỹ năng:
+   | STT | Kỹ năng | Loại | Mức độ yêu cầu |
+   |-----|---------|------|----------------|
+   | 1 | Lập trình Python | Hard | Trung cấp |
+
+   Ví dụ bảng ngành học (đề xuất ngành):
+   | STT | Tên ngành | Mã ngành | Môn học liên quan |
+   |-----|-----------|----------|-------------------|
+   | 1 | Công nghệ thông tin | 7480201 | Lập trình Python (ITBD2301) |
+
+   Ví dụ bảng nghề nghiệp:
+   | STT | Tên nghề |
+   |-----|----------|
+   | 1 | Kỹ sư phần mềm |
+
+   Chọn cột phù hợp với dữ liệu thực có trong [DỮ LIỆU GRAPH]. Bỏ cột nếu không có dữ liệu.
+
+2. THÔNG TIN CHI TIẾT (mô tả ngành, nghề, môn học) → DÙNG BULLET / NUMBERING:
+   • Dùng chữ IN HOA cho tiêu đề mục (VD: MỤC TIÊU ĐÀO TẠO, CÔNG VIỆC CHÍNH).
+   • Dùng ký tự • ở đầu dòng cho từng ý trong mỗi mục.
+   • Dùng số thứ tự (1. 2. 3.) khi liệt kê các bước hoặc thứ tự ưu tiên.
+   • Ví dụ:
+     KỸ NĂNG YÊU CẦU:
+     • Lập trình Python (hard skill, trung cấp)
+     • Phân tích dữ liệu (hard skill, nâng cao)
+
+3. CÂU TRẢ LỜI NGẮN (dưới 3 mục, hỏi thông tin đơn giản) → VĂN XUÔI BÌNH THƯỜNG.
+   - Môn học: "Tên môn (mã môn)" — VD: "Toán rời rạc (TOCB1107)".
+   - Ngành: "Tên ngành (mã ngành)" — VD: "Công nghệ thông tin (7480201)".
+
+4. KẾT THÚC CÂU TRẢ LỜI: Thêm 1 dòng tóm tắt hoặc gợi ý tiếp theo nếu phù hợp.
+
+SỬ DỤNG THUỘC TÍNH MỞ RỘNG KHI CÓ:
+• SUBJECT: dùng course_description, courses_goals khi hỏi nội dung môn học.
+• CAREER:  dùng description, job_tasks, market khi hỏi về nghề nghiệp.
+• MAJOR:   dùng philosophy_and_objectives, learning_outcomes khi hỏi về ngành.
+• Nếu field là JSON string → parse và trình bày ngắn gọn phần liên quan dùng ký tự •.
 
 RÀNG BUỘC THEO LOẠI CÂU HỎI:
 {constraint}
@@ -698,6 +729,10 @@ ABBREVIATION_MAP: dict[str, list[str]] = {
     "kt":   ["kế toán", "kinh tế"],
     "mkt":  ["marketing"],
     "hr":   ["quản trị nhân lực", "nhân sự"],
+    "mis":  ["hệ thống thông tin quản lý", "management information systems"],
+    "fintech": ["công nghệ tài chính"],
+    "ecom": ["thương mại điện tử"],
+    "acct": ["kế toán"],
 }
 
 
@@ -740,7 +775,7 @@ def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
         "  developer/DEV → lập trình viên | tester/QA → kiểm thử\n\n"
         "Quy tắc xác định asked_label:\n"
         "  - Hỏi thông tin môn học (mô tả, mã môn, nội dung, kế hoạch giảng dạy) → asked=SUBJECT\n"
-        "  - Hỏi thông tin nghề nghiệp (mô tả nghề, công việc, thị trường lao động) → asked=CAREER\n"
+        "  - Hỏi thông tin nghề nghiệp (mô tả nghề, công việc, thị trường lao động, triển vọng, cơ hội nghề nghiệp) → asked=CAREER\n"
         "  - Hỏi thông tin giảng viên (email, học hàm, dạy môn gì) → asked=TEACHER\n"
         "  - Hỏi thông tin ngành học (chương trình, chuẩn đầu ra, mục tiêu) → asked=MAJOR\n"
         "  - Hỏi kỹ năng → asked=SKILL\n\n"
@@ -1385,6 +1420,33 @@ def generate_answer(
 # ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 9: PIPELINE CHÍNH
 # ══════════════════════════════════════════════════════════════════════════════
+_CTDT_PATTERN = re.compile(
+    r"(?:xem|tìm|tải|download|file|chương trình đào tạo|ctđt|ct đt)\s*"
+    r"(?:file\s*)?(?:ctđt|ct\s*đt|chương trình đào tạo)?\s*(?:ngành|của ngành)?\s*"
+    r"(.+?)(?:\s*(?:ở đâu|tại đâu|tải ở đâu|xem ở đâu|download ở đâu)|\s*\?|$)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+def detect_ctdt_question(question: str) -> str | None:
+    """
+    Nếu câu hỏi hỏi về 'xem file CTĐT ngành X ở đâu' (hoặc biến thể),
+    trả về tên ngành X. Ngược lại trả về None.
+    """
+    q = question.strip()
+    if not re.search(r"ctđt|ct\s*đt|chương trình đào tạo", q, re.IGNORECASE | re.UNICODE):
+        return None
+    if not re.search(r"ở đâu|tại đâu|xem|tìm|tải|download|file", q, re.IGNORECASE | re.UNICODE):
+        return None
+    m = _CTDT_PATTERN.search(q)
+    if m:
+        major_name = m.group(1).strip(" ?")
+        # Loại bỏ các từ thừa ở cuối: "thì", "thì xem", "thì tải"...
+        major_name = re.sub(
+            r"\s+(?:thì|thì xem|thì tải|thì download|thì ở đâu|thì tại đâu)\s*$",
+            "", major_name, flags=re.IGNORECASE | re.UNICODE,
+        ).strip(" ?")
+        return major_name if major_name else "ngành bạn quan tâm"
+    return "ngành bạn quan tâm"
 
 def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -> dict:
     if query_id is None:
@@ -1392,6 +1454,20 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
 
     print(f"\n{'='*60}")
     print(f"Q [{query_id}]: {question}")
+    ctdt_major = detect_ctdt_question(question)
+    if ctdt_major is not None:
+        answer = (
+            f"Để xem thêm thì hãy vào trang courses.neu.edu.vn "
+            f"và tìm ngành {ctdt_major} nhé!"
+        )
+        print(f"\nA: {answer}")
+        return _build_record(
+            query_id, question, answer, [ctdt_major],
+            {"asked_label": "CTDT_REDIRECT", "mentioned_labels": [],
+             "keywords": [ctdt_major], "negated_keywords": [],
+             "community_id": "CTDT_REDIRECT"},
+            [], [], "ctdt_redirect",
+        )
 
     # ── Bước 0: Aggregation Router ────────────────────────────────────────────
     agg_type = detect_aggregation_type(question)
