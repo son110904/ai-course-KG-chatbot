@@ -1,25 +1,3 @@
-"""
-extract_hybrid.py — Hybrid Entity Extraction Pipeline (Token-Optimized)
-
-Chiến lược theo từng doctype:
-  CAREER      → 100% rule-based (parse paragraphs có cấu trúc text rõ ràng)
-  SYLLABUS    → ~85% rule-based (teachers, CLOs, lesson_plan từ bảng structured)
-               + LLM mini-call chỉ để rút gọn CLO text → skill_name ngắn gọn
-  CURRICULUM  → LLM nhưng CHỈ gửi phần cần thiết (career_opps + PLO text),
-               còn course list parse hoàn toàn bằng rule-based
-
-Tiết kiệm ước tính so với gửi full JSON vào LLM:
-  CAREER:      ~100% (không gọi LLM)
-  SYLLABUS:    ~85%  (chỉ gửi list CLO text, ~200 tokens thay vì ~8000)
-  CURRICULUM:  ~60%  (chỉ gửi phần text tự do, bỏ toàn bộ course list)
-
-Schema v2 (giữ nguyên):
-  Nodes: MAJOR, SUBJECT, SKILL, CAREER, TEACHER
-  Relationships: major_offers_subject, major_leads_to_career,
-                 subject_provides_skill, career_requires_skill,
-                 teacher_instructs_subject, subject_is_prerequisite_of_subject
-"""
-
 import os
 import re
 import json
@@ -978,13 +956,30 @@ Ví dụ format trả về: {{"skills": ["Phân tích dữ liệu", "Sử dụng
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _parse_major_info(doc: dict) -> dict:
-    """Parse thông tin MAJOR từ bảng key_value đầu tiên."""
+    """Parse thông tin MAJOR từ bảng key_value đầu tiên.
+
+    Hỗ trợ mã ngành có hậu tố chương trình đặc biệt:
+      7340201           → Tài chính – Ngân hàng (chương trình chuẩn)
+      7340201_CLC1      → Ngân hàng (CLC)
+      7340201_TT2       → Tài chính – TT2
+      7340201_EP09      → Công nghệ tài chính
+      7340201_POHE7     → Thẩm định giá
+    Hậu tố được đọc từ source_file nếu field mã ngành trong doc chỉ chứa 7 số.
+    """
     major = {
         "major_code": "",
         "major_name_vi": "",
         "major_name_en": "",
     }
 
+    # Pattern: 7 chữ số + hậu tố tuỳ chọn dạng _CLC1 / _EP09 / _TT2 / _POHE7
+    # Hậu tố: gạch dưới hoặc gạch ngang, theo sau là chữ+số (có thể nhiều phần)
+    MAJOR_CODE_RE = re.compile(
+        r"(\d{7})([_\-][A-Z0-9]+(?:[_\-][A-Z0-9]+)*)?",
+        re.IGNORECASE,
+    )
+
+    # ── Bước 1: Parse từ key_value table ─────────────────────────────────────
     stream = doc.get("content", {}).get("stream", [])
     for item in stream:
         if item.get("table_type") != "key_value":
@@ -993,23 +988,52 @@ def _parse_major_info(doc: dict) -> dict:
         for k, v in data.items():
             k_lower = k.lower()
             v_str = str(v).strip() if v else ""
+            if not v_str:
+                continue
+
             if "mã ngành" in k_lower or "code" in k_lower:
-                major["major_code"] = v_str
+                m = MAJOR_CODE_RE.search(v_str)
+                if m:
+                    base   = m.group(1)
+                    suffix = m.group(2) or ""
+                    major["major_code"] = (base + suffix).upper()
+
             elif "ngành đào tạo" in k_lower or "major" in k_lower:
-                # Tách vi / en nếu có "/"
                 if "/" in v_str:
                     parts = v_str.split("/", 1)
                     major["major_name_vi"] = parts[0].strip()
                     major["major_name_en"] = re.sub(r"[\n\r]+", " ", parts[1]).strip().strip("()")
                 else:
                     major["major_name_vi"] = v_str
+
             elif "chương trình" in k_lower or "programme" in k_lower:
                 if not major["major_name_vi"] and "/" in v_str:
                     parts = v_str.split("/", 1)
                     major["major_name_vi"] = parts[0].strip()
                     major["major_name_en"] = re.sub(r"[\n\r]+", " ", parts[1]).strip().strip("()")
+
         if major["major_code"]:
             break
+
+    # ── Bước 2: Fallback + bổ sung hậu tố từ source_file ────────────────────
+    # source_file thường có dạng: "7340201_CLC1.json" hoặc "CTDT_7340201_EP09.json"
+    source_file = doc.get("source_file", "")
+    stem = Path(source_file).stem  # bỏ extension
+
+    sf_match = MAJOR_CODE_RE.search(stem)
+    if sf_match:
+        sf_base   = sf_match.group(1)
+        sf_suffix = sf_match.group(2) or ""
+        sf_code   = (sf_base + sf_suffix).upper()
+
+        if not major["major_code"]:
+            # Chưa parse được từ key_value → dùng hoàn toàn từ filename
+            major["major_code"] = sf_code
+            log.debug(f"major_code lấy từ filename: {sf_code}")
+        elif major["major_code"] == sf_base and sf_suffix:
+            # Đã có mã 7 số nhưng thiếu hậu tố → bổ sung hậu tố từ filename
+            major["major_code"] = sf_code
+            log.debug(f"major_code bổ sung hậu tố từ filename: {sf_code}")
 
     return major
 
@@ -1396,11 +1420,24 @@ def _normalize_name(name: str) -> str:
 
 
 def build_major_code_index() -> dict[str, str]:
+    """
+    Build index: normalized_major_name → major_code (đầy đủ, kể cả hậu tố).
+
+    Với mỗi MAJOR node, index theo tên ngành:
+      - Mã đầy đủ (VD: 7340201_CLC1) → ưu tiên nếu tên ngành là tên riêng của chương trình
+      - Mã gốc 7 số (VD: 7340201) → fallback cho tên ngành chuẩn
+
+    Tra cứu: dùng setdefault nên mã gốc (file xử lý trước) được ưu tiên giữ lại
+    nếu cùng tên ngành, trừ khi tên ngành là của chương trình đặc biệt.
+    """
+    _MAJOR_BASE_RE = re.compile(r"^(\d{7})([_\-][A-Z0-9]+(?:[_\-][A-Z0-9]+)*)?$", re.IGNORECASE)
+
     index: dict[str, str] = {}
     cur_dir = LOCAL_OUT_DIR / "curriculum"
     if not cur_dir.exists():
         return index
-    for jf in cur_dir.glob("*.json"):
+
+    for jf in sorted(cur_dir.glob("*.json")):  # sorted → thứ tự nhất quán
         try:
             with open(jf, encoding="utf-8") as f:
                 data = json.load(f)
@@ -1411,9 +1448,22 @@ def build_major_code_index() -> dict[str, str]:
                 continue
             name = node.get("major_name_vi", "").strip()
             code = node.get("major_code", "").strip()
-            if name and code:
-                norm = _normalize_name(name)
-                index.setdefault(norm, code)
+            if not name or not code:
+                continue
+
+            norm = _normalize_name(name)
+            m = _MAJOR_BASE_RE.match(code)
+            has_suffix = bool(m and m.group(2))
+
+            # Index theo tên ngành → mã đầy đủ
+            index.setdefault(norm, code)
+
+            # Nếu có suffix: cũng index mã gốc 7 số theo cùng tên
+            # (để lookup "Tài chính – Ngân hàng" → "7340201" vẫn hoạt động)
+            if has_suffix and m:
+                base_code = m.group(1).upper()
+                index.setdefault(norm + "__BASE", base_code)
+
     return index
 
 

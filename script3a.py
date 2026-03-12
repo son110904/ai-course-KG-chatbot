@@ -543,10 +543,21 @@ Relationships (đồng bộ script1 v2, script2 v4):
 """
 
 RELATIONSHIP_CONSTRAINTS = {
-    ("MAJOR", "CAREER"):   (
-        "MAJOR -[:LEADS_TO]-> CAREER. "
-        "Liệt kê Career mà Major dẫn đến. KHÔNG đề cập SUBJECT trừ khi được hỏi."
-    ),
+    ("MAJOR", "CAREER"): (
+    "MAJOR -[:LEADS_TO]-> CAREER. "
+    "Liệt kê Career mà Major dẫn đến. KHÔNG đề cập SUBJECT trừ khi được hỏi. "
+    "QUAN TRỌNG: Chỉ liệt kê nghề nghiệp thực tế (vị trí công việc, chức danh trong tổ chức). "
+    "TUYỆT ĐỐI KHÔNG liệt kê các mục bắt đầu bằng: "
+    "'Cử nhân', 'Kỹ sư', 'Thạc sĩ', 'Tiến sĩ', 'Bác sĩ', 'Bachelor', 'Master', 'Engineer' — "
+    "đây là danh hiệu học vị/bằng cấp, không phải vị trí công việc. "
+    "Ví dụ SAI: 'Cử nhân Công nghệ thông tin', 'Kỹ sư phần mềm (danh hiệu)'. "
+    "Ví dụ ĐÚNG: 'Chuyên viên phân tích dữ liệu', 'Lập trình viên', 'Nhà khoa học dữ liệu'. "
+    "ĐỊNH DẠNG BẮT BUỘC: Trình bày dạng VĂN XUÔI, mỗi nghề một đoạn ngắn theo mẫu: "
+    "'Có thể làm việc tại [field_name] với vai trò [tên nghề] — [short_description hoặc role_in_organization từ description]. "
+    "Công việc chính bao gồm: [1-2 nhiệm vụ tiêu biểu từ job_tasks].' "
+    "Nếu không có description hoặc job_tasks thì chỉ ghi: 'Có thể làm [tên nghề] trong lĩnh vực [field_name].' "
+    "KHÔNG dùng bảng markdown cho câu hỏi loại này."
+    ),    
     ("CAREER", "SKILL"):   (
         "CAREER -[:REQUIRES]-> SKILL và SUBJECT -[:PROVIDES]-> SKILL. "
         "Trả lời kỹ năng cần thiết, chỉ nêu kỹ năng cứng (hard skills, là các skill có skill_type = 'hard') + môn cung cấp kỹ năng đó."
@@ -639,6 +650,9 @@ D. Mọi tên SKILL/SUBJECT/CAREER/MAJOR phải lấy nguyên văn từ [DỮ LI
 E. Mọi mã môn (code) phải lấy nguyên văn từ field "code".
 F. Nếu [DỮ LIỆU GRAPH] trống → trả lời:
    "Dữ liệu hiện tại chưa đủ để tư vấn về [chủ đề]. Bạn có thể liên hệ phòng đào tạo."
+G. TUYỆT ĐỐI KHÔNG liệt kê CAREER node có tên bắt đầu bằng danh hiệu học vị:
+   "Cử nhân", "Kỹ sư" (khi là danh hiệu bằng cấp), "Thạc sĩ", "Tiến sĩ", "Bachelor", "Master".
+   Đây là kết quả đào tạo, KHÔNG phải vị trí công việc. Bỏ qua hoàn toàn.
 
 ĐỊNH DẠNG ĐẦU RA — BẮT BUỘC TUÂN THỦ:
 - Tiếng Việt tự nhiên, thân thiện.
@@ -654,9 +668,9 @@ F. Nếu [DỮ LIỆU GRAPH] trống → trả lời:
    | 1 | Toán rời rạc | TOCB1107 |
 
    Ví dụ bảng kỹ năng:
-   | STT | Kỹ năng | Loại | Mức độ yêu cầu |
-   |-----|---------|------|----------------|
-   | 1 | Lập trình Python | Hard | Trung cấp |
+   | STT | Kỹ năng | Loại | 
+   |-----|---------|------|
+   | 1 | Lập trình Python | Kỹ năng chuyên môn | 
 
    Ví dụ bảng ngành học (đề xuất ngành):
    | STT | Tên ngành | Mã ngành | Môn học liên quan |
@@ -1537,13 +1551,32 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
         n for n in seen.values()
         if not any(neg in (n.get("name") or "").lower() for neg in negated_lower)
     ]
-    print(f"  Context nodes (dedup+negation): {len(context_nodes)}")
+
+    # ── Bước 4b-pre: Lọc CAREER node dạng bằng cấp (không phải vị trí công việc) ──
+    _DEGREE_PREFIXES = (
+        "cử nhân", "kỹ sư", "thạc sĩ", "tiến sĩ", "bác sĩ",
+        "bachelor", "master", "engineer",
+    )
+    def _is_degree_career(node: dict) -> bool:
+        if node.get("label") != "CAREER":
+            return False
+        name_lower = (node.get("name") or "").lower().strip()
+        return any(name_lower.startswith(prefix) for prefix in _DEGREE_PREFIXES)
+
+    context_nodes = [n for n in context_nodes if not _is_degree_career(n)]
 
     # ── Bước 4b: Enrich extended props khi cần ───────────────────────────────
     asked = intent.get("asked_label", "UNKNOWN")
     if asked in ("SUBJECT", "CAREER", "MAJOR") and len(context_nodes) <= 20:
         context_nodes = fetch_node_details(driver, context_nodes)
         print(f"  [enrich] Extended props fetched for: {asked}")
+    elif asked == "CAREER" and len(context_nodes) > 20:
+        # Luôn enrich CAREER nodes ngay cả khi tổng context_nodes lớn
+        # (vì chỉ có tối đa 27 CAREER trong DB)
+        career_nodes_exist = any(n.get("label") == "CAREER" for n in context_nodes)
+        if career_nodes_exist:
+            context_nodes = fetch_node_details(driver, context_nodes)
+            print(f"  [enrich] Extended props force-fetched for CAREER (total nodes={len(context_nodes)})")
 
     # ── Bước 5: LLM answer ───────────────────────────────────────────────────
     answer = generate_answer(
@@ -1633,4 +1666,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

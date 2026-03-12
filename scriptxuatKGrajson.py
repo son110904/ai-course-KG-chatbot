@@ -16,10 +16,10 @@ from neo4j import GraphDatabase
 
 
 # ── Cấu hình mặc định ────────────────────────────────────────────────────────
-DB_URL= "neo4j+s://aa2ceabd.databases.neo4j.io"
-DB_USER= "neo4j"
-DB_PASSWORD= "1TsTblk_ygKXqdp3IZn-r4RgMjLbZFFXMXr-yh0ytNY"
-DB_DATABASE="neo4j"
+DB_URL= "neo4j+s://bdfc7297.databases.neo4j.io"
+DB_USER= "bdfc7297"
+DB_PASSWORD= "0WWAdQtwxMMeoPqTT62bTLBb0DOVqlZs3bjNlASrPDs"
+DB_DATABASE="bdfc7297"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
