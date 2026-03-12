@@ -1,3 +1,25 @@
+"""
+extract_hybrid.py — Hybrid Entity Extraction Pipeline (Token-Optimized)
+
+Chiến lược theo từng doctype:
+  CAREER      → 100% rule-based (parse paragraphs có cấu trúc text rõ ràng)
+  SYLLABUS    → ~85% rule-based (teachers, CLOs, lesson_plan từ bảng structured)
+               + LLM mini-call chỉ để rút gọn CLO text → skill_name ngắn gọn
+  CURRICULUM  → LLM nhưng CHỈ gửi phần cần thiết (career_opps + PLO text),
+               còn course list parse hoàn toàn bằng rule-based
+
+Tiết kiệm ước tính so với gửi full JSON vào LLM:
+  CAREER:      ~100% (không gọi LLM)
+  SYLLABUS:    ~85%  (chỉ gửi list CLO text, ~200 tokens thay vì ~8000)
+  CURRICULUM:  ~60%  (chỉ gửi phần text tự do, bỏ toàn bộ course list)
+
+Schema v2 (giữ nguyên):
+  Nodes: MAJOR, SUBJECT, SKILL, CAREER, TEACHER
+  Relationships: major_offers_subject, major_leads_to_career,
+                 subject_provides_skill, career_requires_skill,
+                 teacher_instructs_subject, subject_is_prerequisite_of_subject
+"""
+
 import os
 import re
 import json
@@ -34,7 +56,7 @@ MINIO_BASE_FOLDER = os.getenv("MINIO_BASE_FOLDER", "courses-processed")
 OPENAI_API_KEY   = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL     = os.getenv("OPENAI_MODEL", "gpt-4o-mini")   # dùng mini cho skill naming
 
-INPUT_FOLDERS    = ["curriculum", "career_description", "syllabus"]
+INPUT_FOLDERS    = ["curriculum", "career_description", "syllabus", "personality"]
 LOCAL_OUT_DIR    = Path("./cache/output")
 MAX_WORKERS      = int(os.getenv("MAX_WORKERS", "10"))
 MAX_RETRIES      = int(os.getenv("MAX_RETRIES", "3"))
@@ -121,7 +143,7 @@ def save_local(data: dict, folder: str, filename: str):
 
 def make_docid(folder: str, filename: str) -> str:
     stem = Path(filename).stem
-    prefix_map = {"curriculum": "CUR", "career_description": "CAR", "syllabus": "SYL"}
+    prefix_map = {"curriculum": "CUR", "career_description": "CAR", "syllabus": "SYL", "personality": "PER"}
     return f"{prefix_map.get(folder, 'DOC')}-{stem}"
 
 
@@ -366,6 +388,258 @@ def extract_career(doc: dict) -> dict:
 
     nodes = [career_node] + skill_nodes
     return {"nodes": nodes, "relationships": skill_rels}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PERSONALITY — 100% RULE-BASED (đọc trực tiếp từ file .docx qua python-docx)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Schema node PERSONALITY:
+#   personality_key  : str       — slugify(name_vi)
+#   name_vi          : str       — tên phẩm chất tiếng Việt
+#   name_en          : str       — tên phẩm chất tiếng Anh (nếu có)
+#   category         : str       — nhóm phẩm chất (VD: "Tư duy", "Đạo đức")
+#   description      : str       — mô tả ngắn
+#   indicators       : list[str] — các biểu hiện / chỉ số hành vi
+#
+# Relationship: subject_develops_personality
+#   from_subject_code → to_personality_key
+#
+# File .docx hỗ trợ 3 format:
+#   Format A: Tên phẩm chất là paragraph bold/heading, theo sau là mô tả + bullet
+#   Format B: Dòng dạng "Tên phẩm chất: ...", "Nhóm: ...", "Mô tả: ..."
+#   Format Table: Mỗi hàng = 1 phẩm chất, cột nhận diện qua header
+
+try:
+    from docx import Document as DocxDocument
+    from docx.text.paragraph import Paragraph as DocxParagraph
+    from docx.table import Table as DocxTable
+    _DOCX_AVAILABLE = True
+except ImportError:
+    _DOCX_AVAILABLE = False
+    log.warning("python-docx chưa được cài. Chạy: pip install python-docx")
+
+_PERS_NAME_PATTERN      = re.compile(r"tên\s*(?:phẩm chất|personality)\s*[:\s]+(.+)", re.IGNORECASE)
+_PERS_NAME_EN_PATTERN   = re.compile(r"(?:english\s*name|tên\s*anh)\s*[:\s]+(.+)", re.IGNORECASE)
+_PERS_CATEGORY_PATTERN  = re.compile(r"(?:nhóm|category|phân loại)\s*[:\s]+(.+)", re.IGNORECASE)
+_PERS_DESC_PATTERN      = re.compile(r"(?:mô tả|description)\s*[:\s]+(.+)", re.IGNORECASE)
+_PERS_INDICATOR_SECTION = re.compile(r"(?:biểu hiện|chỉ số hành vi|indicators?)", re.IGNORECASE)
+
+
+def _is_bold_paragraph(para) -> bool:
+    if para.style and para.style.name and para.style.name.lower().startswith("heading"):
+        return True
+    for run in para.runs:
+        if run.bold:
+            return True
+    return False
+
+
+def _iter_docx_paragraphs(docx_path: str) -> list[dict]:
+    """
+    Đọc file .docx, trả về list dict:
+      {"text": str, "bold": bool, "is_bullet": bool, "style": str}
+    Xử lý cả paragraph thường và table (mỗi row → 1 entry dạng table_row).
+    """
+    if not _DOCX_AVAILABLE:
+        return []
+
+    doc = DocxDocument(docx_path)
+    result = []
+    body = doc.element.body
+
+    for child in body:
+        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+
+        if tag == "p":
+            para = DocxParagraph(child, doc)
+            text = para.text.strip()
+            if not text:
+                continue
+            style_name = para.style.name if para.style else ""
+            is_bold    = _is_bold_paragraph(para)
+            is_bullet  = "List" in style_name or text.startswith(("-", "•", "+", "*"))
+            result.append({
+                "text":      text,
+                "bold":      is_bold,
+                "is_bullet": is_bullet,
+                "style":     style_name,
+            })
+
+        elif tag == "tbl":
+            tbl = DocxTable(child, doc)
+            if not tbl.rows:
+                continue
+            headers = [c.text.strip().lower() for c in tbl.rows[0].cells]
+            for row in tbl.rows[1:]:
+                cells = [c.text.strip() for c in row.cells]
+                row_dict = dict(zip(headers, cells))
+                result.append({
+                    "text":      "",
+                    "bold":      False,
+                    "is_bullet": False,
+                    "style":     "TableRow",
+                    "table_row": row_dict,
+                })
+
+    return result
+
+
+def _parse_personality_from_paragraphs(paragraphs: list[dict]) -> list[dict]:
+    """Parse list personality entries từ paragraphs. Hỗ trợ Format A, B và Table."""
+    entries = []
+    current: dict | None = None
+    in_indicators = False
+
+    def _flush():
+        if current and current.get("name_vi"):
+            entries.append(dict(current))
+
+    for p in paragraphs:
+        # ── Format Table ──────────────────────────────────────────────────────
+        if p.get("table_row"):
+            _flush()
+            current = None
+            in_indicators = False
+            row = p["table_row"]
+
+            name_vi = ""
+            for k in ("tên phẩm chất", "tên", "name_vi", "name", "phẩm chất"):
+                if k in row and row[k]:
+                    name_vi = row[k].strip()
+                    break
+            if not name_vi:
+                continue
+
+            name_en   = row.get("english name", row.get("name_en", row.get("tên anh", "")))
+            category  = row.get("nhóm", row.get("category", row.get("phân loại", "")))
+            desc      = row.get("mô tả", row.get("description", row.get("mô tả ngắn", "")))
+            ind_raw   = row.get("biểu hiện", row.get("indicators", row.get("chỉ số hành vi", "")))
+            indicators = [
+                ln.strip().lstrip("-•+* ")
+                for ln in re.split(r"[\n;]+", ind_raw) if ln.strip()
+            ] if ind_raw else []
+
+            entries.append({
+                "name_vi":    name_vi,
+                "name_en":    name_en.strip(),
+                "category":   category.strip(),
+                "description": desc.strip(),
+                "indicators": indicators,
+            })
+            continue
+
+        text = p["text"]
+
+        # ── Format B: dòng có label rõ ràng ──────────────────────────────────
+        m = _PERS_NAME_PATTERN.match(text)
+        if m:
+            _flush()
+            current = {"name_vi": m.group(1).strip(), "name_en": "", "category": "",
+                       "description": "", "indicators": []}
+            in_indicators = False
+            continue
+
+        m = _PERS_NAME_EN_PATTERN.match(text)
+        if m and current:
+            current["name_en"] = m.group(1).strip()
+            continue
+
+        m = _PERS_CATEGORY_PATTERN.match(text)
+        if m and current:
+            current["category"] = m.group(1).strip()
+            in_indicators = False
+            continue
+
+        m = _PERS_DESC_PATTERN.match(text)
+        if m and current:
+            current["description"] = m.group(1).strip()
+            in_indicators = False
+            continue
+
+        if _PERS_INDICATOR_SECTION.search(text) and current:
+            in_indicators = True
+            inline = re.sub(
+                r"^.*?(?:biểu hiện|chỉ số hành vi|indicators?)\s*[:\s]*", "",
+                text, flags=re.IGNORECASE
+            ).strip()
+            if inline:
+                current["indicators"].append(inline)
+            continue
+
+        # ── Format A: paragraph bold → tên phẩm chất mới ─────────────────────
+        if p["bold"] and not p["is_bullet"] and len(text) < 100:
+            is_label = any(pat.match(text) for pat in [
+                _PERS_CATEGORY_PATTERN, _PERS_DESC_PATTERN, _PERS_INDICATOR_SECTION
+            ])
+            if not is_label:
+                _flush()
+                current = {"name_vi": text, "name_en": "", "category": "",
+                           "description": "", "indicators": []}
+                in_indicators = False
+                continue
+
+        # ── Nội dung thuộc entry hiện tại ────────────────────────────────────
+        if current:
+            if in_indicators or p["is_bullet"]:
+                clean = re.sub(r"^[-•+*\s]+", "", text).strip()
+                if clean:
+                    current["indicators"].append(clean)
+            elif not current["description"]:
+                current["description"] = text
+
+    _flush()
+    return entries
+
+
+def extract_personality(docx_path: str) -> dict:
+    """
+    Đọc file .docx chứa danh sách phẩm chất nhân cách (personality traits).
+    Trả về {"nodes": [PERSONALITY...], "relationships": []}.
+
+    Args:
+        docx_path: Đường dẫn tới file .docx đã tải về local disk.
+    """
+    if not _DOCX_AVAILABLE:
+        log.error("python-docx chưa được cài — không thể extract personality")
+        return {"nodes": [], "relationships": []}
+
+    if not Path(docx_path).exists():
+        log.error(f"File không tồn tại: {docx_path}")
+        return {"nodes": [], "relationships": []}
+
+    log.info(f"  [personality] Đọc file: {docx_path}")
+    paragraphs = _iter_docx_paragraphs(docx_path)
+    if not paragraphs:
+        log.warning(f"  [personality] Không đọc được nội dung từ {docx_path}")
+        return {"nodes": [], "relationships": []}
+
+    entries = _parse_personality_from_paragraphs(paragraphs)
+    log.info(f"  [personality] Tìm thấy {len(entries)} phẩm chất")
+
+    nodes = []
+    seen_keys: set[str] = set()
+
+    for entry in entries:
+        name_vi = entry.get("name_vi", "").strip()
+        if not name_vi:
+            continue
+        pkey = slugify(name_vi)
+        if not pkey or pkey in seen_keys:
+            continue
+        seen_keys.add(pkey)
+
+        nodes.append({
+            "type":            "PERSONALITY",
+            "personality_key": pkey,
+            "name_vi":         name_vi,
+            "name_en":         entry.get("name_en", ""),
+            "category":        entry.get("category", ""),
+            "description":     entry.get("description", ""),
+            "indicators":      entry.get("indicators", []),
+        })
+
+    return {"nodes": nodes, "relationships": []}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -973,7 +1247,6 @@ def _parse_major_info(doc: dict) -> dict:
     }
 
     # Pattern: 7 chữ số + hậu tố tuỳ chọn dạng _CLC1 / _EP09 / _TT2 / _POHE7
-    # Hậu tố: gạch dưới hoặc gạch ngang, theo sau là chữ+số (có thể nhiều phần)
     MAJOR_CODE_RE = re.compile(
         r"(\d{7})([_\-][A-Z0-9]+(?:[_\-][A-Z0-9]+)*)?",
         re.IGNORECASE,
@@ -1018,7 +1291,7 @@ def _parse_major_info(doc: dict) -> dict:
     # ── Bước 2: Fallback + bổ sung hậu tố từ source_file ────────────────────
     # source_file thường có dạng: "7340201_CLC1.json" hoặc "CTDT_7340201_EP09.json"
     source_file = doc.get("source_file", "")
-    stem = Path(source_file).stem  # bỏ extension
+    stem = Path(source_file).stem
 
     sf_match = MAJOR_CODE_RE.search(stem)
     if sf_match:
@@ -1027,11 +1300,10 @@ def _parse_major_info(doc: dict) -> dict:
         sf_code   = (sf_base + sf_suffix).upper()
 
         if not major["major_code"]:
-            # Chưa parse được từ key_value → dùng hoàn toàn từ filename
             major["major_code"] = sf_code
             log.debug(f"major_code lấy từ filename: {sf_code}")
         elif major["major_code"] == sf_base and sf_suffix:
-            # Đã có mã 7 số nhưng thiếu hậu tố → bổ sung hậu tố từ filename
+            # Đã có mã 7 số nhưng thiếu hậu tố → bổ sung từ filename
             major["major_code"] = sf_code
             log.debug(f"major_code bổ sung hậu tố từ filename: {sf_code}")
 
@@ -1422,22 +1694,14 @@ def _normalize_name(name: str) -> str:
 def build_major_code_index() -> dict[str, str]:
     """
     Build index: normalized_major_name → major_code (đầy đủ, kể cả hậu tố).
-
-    Với mỗi MAJOR node, index theo tên ngành:
-      - Mã đầy đủ (VD: 7340201_CLC1) → ưu tiên nếu tên ngành là tên riêng của chương trình
-      - Mã gốc 7 số (VD: 7340201) → fallback cho tên ngành chuẩn
-
-    Tra cứu: dùng setdefault nên mã gốc (file xử lý trước) được ưu tiên giữ lại
-    nếu cùng tên ngành, trừ khi tên ngành là của chương trình đặc biệt.
+    Với mã có suffix (VD: 7340201_CLC1), cũng index thêm mã gốc 7 số.
     """
-    _MAJOR_BASE_RE = re.compile(r"^(\d{7})([_\-][A-Z0-9]+(?:[_\-][A-Z0-9]+)*)?$", re.IGNORECASE)
-
+    _BASE_RE = re.compile(r"^(\d{7})([_\-][A-Z0-9]+(?:[_\-][A-Z0-9]+)*)?$", re.IGNORECASE)
     index: dict[str, str] = {}
     cur_dir = LOCAL_OUT_DIR / "curriculum"
     if not cur_dir.exists():
         return index
-
-    for jf in sorted(cur_dir.glob("*.json")):  # sorted → thứ tự nhất quán
+    for jf in sorted(cur_dir.glob("*.json")):
         try:
             with open(jf, encoding="utf-8") as f:
                 data = json.load(f)
@@ -1450,20 +1714,12 @@ def build_major_code_index() -> dict[str, str]:
             code = node.get("major_code", "").strip()
             if not name or not code:
                 continue
-
             norm = _normalize_name(name)
-            m = _MAJOR_BASE_RE.match(code)
-            has_suffix = bool(m and m.group(2))
-
-            # Index theo tên ngành → mã đầy đủ
             index.setdefault(norm, code)
-
-            # Nếu có suffix: cũng index mã gốc 7 số theo cùng tên
-            # (để lookup "Tài chính – Ngân hàng" → "7340201" vẫn hoạt động)
-            if has_suffix and m:
-                base_code = m.group(1).upper()
-                index.setdefault(norm + "__BASE", base_code)
-
+            # Với mã có suffix: cũng index mã gốc 7 số để lookup vẫn hoạt động
+            m = _BASE_RE.match(code)
+            if m and m.group(2):
+                index.setdefault(norm + "__BASE", m.group(1).upper())
     return index
 
 
@@ -1593,6 +1849,13 @@ def list_json_objects(client: Minio, bucket: str, prefix: str) -> list[str]:
     return [o for o in all_names if o.endswith(".json")]
 
 
+def list_docx_objects(client: Minio, bucket: str, prefix: str) -> list[str]:
+    """Liệt kê file .docx trong MinIO bucket/prefix (dùng cho folder personality)."""
+    objects = client.list_objects(bucket, prefix=prefix + "/", recursive=True)
+    all_names = [obj.object_name for obj in objects]
+    return [o for o in all_names if o.lower().endswith(".docx")]
+
+
 def download_json(client: Minio, bucket: str, object_name: str) -> dict:
     response = client.get_object(bucket, object_name)
     data = json.loads(response.read().decode("utf-8"))
@@ -1606,7 +1869,6 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
     out_path = LOCAL_OUT_DIR / folder / f"{docid}.json"
 
     if out_path.exists() and not FORCE_REPROCESS:
-        # Tự động reprocess nếu output cũ có 0 nodes (lần chạy trước bị lỗi)
         try:
             with open(out_path, encoding="utf-8") as _f:
                 _cached = json.load(_f)
@@ -1616,21 +1878,38 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
                 log.debug(f"[skip] {filename}")
                 return "skip"
         except Exception:
-            pass  # file lỗi → reprocess
+            pass
 
     log.info(f"[start] {filename} ({docid})")
     try:
-        doc_json = download_json(minio_client, MINIO_BUCKET, obj_name)
-        doctype  = folder  # "syllabus" | "curriculum" | "career_description"
+        # ── Personality: tải .docx về temp file rồi parse bằng python-docx ───
+        if folder == "personality":
+            import tempfile
+            suffix = Path(filename).suffix or ".docx"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                minio_client.fget_object(MINIO_BUCKET, obj_name, tmp_path)
+                extracted = extract_personality(tmp_path)
+            finally:
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
 
-        if doctype == "career_description":
-            extracted = extract_career(doc_json)
-        elif doctype == "syllabus":
-            extracted = extract_syllabus(doc_json, ai_client)
-        elif doctype == "curriculum":
-            extracted = extract_curriculum(doc_json, ai_client)
+        # ── Các folder JSON ───────────────────────────────────────────────────
         else:
-            extracted = {"nodes": [], "relationships": []}
+            doc_json = download_json(minio_client, MINIO_BUCKET, obj_name)
+            doctype  = folder
+
+            if doctype == "career_description":
+                extracted = extract_career(doc_json)
+            elif doctype == "syllabus":
+                extracted = extract_syllabus(doc_json, ai_client)
+            elif doctype == "curriculum":
+                extracted = extract_curriculum(doc_json, ai_client)
+            else:
+                extracted = {"nodes": [], "relationships": []}
 
         node_count = len(extracted.get("nodes", []))
         rel_count  = len(extracted.get("relationships", []))
@@ -1647,7 +1926,9 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
 def process_folder(minio_client: Minio, ai_client: OpenAI, folder: str) -> dict:
     log.info(f"\n{'=' * 60}\nProcessing folder: {folder}")
     prefix  = f"{MINIO_BASE_FOLDER}/{folder}"
-    objects = list_json_objects(minio_client, MINIO_BUCKET, prefix)
+    objects = list_docx_objects(minio_client, MINIO_BUCKET, prefix) \
+              if folder == "personality" \
+              else list_json_objects(minio_client, MINIO_BUCKET, prefix)
     if not objects:
         log.warning(f"Không tìm thấy file trong {folder}/")
         return {"ok": 0, "skip": 0, "error": 0}
@@ -1678,7 +1959,7 @@ def main():
     ai_client    = OpenAI(api_key=OPENAI_API_KEY)
 
     total = {"ok": 0, "skip": 0, "error": 0}
-    for folder in ["syllabus", "curriculum", "career_description"]:
+    for folder in ["syllabus", "curriculum", "career_description", "personality"]:
         if folder not in INPUT_FOLDERS:
             continue
         counts = process_folder(minio_client, ai_client, folder)
