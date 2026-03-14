@@ -1,36 +1,6 @@
 """
-Script 2 (OPTIMIZED v5): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
+Script 2 (OPTIMIZED v6): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
 → push to Neo4j Aura
-
-Hỗ trợ 4 schema thực tế:
-  - CUR  (curriculum):         type MAJOR/SUBJECT/CAREER,      rel: major_offers_subject, major_leads_to_career
-  - SYL  (syllabus):           type SUBJECT/TEACHER/SKILL,     rel: teach, provides, prerequisite_for
-  - CAR  (career_description): type CAREER/SKILL/MAJOR,        rel: requires
-  - PER  (personality):        type PERSONALITY,               rel: (không có)
-
-Relationship names trong Neo4j (đồng bộ với script 1 & 3):
-  MAJOR       -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT
-  MAJOR       -[:LEADS_TO]->             CAREER
-  TEACHER     -[:TEACH]->                SUBJECT
-  SUBJECT     -[:PROVIDES]->             SKILL
-  SUBJECT     -[:PREREQUISITE_FOR]->     SUBJECT
-  CAREER      -[:REQUIRES]->             SKILL
-
-Tất cả idempotent (MERGE everywhere), không dùng LLM.
-
-Thay đổi v5 (đồng bộ script1 v3):
-  - PER: xử lý thêm node PERSONALITY (personality_key, name_vi, name_en, category, description, indicators)
-  - detect_schema: nhận dạng personality qua node type PERSONALITY
-  - FOLDERS: bổ sung "personality"
-  - Indexes: bổ sung index cho PERSONALITY
-  - SKILL.name dùng skill_name đầy đủ (giữ nguyên "Khóa luận tốt nghiệp - Tên ngành")
-
-Thay đổi v4 (đồng bộ script1 v2):
-  - CAR: xử lý thêm node MAJOR từ recommended_majors
-  - detect_schema: career_description có thể chứa MAJOR
-  - SUBJECT: SET thêm các thuộc tính mở rộng (course_description, lesson_plan theo tuần, ...)
-  - MAJOR:   SET thêm các thuộc tính mở rộng (philosophy_and_objectives, admission_requirements, ...)
-  - CAREER:  SET thêm các thuộc tính mở rộng (description, job_tasks, market, ...)
 """
 
 import os
@@ -100,8 +70,12 @@ def detect_schema(kg_data: dict) -> str:
     node_types = {n.get("type", "") for n in nodes}
     rel_types  = {r.get("rel_type", "") for r in rels}
 
-    # personality: chứa node PERSONALITY
-    if "PERSONALITY" in node_types:
+    # personality: chứa node PERSONALITY hoặc relationship suits_major/suits_career
+    if (
+        "PERSONALITY" in node_types
+        or "personality_suits_major"  in rel_types
+        or "personality_suits_career" in rel_types
+    ):
         return "personality"
 
     # syllabus: có TEACHER hoặc teacher_instructs_subject
@@ -515,47 +489,105 @@ def car_rel_cypher(rel: dict) -> str | None:
 
 
 # ══════════════════════════════
-#  PERSONALITY
+#  PERSONALITY  (MBTI-based v6)
 # ══════════════════════════════
 
 def per_node_cypher(node: dict) -> str | None:
-    """PER: PERSONALITY"""
+    """
+    PER: PERSONALITY — schema MBTI-based v6.
+    MERGE theo personality_key (= MBTI code, e.g. "ESTP").
+    Lưu toàn bộ trường MBTI; suitable_fields serialize thành JSON string.
+    """
     t = node.get("type", "")
+    if t != "PERSONALITY":
+        return None
 
-    if t == "PERSONALITY":
-        key      = _esc(node.get("personality_key"))
-        name_vi  = _esc(node.get("name_vi"))
-        name_en  = _esc(node.get("name_en"))
-        category = _esc(node.get("category"))
-        desc     = _esc(node.get("description"))
-        # indicators là list → serialize thành JSON string
-        indicators = node.get("indicators")
+    key = _esc(node.get("personality_key") or node.get("code"))
+    if not key:
+        return None
 
-        # Bắt buộc: phải có personality_key
-        if not key:
-            return None
+    stmt = f"MERGE (n:PERSONALITY {{personality_key: '{key}'}})"
+    sets = [
+        f"n.name = '{key}'",          # name hiển thị = MBTI code
+        f"n.code = '{key}'",
+    ]
 
-        stmt = f"MERGE (n:PERSONALITY {{personality_key: '{key}'}})"
-        sets = []
-        # name = name_vi (tên hiển thị chính)
-        name_display = name_vi or key
-        sets.append(f"n.name = '{name_display}'")
-        if name_vi:  sets.append(f"n.name_vi = '{name_vi}'")
-        if name_en:  sets.append(f"n.name_en = '{name_en}'")
-        if category: sets.append(f"n.category = '{category}'")
-        if desc:     sets.append(f"n.description = '{desc}'")
-        if indicators is not None:
-            sets.append(f"n.indicators = '{_json_prop(indicators)}'")
+    desc = node.get("description")
+    if desc:
+        sets.append(f"n.description = '{_esc(desc)}'")
 
-        if sets:
-            stmt += " SET " + ", ".join(sets)
-        return stmt
+    # 4 chiều structure → JSON string
+    structure = node.get("structure")
+    if structure:
+        sets.append(f"n.structure = '{_json_prop(structure)}'")
 
-    return None
+    strengths = node.get("strengths")
+    if strengths:
+        sets.append(f"n.strengths = '{_json_prop(strengths)}'")
+
+    weaknesses = node.get("weaknesses")
+    if weaknesses:
+        sets.append(f"n.weaknesses = '{_json_prop(weaknesses)}'")
+
+    work_env = node.get("work_environment")
+    if work_env:
+        sets.append(f"n.work_environment = '{_esc(work_env)}'")
+
+    # suitable_fields: lưu nguyên JSON để script3 có thể query trực tiếp
+    suitable = node.get("suitable_fields")
+    if suitable:
+        sets.append(f"n.suitable_fields = '{_json_prop(suitable)}'")
+
+    stmt += " SET " + ", ".join(sets)
+    return stmt
 
 
 def per_rel_cypher(rel: dict) -> str | None:
-    """PER: không có relationship nào trong schema hiện tại."""
+    """
+    PER relationships (v6):
+      personality_suits_major  → PERSONALITY -[:SUITS_MAJOR]->  MAJOR
+      personality_suits_career → PERSONALITY -[:SUITS_CAREER]-> CAREER
+    """
+    rtype = rel.get("rel_type", "")
+
+    # ── PERSONALITY -[:SUITS_MAJOR]-> MAJOR ──────────────────────────────────
+    if rtype == "personality_suits_major":
+        pkey       = _esc(rel.get("from_personality_key"))
+        major_code = _esc(rel.get("to_major_code"))
+        if not pkey or not major_code:
+            return None
+        field_name = _esc(rel.get("field_name", ""))
+        group_name = _esc(rel.get("group_name", ""))
+        props = []
+        if field_name: props.append(f"field_name: '{field_name}'")
+        if group_name: props.append(f"group_name: '{group_name}'")
+        props_str = "{" + ", ".join(props) + "}" if props else ""
+        return (
+            f"MATCH (a:PERSONALITY {{personality_key: '{pkey}'}}), "
+            f"(b:MAJOR {{code: '{major_code}'}})"
+            f" MERGE (a)-[:SUITS_MAJOR{' ' + props_str if props_str else ''}]->(b)"
+        )
+
+    # ── PERSONALITY -[:SUITS_CAREER]-> CAREER ────────────────────────────────
+    if rtype == "personality_suits_career":
+        pkey        = _esc(rel.get("from_personality_key"))
+        career_name = _esc(rel.get("to_career_name"))
+        if not pkey or not career_name:
+            return None
+        major_name = _esc(rel.get("major_name", ""))
+        field_name = _esc(rel.get("field_name", ""))
+        # CAREER node: MERGE by name (tạo mới nếu chưa có)
+        props = []
+        if major_name: props.append(f"major_name: '{major_name}'")
+        if field_name: props.append(f"field_name: '{field_name}'")
+        props_str = "{" + ", ".join(props) + "}" if props else ""
+        return (
+            f"MERGE (b:CAREER {{name: '{career_name}'}})"
+            f" WITH b"
+            f" MATCH (a:PERSONALITY {{personality_key: '{pkey}'}})"
+            f" MERGE (a)-[:SUITS_CAREER{' ' + props_str if props_str else ''}]->(b)"
+        )
+
     return None
 
 
@@ -631,7 +663,7 @@ def create_indexes(session):
         "CREATE INDEX IF NOT EXISTS FOR (n:MAJOR)       ON (n.name)",
         "CREATE INDEX IF NOT EXISTS FOR (n:SUBJECT)     ON (n.name)",
         "CREATE INDEX IF NOT EXISTS FOR (n:PERSONALITY) ON (n.name)",
-        "CREATE INDEX IF NOT EXISTS FOR (n:PERSONALITY) ON (n.category)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:PERSONALITY) ON (n.code)",
     ]
     for stmt in stmts:
         try:
@@ -733,7 +765,7 @@ def process_files(driver):
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
-    log.info("Starting Neo4j ingestion pipeline (v5 – synchronized with script1 v3)...")
+    log.info("Starting Neo4j ingestion pipeline (v6 – MBTI personality schema)...")
 
     if not NEO4J_URI:
         raise ValueError("DB_URL không tìm thấy trong .env")

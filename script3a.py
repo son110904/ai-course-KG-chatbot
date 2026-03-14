@@ -1,6 +1,34 @@
 """
 Script 3: Knowledge Graph Q&A Chatbot
 
+Dữ liệu thực tế trong Neo4j (6778 nodes, 13724 rels):
+  MAJOR    (37):   code, name, name_vi, name_en, philosophy_and_objectives,
+                   admission_requirements, learning_outcomes, po_plo_matrix,
+                   training_process_and_graduation_conditions,
+                   curriculum_structure_and_content, teaching_and_assessment_methods,
+                   reference_programs, lecturer_and_teaching_assistant_standards,
+                   facilities_and_learning_resources
+                   community_L2=2
+
+  SUBJECT  (802):  code, name, name_vi, name_en,
+                   course_description, courses_goals, assessment,
+                   learning_resources, course_requirements_and_expectations,
+                   syllabus_adjustment_time, week_1..week_N
+                   community_L2=2, community_L3=0
+
+  CAREER   (27):   career_key, name, name_vi, name_en, field_name,
+                   description, job_tasks, education_certification, market, major_codes
+                   community_L2=1, community_L3=1
+
+  SKILL    (5217): skill_key, name, skill_type
+                   community_L2=0, community_L3=2
+
+  TEACHER  (695):  teacher_key, name, email, title
+                   community_L2=0, community_L3=1
+
+  PERSONALITY (?): personality_key, name_vi, name_en, category, description, indicators
+                   community_L2=3 (L2_PERSONALITY_FIT)
+
 Relationships:
   MAJOR    -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT      (1421)
   SUBJECT  -[:PROVIDES]->             SKILL        (8069)
@@ -54,8 +82,10 @@ RELATIONSHIP_WEIGHTS: dict[str, int] = {
     "TEACH":                 2,
     "LEADS_TO":              2,
     "MAJOR_OFFERS_SUBJECT":  1,
-    "REQUIRES_PERSONALITY":  2,   # ngang LEADS_TO — personality là soft signal quan trọng
-    "CULTIVATES":            1,   # thấp hơn — dữ liệu Subject→Personality ít chắc chắn hơn
+    "REQUIRES_PERSONALITY":  2,   # dự phòng — Career→Personality
+    "CULTIVATES":            1,   # dự phòng — Subject→Personality
+    "SUITS_MAJOR":           3,   # MỚI — Personality→Major (trực tiếp từ suitable_fields)
+    "SUITS_CAREER":          3,   # MỚI — Personality→Career (trực tiếp từ suitable_fields)
 }
 
 COMMUNITY_LEVELS: dict[str, dict] = {
@@ -95,9 +125,9 @@ COMMUNITY_LEVELS: dict[str, dict] = {
         # community_L2: SKILL=0, CAREER=1, SUBJECT=2 — không đồng nhất, dùng label filter
         "node_labels": {"SKILL", "CAREER", "SUBJECT", "PERSONALITY"},
         "rel_weights": {
-            "PROVIDES":             3,
-            "REQUIRES":             3,
-            "REQUIRES_PERSONALITY": 2,
+            "PROVIDES":     3,
+            "REQUIRES":     3,
+            "SUITS_CAREER": 3,   # Personality→Career
         },
         "purpose": (
             "Kết nối đầu ra môn học (Subject→Skill) với yêu cầu thực tế (Career→Skill). "
@@ -109,17 +139,19 @@ COMMUNITY_LEVELS: dict[str, dict] = {
     "L2_PERSONALITY_FIT": {
         "id":          "L2_PERSONALITY_FIT",
         "level":       2,
-        "name":        "Cụm Phẩm chất & Nghề nghiệp (Personality Fit Cluster)",
-        # community_L2: PERSONALITY=3, CAREER=1 — dùng label filter
+        "name":        "Cụm Tính cách MBTI & Ngành/Nghề (Personality Fit Cluster)",
+        # community_L2: PERSONALITY=3, CAREER=1, MAJOR=2 — dùng label filter
         "node_labels": {"PERSONALITY", "CAREER", "MAJOR"},
         "rel_weights": {
-            "REQUIRES_PERSONALITY": 2,
-            "LEADS_TO":             2,
+            "SUITS_MAJOR":          3,   # Personality→Major (primary)
+            "SUITS_CAREER":         3,   # Personality→Career (primary)
+            "LEADS_TO":             2,   # Major→Career (bridge)
+            "REQUIRES_PERSONALITY": 2,   # dự phòng nếu có edge cũ
         },
         "purpose": (
-            "Gợi ý nghề nghiệp/ngành học phù hợp với phẩm chất nhân cách. "
-            "Kích hoạt khi câu hỏi nhắc tới tính cách, phẩm chất, "
-            "hoặc hỏi dạng 'hợp với nghề gì', 'tính cách X phù hợp ngành nào'."
+            "Gợi ý ngành học và nghề nghiệp phù hợp với loại tính cách MBTI. "
+            "Kích hoạt khi câu hỏi nhắc tới MBTI code (ESTP, ENTP...), "
+            "'tính cách', 'hướng nội/hướng ngoại', 'hợp với nghề gì'."
         ),
     },
 
@@ -198,7 +230,9 @@ INTENT_TO_COMMUNITY: dict[tuple, str] = {
 _PERSONALITY_KW_PATTERN = re.compile(
     r"tính cách|phẩm chất|personality|hướng nội|hướng ngoại|"
     r"cẩn thận|sáng tạo|lãnh đạo|đồng cảm|kiên nhẫn|tự tin|"
-    r"hợp\s+(với\s+)?(nghề|ngành)|phù hợp\s+(với\s+)?(tôi|mình|người)",
+    r"hợp\s+(với\s+)?(nghề|ngành)|phù hợp\s+(với\s+)?(tôi|mình|người)|"
+    r"\b(INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP"
+    r"|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)\b",
     re.IGNORECASE | re.UNICODE,
 )
 
@@ -570,8 +604,10 @@ Relationships (đồng bộ script1 v3, script2 v5):
   (CAREER)      -[:REQUIRES {required_level}]->                      (SKILL)         (223)
   (SUBJECT)     -[:PREREQUISITE_FOR]->                               (SUBJECT)        (24)
   (MAJOR)       -[:LEADS_TO]->                                       (CAREER)          (6)
-  (CAREER)      -[:REQUIRES_PERSONALITY]->                           (PERSONALITY)   (MỚI)
-  (SUBJECT)     -[:CULTIVATES]->                                     (PERSONALITY)   (MỚI)
+  (PERSONALITY) -[:SUITS_MAJOR {field_name, group_name}]->           (MAJOR)         (MỚI v6)
+  (PERSONALITY) -[:SUITS_CAREER {field_name, major_name}]->          (CAREER)        (MỚI v6)
+  (CAREER)      -[:REQUIRES_PERSONALITY]->                           (PERSONALITY)   (dự phòng)
+  (SUBJECT)     -[:CULTIVATES]->                                     (PERSONALITY)   (dự phòng)
 """
 
 RELATIONSHIP_CONSTRAINTS = {
@@ -667,44 +703,55 @@ RELATIONSHIP_CONSTRAINTS = {
         "chuẩn đầu ra (learning_outcomes), cơ hội nghề nghiệp (LEADS_TO→CAREER)."
     ),
 
-    # Personality constraints
-    ("CAREER", "PERSONALITY"): (
-        "CAREER -[:REQUIRES_PERSONALITY]-> PERSONALITY. "
-        "Liệt kê phẩm chất nhân cách mà nghề này yêu cầu. "
-        "Với mỗi phẩm chất: nêu tên (name_vi), nhóm (category), mô tả ngắn (description), "
-        "và 1-2 biểu hiện hành vi tiêu biểu (indicators). "
-        "Dùng bảng markdown khi có từ 3 phẩm chất trở lên."
-    ),
+    # Personality constraints — MBTI v6
     ("PERSONALITY", "CAREER"): (
-        "PERSONALITY <-[:REQUIRES_PERSONALITY]- CAREER. "
-        "Liệt kê nghề nghiệp phù hợp với người có phẩm chất này. "
-        "Kèm field_name và mô tả ngắn nghề nếu có."
+        "PERSONALITY -[:SUITS_CAREER]-> CAREER. "
+        "Liệt kê nghề nghiệp phù hợp với loại tính cách MBTI này. "
+        "NGUỒN DỮ LIỆU ưu tiên theo thứ tự: "
+        "(1) Các node CAREER trong [DỮ LIỆU GRAPH] có rel_types=['SUITS_CAREER']. "
+        "(2) Trường suitable_fields trong node PERSONALITY (parse JSON string): "
+        "    lấy từng field → groups → majors → careers. "
+        "Định dạng BẮT BUỘC: bảng markdown | Lĩnh vực | Nhóm ngành | Nghề nghiệp |. "
+        "TUYỆT ĐỐI không bịa thêm nghề không có trong dữ liệu."
     ),
     ("PERSONALITY", "MAJOR"): (
-        "PERSONALITY <-[:REQUIRES_PERSONALITY]- CAREER <-[:LEADS_TO]- MAJOR. "
-        "Ngành học nào dẫn đến nghề phù hợp với phẩm chất đó. "
-        "Kèm mã ngành, tên ngành, và tên nghề trung gian."
-    ),
-    ("MAJOR", "PERSONALITY"): (
-        "MAJOR -[:LEADS_TO]-> CAREER -[:REQUIRES_PERSONALITY]-> PERSONALITY. "
-        "Phẩm chất nhân cách mà người học ngành này nên có. "
-        "Tổng hợp từ các nghề mà ngành dẫn đến."
-    ),
-    ("SUBJECT", "PERSONALITY"): (
-        "SUBJECT -[:CULTIVATES]-> PERSONALITY. "
-        "Phẩm chất nhân cách môn học rèn luyện. "
-        "Nếu không có edge CULTIVATES: suy luận từ CLO/course_description nếu có dữ liệu."
-    ),
-    ("PERSONALITY", "SUBJECT"): (
-        "PERSONALITY <-[:CULTIVATES]- SUBJECT. "
-        "Môn học rèn luyện phẩm chất này. Kèm mã môn."
+        "PERSONALITY -[:SUITS_MAJOR]-> MAJOR. "
+        "Liệt kê ngành học phù hợp với loại tính cách MBTI này tại NEU. "
+        "NGUỒN DỮ LIỆU ưu tiên theo thứ tự: "
+        "(1) Các node MAJOR trong [DỮ LIỆU GRAPH] có rel_types=['SUITS_MAJOR']. "
+        "(2) Trường suitable_fields trong node PERSONALITY (parse JSON string): "
+        "    lấy từng field → groups → majors, lấy major_code và major_name. "
+        "Định dạng BẮT BUỘC: bảng markdown | STT | Tên ngành | Mã ngành | Lĩnh vực |. "
+        "Nếu major_code rỗng: ghi '—'. "
+        "SAU BẢNG: thêm 1 đoạn ngắn giải thích TẠI SAO tính cách này phù hợp với "
+        "các ngành đó (dựa vào strengths/work_environment trong node PERSONALITY). "
+        "TUYỆT ĐỐI không liệt kê ngành ngoài dữ liệu."
     ),
     ("PERSONALITY", "PERSONALITY"): (
-        "Trả lời đầy đủ về phẩm chất: "
-        "1. Tên (name_vi / name_en). "
-        "2. Nhóm phẩm chất (category). "
-        "3. Mô tả (description). "
-        "4. Biểu hiện hành vi (indicators) — liệt kê dạng bullet."
+        "Trả lời đầy đủ về loại tính cách MBTI theo 4 phần: "
+        "1. MÔ TẢ TỔNG QUAN (description). "
+        "2. 4 CHIỀU TÍNH CÁCH (structure: IE/SN/TF/JP — mỗi chiều nêu dimension + description). "
+        "3. ĐIỂM MẠNH (strengths) & ĐIỂM YẾU (weaknesses) — dạng bullet. "
+        "4. MÔI TRƯỜNG LÀM VIỆC PHÙ HỢP (work_environment). "
+        "Sau đó gợi ý xem thêm ngành/nghề phù hợp."
+    ),
+    ("CAREER", "PERSONALITY"): (
+        "PERSONALITY -[:SUITS_CAREER]-> CAREER (chiều ngược). "
+        "Liệt kê loại tính cách MBTI phù hợp với nghề này. "
+        "Kèm mô tả ngắn tại sao phù hợp dựa vào structure/strengths của MBTI type đó."
+    ),
+    ("MAJOR", "PERSONALITY"): (
+        "PERSONALITY -[:SUITS_MAJOR]-> MAJOR (chiều ngược). "
+        "Liệt kê loại tính cách MBTI phù hợp với ngành học này. "
+        "Kèm tên MBTI code và lý do ngắn gọn."
+    ),
+    ("SUBJECT", "PERSONALITY"): (
+        "SUBJECT -[:CULTIVATES]-> PERSONALITY (dự phòng). "
+        "Nếu không có dữ liệu: thông báo chưa có thông tin tính cách cho môn học này."
+    ),
+    ("PERSONALITY", "SUBJECT"): (
+        "PERSONALITY <-[:CULTIVATES]- SUBJECT (dự phòng). "
+        "Nếu không có dữ liệu: thông báo chưa có thông tin."
     ),
 }
 
@@ -775,7 +822,7 @@ SỬ DỤNG THUỘC TÍNH MỞ RỘNG KHI CÓ:
 • SUBJECT:      dùng course_description, courses_goals khi hỏi nội dung môn học.
 • CAREER:       dùng description, job_tasks, market khi hỏi về nghề nghiệp.
 • MAJOR:        dùng philosophy_and_objectives, learning_outcomes khi hỏi về ngành.
-• PERSONALITY:  dùng category (nhóm phẩm chất), description (mô tả), indicators (biểu hiện hành vi).
+• PERSONALITY:  dùng code (MBTI type), description (mô tả tổng quan), structure (4 chiều IE/SN/TF/JP), strengths/weaknesses, work_environment. Trường suitable_fields là JSON string → parse để lấy field_name, group_name, major_name, major_code, careers.
 • Nếu field là JSON string → parse và trình bày ngắn gọn phần liên quan dùng ký tự •.
 
 RÀNG BUỘC THEO LOẠI CÂU HỎI:
@@ -789,6 +836,56 @@ CỘNG ĐỒNG ĐÃ ĐƯỢC ĐỊNH TUYẾN:
 # ══════════════════════════════════════════════════════════════════════════════
 # PHẦN 5: ABBREVIATION EXPANSION
 # ══════════════════════════════════════════════════════════════════════════════
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHẦN 5b: MBTI EXPANSION
+# ══════════════════════════════════════════════════════════════════════════════
+
+_MBTI_PATTERN = re.compile(
+    r"\b(INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP"
+    r"|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)\b",
+    re.IGNORECASE,
+)
+
+# Map MBTI code → keywords để mở rộng query khi DB chưa có SUITS_MAJOR/SUITS_CAREER
+# (fallback khi graph traversal không tìm được gì qua edge trực tiếp)
+MBTI_KEYWORD_FALLBACK: dict[str, list[str]] = {
+    "INTJ": ["chiến lược", "phân tích", "độc lập", "tầm nhìn"],
+    "INTP": ["phân tích", "logic", "nghiên cứu", "lý luận"],
+    "ENTJ": ["lãnh đạo", "chiến lược", "quyết đoán", "quản lý"],
+    "ENTP": ["sáng tạo", "đổi mới", "lập luận", "linh hoạt"],
+    "INFJ": ["đồng cảm", "tầm nhìn", "sáng tạo", "kiên nhẫn"],
+    "INFP": ["sáng tạo", "đồng cảm", "lý tưởng", "linh hoạt"],
+    "ENFJ": ["lãnh đạo", "đồng cảm", "giao tiếp", "tổ chức"],
+    "ENFP": ["sáng tạo", "nhiệt huyết", "giao tiếp", "linh hoạt"],
+    "ISTJ": ["kỷ luật", "cẩn thận", "trách nhiệm", "tổ chức"],
+    "ISFJ": ["đồng cảm", "kiên nhẫn", "cẩn thận", "hỗ trợ"],
+    "ESTJ": ["tổ chức", "kỷ luật", "lãnh đạo", "quyết đoán"],
+    "ESFJ": ["giao tiếp", "đồng cảm", "hỗ trợ", "tổ chức"],
+    "ISTP": ["phân tích", "thực tế", "kỹ thuật", "linh hoạt"],
+    "ISFP": ["sáng tạo", "thực tế", "đồng cảm", "linh hoạt"],
+    "ESTP": ["năng động", "thực tế", "quyết đoán", "lãnh đạo"],
+    "ESFP": ["năng động", "giao tiếp", "linh hoạt", "thực tế"],
+}
+
+
+def expand_mbti(question: str) -> tuple[str, list[str]]:
+    """
+    Nhận diện MBTI code trong câu hỏi.
+    Trả về (expanded_question, extra_keywords).
+    - extra_keywords = [mbti_code] để query trực tiếp node PERSONALITY trong DB.
+    - Nếu không tìm thấy node MBTI, fallback keywords sẽ được dùng trong expand_abbreviations.
+    """
+    m = _MBTI_PATTERN.search(question)
+    if not m:
+        return question, []
+
+    mbti_code = m.group(1).upper()
+    # Keyword chính = MBTI code (để hit node PERSONALITY trong DB)
+    extra = [mbti_code]
+    hint  = f"[GHI CHÚ: {mbti_code} là loại tính cách MBTI]"
+    return question + "  " + hint, extra
+
 
 ABBREVIATION_MAP: dict[str, list[str]] = {
     "da":   ["data analyst", "phân tích dữ liệu"],
@@ -866,11 +963,11 @@ def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
         "  - Hỏi thông tin giảng viên (email, học hàm, dạy môn gì) → asked=TEACHER\n"
         "  - Hỏi thông tin ngành học (chương trình, chuẩn đầu ra, mục tiêu) → asked=MAJOR\n"
         "  - Hỏi kỹ năng → asked=SKILL\n"
-        "  - Hỏi về tính cách, phẩm chất nhân cách, personality fit, "
-        "    hoặc 'tôi hướng nội/hướng ngoại hợp nghề gì', "
-        "    hoặc 'nghề X cần tính cách gì' → asked=PERSONALITY\n"
-        "  - Nếu đề cập tính cách nhưng hỏi về nghề → mentioned=PERSONALITY, asked=CAREER\n"
-        "  - Nếu đề cập tính cách nhưng hỏi về ngành → mentioned=PERSONALITY, asked=MAJOR\n\n"
+        "  - Hỏi về loại tính cách MBTI (ESTP/ENTP/...), personality fit, "
+        "    hoặc 'hướng nội/hướng ngoại hợp nghề gì', 'tôi là INTJ học ngành gì' → asked=PERSONALITY\n"
+        "  - Nếu đề cập MBTI code nhưng hỏi về nghề → mentioned=PERSONALITY, asked=CAREER\n"
+        "  - Nếu đề cập MBTI code nhưng hỏi về ngành → mentioned=PERSONALITY, asked=MAJOR\n"
+        "  - Keywords: luôn giữ nguyên MBTI code (ESTP, ENTP...) làm keyword chính\n\n"
         "Trả về JSON:\n"
         "{\n"
         '  "keywords": ["tên thực thể để tìm trong KG"],\n'
@@ -940,7 +1037,10 @@ EXTENDED_PROPS: dict[str, list[str]] = {
     ],
     "TEACHER":     ["email", "title"],
     "SKILL":       ["skill_type"],
-    "PERSONALITY": ["category", "description", "indicators", "name_en"],
+    "PERSONALITY": [
+        "code", "description", "structure",
+        "strengths", "weaknesses", "work_environment", "suitable_fields",
+    ],
 }
 
 # Targeted Queries — trả về các columns chuẩn: name, label, code, rel_types, node_names, hops
@@ -1171,68 +1271,65 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
         ORDER BY start.name LIMIT 10
     """,
 
-    # ── Personality cluster ───────────────────────────────────────────────────
-    # Nghề → Phẩm chất
-    ("CAREER", "PERSONALITY"): """
-        MATCH (start:CAREER)-[:REQUIRES_PERSONALITY]->(n:PERSONALITY)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-           OR toLower(start.career_key) CONTAINS toLower($kw)
-        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
-               ['REQUIRES_PERSONALITY'] AS rel_types,
-               [start.name, n.name] AS node_names,
-               1 AS hops,
-               null AS semester, null AS required_type, null AS course_description
-        ORDER BY n.name LIMIT 30
-    """,
-    # Phẩm chất → Nghề
+    # ── Personality cluster (MBTI v6 — dùng SUITS_MAJOR / SUITS_CAREER) ───────
+    # MBTI → Career (primary edge SUITS_CAREER)
     ("PERSONALITY", "CAREER"): """
-        MATCH (n:CAREER)-[:REQUIRES_PERSONALITY]->(start:PERSONALITY)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-           OR toLower(start.personality_key) CONTAINS toLower($kw)
-           OR toLower(start.category) CONTAINS toLower($kw)
+        MATCH (start:PERSONALITY)-[:SUITS_CAREER]->(n:CAREER)
+        WHERE start.personality_key = toUpper($kw)
+           OR toLower(start.name) CONTAINS toLower($kw)
         RETURN n.name AS name, labels(n)[0] AS label, null AS code,
-               ['REQUIRES_PERSONALITY'] AS rel_types,
+               ['SUITS_CAREER'] AS rel_types,
+               [start.name, n.name] AS node_names,
+               1 AS hops,
+               null AS semester, null AS required_type, null AS course_description
+        ORDER BY n.name LIMIT 50
+    """,
+    # MBTI → Major (primary edge SUITS_MAJOR)
+    ("PERSONALITY", "MAJOR"): """
+        MATCH (start:PERSONALITY)-[:SUITS_MAJOR]->(n:MAJOR)
+        WHERE start.personality_key = toUpper($kw)
+           OR toLower(start.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['SUITS_MAJOR'] AS rel_types,
                [start.name, n.name] AS node_names,
                1 AS hops,
                null AS semester, null AS required_type, null AS course_description
         ORDER BY n.name LIMIT 30
     """,
-    # Phẩm chất → Ngành (qua Career trung gian)
-    ("PERSONALITY", "MAJOR"): """
-        MATCH (m:MAJOR)-[:LEADS_TO]->(c:CAREER)-[:REQUIRES_PERSONALITY]->(start:PERSONALITY)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-           OR toLower(start.personality_key) CONTAINS toLower($kw)
-           OR toLower(start.category) CONTAINS toLower($kw)
-        RETURN m.name AS name, labels(m)[0] AS label, m.code AS code,
-               ['REQUIRES_PERSONALITY','LEADS_TO'] AS rel_types,
-               [start.name, c.name, m.name] AS node_names,
-               2 AS hops,
-               null AS semester, null AS required_type, null AS course_description
-        ORDER BY m.name LIMIT 20
-    """,
-    # Ngành → Phẩm chất (qua Career trung gian)
-    ("MAJOR", "PERSONALITY"): """
-        MATCH (start:MAJOR)-[:LEADS_TO]->(c:CAREER)-[:REQUIRES_PERSONALITY]->(n:PERSONALITY)
-        WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
-        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
-               ['LEADS_TO','REQUIRES_PERSONALITY'] AS rel_types,
-               [start.name, c.name, n.name] AS node_names,
-               2 AS hops,
-               null AS semester, null AS required_type, null AS course_description
-        ORDER BY n.name LIMIT 30
-    """,
-    # Phẩm chất self-lookup
+    # MBTI self-lookup (trả về node đầy đủ để LLM dùng suitable_fields)
     ("PERSONALITY", "PERSONALITY"): """
         MATCH (start:PERSONALITY)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-           OR toLower(start.personality_key) CONTAINS toLower($kw)
-           OR toLower(start.category) CONTAINS toLower($kw)
+        WHERE start.personality_key = toUpper($kw)
+           OR toLower(start.name) CONTAINS toLower($kw)
         RETURN start.name AS name, labels(start)[0] AS label, null AS code,
                [] AS rel_types, [start.name] AS node_names, 0 AS hops,
                null AS semester, null AS required_type, null AS course_description
-        ORDER BY start.name LIMIT 10
+        ORDER BY start.name LIMIT 5
     """,
-    # Môn học → Phẩm chất (CULTIVATES — khi có dữ liệu)
+    # Career → MBTI (nghề này hợp tính cách nào)
+    ("CAREER", "PERSONALITY"): """
+        MATCH (n:PERSONALITY)-[:SUITS_CAREER]->(start:CAREER)
+        WHERE toLower(start.name) CONTAINS toLower($kw)
+           OR toLower(start.career_key) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
+               ['SUITS_CAREER'] AS rel_types,
+               [start.name, n.name] AS node_names,
+               1 AS hops,
+               null AS semester, null AS required_type, null AS course_description
+        ORDER BY n.name LIMIT 20
+    """,
+    # Major → MBTI (ngành này hợp tính cách nào)
+    ("MAJOR", "PERSONALITY"): """
+        MATCH (n:PERSONALITY)-[:SUITS_MAJOR]->(start:MAJOR)
+        WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
+        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
+               ['SUITS_MAJOR'] AS rel_types,
+               [start.name, n.name] AS node_names,
+               1 AS hops,
+               null AS semester, null AS required_type, null AS course_description
+        ORDER BY n.name LIMIT 20
+    """,
+    # Subject → MBTI (dự phòng CULTIVATES)
     ("SUBJECT", "PERSONALITY"): """
         MATCH (start:SUBJECT)-[:CULTIVATES]->(n:PERSONALITY)
         WHERE toLower(start.name) CONTAINS toLower($kw) OR start.code = $kw
@@ -1243,11 +1340,11 @@ TARGETED_QUERIES: dict[tuple[str, str], str] = {
                null AS semester, null AS required_type, null AS course_description
         ORDER BY n.name LIMIT 20
     """,
-    # Phẩm chất → Môn học (CULTIVATES — khi có dữ liệu)
+    # MBTI → Subject (dự phòng CULTIVATES)
     ("PERSONALITY", "SUBJECT"): """
         MATCH (n:SUBJECT)-[:CULTIVATES]->(start:PERSONALITY)
-        WHERE toLower(start.name) CONTAINS toLower($kw)
-           OR toLower(start.personality_key) CONTAINS toLower($kw)
+        WHERE start.personality_key = toUpper($kw)
+           OR toLower(start.name) CONTAINS toLower($kw)
         RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
                ['CULTIVATES'] AS rel_types,
                [start.name, n.name] AS node_names,
@@ -1362,11 +1459,14 @@ def fetch_node_details(driver, nodes: list[dict]) -> list[dict]:
         if to_fetch["PERSONALITY"]:
             rows = session.run("""
                 MATCH (n:PERSONALITY) WHERE n.name IN $names
-                RETURN n.name        AS name,
-                       n.category    AS category,
-                       n.description AS description,
-                       n.indicators  AS indicators,
-                       n.name_en     AS name_en
+                RETURN n.name             AS name,
+                       n.code             AS code,
+                       n.description      AS description,
+                       n.structure        AS structure,
+                       n.strengths        AS strengths,
+                       n.weaknesses       AS weaknesses,
+                       n.work_environment AS work_environment,
+                       n.suitable_fields  AS suitable_fields
             """, names=to_fetch["PERSONALITY"]).data()
             for r in rows:
                 if r["name"] in node_map:
@@ -1431,6 +1531,37 @@ def multihop_traversal_community_aware(
                     print(f"  [targeted] WARNING: {e}")
         if all_nodes:
             print(f"  [targeted] ({targeted_key}) → {len(all_nodes)} nodes")
+
+    # ── Phase 1b: MBTI fallback — nếu targeted query không tìm được gì ────────
+    # Đọc node PERSONALITY đầy đủ (có suitable_fields) để LLM tự parse ngành/nghề
+    if not all_nodes and asked_label in ("MAJOR", "CAREER", "PERSONALITY", "UNKNOWN"):
+        mbti_kws = [kw for kw in keywords
+                    if re.match(r'^(INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP'
+                                r'|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)$',
+                                kw, re.IGNORECASE)]
+        if mbti_kws:
+            with driver.session() as session:
+                for mbti_code in mbti_kws:
+                    try:
+                        rows = session.run("""
+                            MATCH (p:PERSONALITY)
+                            WHERE p.personality_key = toUpper($code)
+                               OR p.code = toUpper($code)
+                            RETURN p.personality_key AS name,
+                                   'PERSONALITY'     AS label,
+                                   null              AS code,
+                                   []                AS rel_types,
+                                   [p.personality_key] AS node_names,
+                                   0                 AS hops,
+                                   null AS semester, null AS required_type,
+                                   null AS course_description
+                        """, code=mbti_code).data()
+                        for rec in rows:
+                            _add_node_and_paths(rec, all_nodes, all_paths)
+                    except Exception as e:
+                        print(f"  [mbti fallback] WARNING: {e}")
+            if all_nodes:
+                print(f"  [mbti fallback] Found PERSONALITY node for {mbti_kws}")
 
     # ── Phase 2: BFS label-scoped ─────────────────────────────────────────────
     # Dùng allowed_labels filter, KHÔNG filter theo community number
@@ -1531,24 +1662,23 @@ def multihop_traversal_community_aware(
              "null AS semester, null AS required_type, n.course_description AS course_description "
              "LIMIT 20"),
 
-            # Bridge: L2_PERSONALITY_FIT → Career tìm thêm Personality chưa được targeted query lấy
-            ("L2_PERSONALITY_FIT", "PERSONALITY",
-             "MATCH (c:CAREER)-[:REQUIRES_PERSONALITY]->(n:PERSONALITY) "
-             "WHERE c.name IN $names "
-             "RETURN n.name AS name, 'PERSONALITY' AS label, null AS code, "
-             "['REQUIRES_PERSONALITY'] AS rel_types, [c.name, n.name] AS node_names, 1 AS hops, "
+            # Bridge: L2_PERSONALITY_FIT → Career (SUITS_CAREER)
+            ("L2_PERSONALITY_FIT", "CAREER",
+             "MATCH (p:PERSONALITY)-[:SUITS_CAREER]->(n:CAREER) "
+             "WHERE p.name IN $names OR p.personality_key IN $names "
+             "RETURN n.name AS name, 'CAREER' AS label, null AS code, "
+             "['SUITS_CAREER'] AS rel_types, [p.name, n.name] AS node_names, 1 AS hops, "
+             "null AS semester, null AS required_type, null AS course_description "
+             "LIMIT 50"),
+
+            # Bridge: L2_PERSONALITY_FIT → Major (SUITS_MAJOR)
+            ("L2_PERSONALITY_FIT", "MAJOR",
+             "MATCH (p:PERSONALITY)-[:SUITS_MAJOR]->(n:MAJOR) "
+             "WHERE p.name IN $names OR p.personality_key IN $names "
+             "RETURN n.name AS name, 'MAJOR' AS label, n.code AS code, "
+             "['SUITS_MAJOR'] AS rel_types, [p.name, n.name] AS node_names, 1 AS hops, "
              "null AS semester, null AS required_type, null AS course_description "
              "LIMIT 30"),
-
-            # Bridge: L2_PERSONALITY_FIT → Major qua Career
-            ("L2_PERSONALITY_FIT", "MAJOR",
-             "MATCH (m:MAJOR)-[:LEADS_TO]->(c:CAREER)-[:REQUIRES_PERSONALITY]->(p:PERSONALITY) "
-             "WHERE p.name IN $names "
-             "RETURN m.name AS name, 'MAJOR' AS label, m.code AS code, "
-             "['LEADS_TO','REQUIRES_PERSONALITY'] AS rel_types, "
-             "[p.name, c.name, m.name] AS node_names, 2 AS hops, "
-             "null AS semester, null AS required_type, null AS course_description "
-             "LIMIT 20"),
         ]
         seed_names = list({n["name"] for n in all_nodes if n.get("name")})[:20]
 
@@ -1721,14 +1851,45 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
         return _build_record(query_id, question, answer, [], agg_intent,
                              agg_nodes, [], "aggregation")
 
-    # ── Bước 0b: Expand viết tắt ──────────────────────────────────────────────
-    expanded_question, abbrev_keywords = expand_abbreviations(question)
+    # ── Bước 0b: Expand MBTI code → keyword ──────────────────────────────────
+    expanded_question, mbti_keywords = expand_mbti(question)
+    if mbti_keywords:
+        print(f"  [mbti] {mbti_keywords}")
+
+    # ── Bước 0c: Expand viết tắt ──────────────────────────────────────────────
+    expanded_question, abbrev_keywords = expand_abbreviations(expanded_question)
     if abbrev_keywords:
         print(f"  [abbrev] {abbrev_keywords}")
 
     # ── Bước 1: Extract intent ────────────────────────────────────────────────
     intent = extract_query_intent(ai_client, expanded_question)
-    intent["keywords"] = list(dict.fromkeys(intent["keywords"] + abbrev_keywords))
+    intent["keywords"] = list(dict.fromkeys(
+        intent["keywords"] + mbti_keywords + abbrev_keywords
+    ))
+
+    # ── Bước 1b: Override intent nếu có MBTI keyword (LLM hay bỏ sót) ────────
+    if mbti_keywords:
+        mbti_code = mbti_keywords[0].upper()   # e.g. "ISTP"
+        # Nếu LLM không nhận ra PERSONALITY, tự gán
+        if "PERSONALITY" not in intent.get("mentioned_labels", []):
+            intent["mentioned_labels"] = ["PERSONALITY"] + [
+                l for l in intent.get("mentioned_labels", [])
+                if l != "PERSONALITY"
+            ]
+        # Xác định asked: nếu câu hỏi về ngành/nghề với MBTI thì giữ asked gốc
+        # nhưng nếu asked=UNKNOWN hoặc chỉ hỏi về MBTI thì set PERSONALITY
+        if intent.get("asked_label") == "UNKNOWN":
+            intent["asked_label"] = "PERSONALITY"
+        # Đảm bảo MBTI code là keyword đầu tiên để targeted query ưu tiên
+        if mbti_code not in intent["keywords"]:
+            intent["keywords"].insert(0, mbti_code)
+        else:
+            # Đưa mbti_code lên đầu
+            intent["keywords"] = [mbti_code] + [
+                k for k in intent["keywords"] if k != mbti_code
+            ]
+        print(f"  [mbti override] code={mbti_code} "
+              f"mentioned={intent['mentioned_labels']} asked={intent['asked_label']}")
     keywords = intent["keywords"]
     print(f"  Keywords: {keywords}")
     print(f"  Intent: mentioned={intent['mentioned_labels']} "
@@ -1782,8 +1943,8 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
         if career_nodes_exist:
             context_nodes = fetch_node_details(driver, context_nodes)
             print(f"  [enrich] Extended props force-fetched for CAREER (total nodes={len(context_nodes)})")
-    elif asked == "PERSONALITY" and len(context_nodes) > 20:
-        # Luôn enrich PERSONALITY ngay cả khi nhiều nodes (số lượng personality có giới hạn)
+    elif len(context_nodes) > 20:
+        # Luôn enrich PERSONALITY ngay cả khi nhiều nodes (số lượng PERSONALITY có giới hạn)
         pers_exist = any(n.get("label") == "PERSONALITY" for n in context_nodes)
         if pers_exist:
             context_nodes = fetch_node_details(driver, context_nodes)
@@ -1841,7 +2002,7 @@ def get_driver():
 
 
 def interactive_loop(driver, ai_client: OpenAI):
-    print("\n🎓 Knowledge Graph Chatbot v10 — GraphRAG 3-Tier + Personality (label-scoped BFS)")
+    print("\n🎓 Knowledge Graph Chatbot v11 — GraphRAG 3-Tier + MBTI Personality (label-scoped BFS)")
     print("DB: nodes | rels (bao gồm PERSONALITY)")
     print("    MAJOR | SUBJECT | CAREER | SKILL | TEACHER | PERSONALITY")
     print("Rels: TEACH | PROVIDES | REQUIRES | LEADS_TO | MAJOR_OFFERS_SUBJECT")
@@ -1868,7 +2029,7 @@ def interactive_loop(driver, ai_client: OpenAI):
 
 
 def main():
-    print("Starting KG Chatbot v10 (GraphRAG 3-Tier + Personality, label-scoped BFS)...")
+    print("Starting KG Chatbot v11 (GraphRAG 3-Tier + MBTI Personality, label-scoped BFS)...")
     ai_client = OpenAI(api_key=OPENAI_API_KEY)
     driver    = get_driver()
     try:

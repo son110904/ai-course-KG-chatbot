@@ -1,25 +1,3 @@
-"""
-extract_hybrid.py — Hybrid Entity Extraction Pipeline (Token-Optimized)
-
-Chiến lược theo từng doctype:
-  CAREER      → 100% rule-based (parse paragraphs có cấu trúc text rõ ràng)
-  SYLLABUS    → ~85% rule-based (teachers, CLOs, lesson_plan từ bảng structured)
-               + LLM mini-call chỉ để rút gọn CLO text → skill_name ngắn gọn
-  CURRICULUM  → LLM nhưng CHỈ gửi phần cần thiết (career_opps + PLO text),
-               còn course list parse hoàn toàn bằng rule-based
-
-Tiết kiệm ước tính so với gửi full JSON vào LLM:
-  CAREER:      ~100% (không gọi LLM)
-  SYLLABUS:    ~85%  (chỉ gửi list CLO text, ~200 tokens thay vì ~8000)
-  CURRICULUM:  ~60%  (chỉ gửi phần text tự do, bỏ toàn bộ course list)
-
-Schema v2 (giữ nguyên):
-  Nodes: MAJOR, SUBJECT, SKILL, CAREER, TEACHER
-  Relationships: major_offers_subject, major_leads_to_career,
-                 subject_provides_skill, career_requires_skill,
-                 teacher_instructs_subject, subject_is_prerequisite_of_subject
-"""
-
 import os
 import re
 import json
@@ -391,24 +369,30 @@ def extract_career(doc: dict) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PERSONALITY — 100% RULE-BASED (đọc trực tiếp từ file .docx qua python-docx)
+# PERSONALITY — LLM-BASED (đọc trực tiếp từ file .docx qua python-docx)
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# Schema node PERSONALITY:
-#   personality_key  : str       — slugify(name_vi)
-#   name_vi          : str       — tên phẩm chất tiếng Việt
-#   name_en          : str       — tên phẩm chất tiếng Anh (nếu có)
-#   category         : str       — nhóm phẩm chất (VD: "Tư duy", "Đạo đức")
-#   description      : str       — mô tả ngắn
-#   indicators       : list[str] — các biểu hiện / chỉ số hành vi
+# Schema node PERSONALITY (MBTI-based, v3):
+#   personality_key  : str        — code MBTI (e.g. "ESTP", "ENTP")
+#   code             : str        — code MBTI (alias để query)
+#   description      : str        — mô tả tổng quan loại tính cách
+#   structure        : dict       — 4 chiều MBTI:
+#       IE: {dimension, description}   — Introversion / Extraversion
+#       SN: {dimension, description}   — Sensing / Intuition
+#       TF: {dimension, description}   — Thinking / Feeling
+#       JP: {dimension, description}   — Judging / Perceiving
+#   strengths        : list[str]  — điểm mạnh
+#   weaknesses       : list[str]  — điểm yếu
+#   work_environment : str        — môi trường làm việc phù hợp
+#   suitable_fields  : list[dict] — lĩnh vực/ngành/nghề phù hợp:
+#       field_code, field_name,
+#       groups: [{group_code, group_name, majors: [{major_code, major_name, careers:[str]}]}]
 #
-# Relationship: subject_develops_personality
-#   from_subject_code → to_personality_key
+# Relationships được sinh ra từ suitable_fields:
+#   personality_suits_major  : personality_key → major_code
+#   personality_suits_career : personality_key → career_name
 #
-# File .docx hỗ trợ 3 format:
-#   Format A: Tên phẩm chất là paragraph bold/heading, theo sau là mô tả + bullet
-#   Format B: Dòng dạng "Tên phẩm chất: ...", "Nhóm: ...", "Mô tả: ..."
-#   Format Table: Mỗi hàng = 1 phẩm chất, cột nhận diện qua header
+# File .docx: gửi toàn bộ text cho LLM extract theo schema trên (1 call / file).
 
 try:
     from docx import Document as DocxDocument
@@ -419,186 +403,237 @@ except ImportError:
     _DOCX_AVAILABLE = False
     log.warning("python-docx chưa được cài. Chạy: pip install python-docx")
 
-_PERS_NAME_PATTERN      = re.compile(r"tên\s*(?:phẩm chất|personality)\s*[:\s]+(.+)", re.IGNORECASE)
-_PERS_NAME_EN_PATTERN   = re.compile(r"(?:english\s*name|tên\s*anh)\s*[:\s]+(.+)", re.IGNORECASE)
-_PERS_CATEGORY_PATTERN  = re.compile(r"(?:nhóm|category|phân loại)\s*[:\s]+(.+)", re.IGNORECASE)
-_PERS_DESC_PATTERN      = re.compile(r"(?:mô tả|description)\s*[:\s]+(.+)", re.IGNORECASE)
-_PERS_INDICATOR_SECTION = re.compile(r"(?:biểu hiện|chỉ số hành vi|indicators?)", re.IGNORECASE)
+# ── MBTI validation set ─────────────────────────────────────────────────────
+_VALID_MBTI_CODES = {
+    "INTJ","INTP","ENTJ","ENTP",
+    "INFJ","INFP","ENFJ","ENFP",
+    "ISTJ","ISFJ","ESTJ","ESFJ",
+    "ISTP","ISFP","ESTP","ESFP",
+}
+
+_PERSONALITY_SCHEMA_EXAMPLE = {
+    "personality": {
+        "code": "ESTP",
+        "description": "...",
+        "structure": {
+            "IE": {"dimension": "Extraversion", "description": "..."},
+            "SN": {"dimension": "Sensing",      "description": "..."},
+            "TF": {"dimension": "Thinking",     "description": "..."},
+            "JP": {"dimension": "Perceiving",   "description": "..."},
+        },
+        "strengths":        ["..."],
+        "weaknesses":       ["..."],
+        "work_environment": "...",
+        "suitable_fields": [
+            {
+                "field_code": "F1",
+                "field_name": "...",
+                "groups": [
+                    {
+                        "group_code": "G1",
+                        "group_name": "...",
+                        "majors": [
+                            {
+                                "major_code": "7480201",
+                                "major_name": "...",
+                                "careers": ["..."],
+                            }
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+}
 
 
-def _is_bold_paragraph(para) -> bool:
-    if para.style and para.style.name and para.style.name.lower().startswith("heading"):
-        return True
-    for run in para.runs:
-        if run.bold:
-            return True
-    return False
-
-
-def _iter_docx_paragraphs(docx_path: str) -> list[dict]:
-    """
-    Đọc file .docx, trả về list dict:
-      {"text": str, "bold": bool, "is_bullet": bool, "style": str}
-    Xử lý cả paragraph thường và table (mỗi row → 1 entry dạng table_row).
-    """
+def _extract_text_from_docx(docx_path: str) -> str:
+    """Đọc toàn bộ text từ file .docx (paragraphs + tables) thành 1 chuỗi."""
     if not _DOCX_AVAILABLE:
-        return []
-
+        return ""
     doc = DocxDocument(docx_path)
-    result = []
+    lines: list[str] = []
     body = doc.element.body
-
     for child in body:
         tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-
         if tag == "p":
             para = DocxParagraph(child, doc)
-            text = para.text.strip()
-            if not text:
-                continue
-            style_name = para.style.name if para.style else ""
-            is_bold    = _is_bold_paragraph(para)
-            is_bullet  = "List" in style_name or text.startswith(("-", "•", "+", "*"))
-            result.append({
-                "text":      text,
-                "bold":      is_bold,
-                "is_bullet": is_bullet,
-                "style":     style_name,
-            })
-
+            t = para.text.strip()
+            if t:
+                lines.append(t)
         elif tag == "tbl":
             tbl = DocxTable(child, doc)
-            if not tbl.rows:
-                continue
-            headers = [c.text.strip().lower() for c in tbl.rows[0].cells]
-            for row in tbl.rows[1:]:
-                cells = [c.text.strip() for c in row.cells]
-                row_dict = dict(zip(headers, cells))
-                result.append({
-                    "text":      "",
-                    "bold":      False,
-                    "is_bullet": False,
-                    "style":     "TableRow",
-                    "table_row": row_dict,
-                })
-
-    return result
+            for row in tbl.rows:
+                row_text = " | ".join(c.text.strip() for c in row.cells if c.text.strip())
+                if row_text:
+                    lines.append(row_text)
+    return "\n".join(lines)
 
 
-def _parse_personality_from_paragraphs(paragraphs: list[dict]) -> list[dict]:
-    """Parse list personality entries từ paragraphs. Hỗ trợ Format A, B và Table."""
-    entries = []
-    current: dict | None = None
-    in_indicators = False
-
-    def _flush():
-        if current and current.get("name_vi"):
-            entries.append(dict(current))
-
-    for p in paragraphs:
-        # ── Format Table ──────────────────────────────────────────────────────
-        if p.get("table_row"):
-            _flush()
-            current = None
-            in_indicators = False
-            row = p["table_row"]
-
-            name_vi = ""
-            for k in ("tên phẩm chất", "tên", "name_vi", "name", "phẩm chất"):
-                if k in row and row[k]:
-                    name_vi = row[k].strip()
-                    break
-            if not name_vi:
-                continue
-
-            name_en   = row.get("english name", row.get("name_en", row.get("tên anh", "")))
-            category  = row.get("nhóm", row.get("category", row.get("phân loại", "")))
-            desc      = row.get("mô tả", row.get("description", row.get("mô tả ngắn", "")))
-            ind_raw   = row.get("biểu hiện", row.get("indicators", row.get("chỉ số hành vi", "")))
-            indicators = [
-                ln.strip().lstrip("-•+* ")
-                for ln in re.split(r"[\n;]+", ind_raw) if ln.strip()
-            ] if ind_raw else []
-
-            entries.append({
-                "name_vi":    name_vi,
-                "name_en":    name_en.strip(),
-                "category":   category.strip(),
-                "description": desc.strip(),
-                "indicators": indicators,
-            })
-            continue
-
-        text = p["text"]
-
-        # ── Format B: dòng có label rõ ràng ──────────────────────────────────
-        m = _PERS_NAME_PATTERN.match(text)
-        if m:
-            _flush()
-            current = {"name_vi": m.group(1).strip(), "name_en": "", "category": "",
-                       "description": "", "indicators": []}
-            in_indicators = False
-            continue
-
-        m = _PERS_NAME_EN_PATTERN.match(text)
-        if m and current:
-            current["name_en"] = m.group(1).strip()
-            continue
-
-        m = _PERS_CATEGORY_PATTERN.match(text)
-        if m and current:
-            current["category"] = m.group(1).strip()
-            in_indicators = False
-            continue
-
-        m = _PERS_DESC_PATTERN.match(text)
-        if m and current:
-            current["description"] = m.group(1).strip()
-            in_indicators = False
-            continue
-
-        if _PERS_INDICATOR_SECTION.search(text) and current:
-            in_indicators = True
-            inline = re.sub(
-                r"^.*?(?:biểu hiện|chỉ số hành vi|indicators?)\s*[:\s]*", "",
-                text, flags=re.IGNORECASE
-            ).strip()
-            if inline:
-                current["indicators"].append(inline)
-            continue
-
-        # ── Format A: paragraph bold → tên phẩm chất mới ─────────────────────
-        if p["bold"] and not p["is_bullet"] and len(text) < 100:
-            is_label = any(pat.match(text) for pat in [
-                _PERS_CATEGORY_PATTERN, _PERS_DESC_PATTERN, _PERS_INDICATOR_SECTION
-            ])
-            if not is_label:
-                _flush()
-                current = {"name_vi": text, "name_en": "", "category": "",
-                           "description": "", "indicators": []}
-                in_indicators = False
-                continue
-
-        # ── Nội dung thuộc entry hiện tại ────────────────────────────────────
-        if current:
-            if in_indicators or p["is_bullet"]:
-                clean = re.sub(r"^[-•+*\s]+", "", text).strip()
-                if clean:
-                    current["indicators"].append(clean)
-            elif not current["description"]:
-                current["description"] = text
-
-    _flush()
-    return entries
-
-
-def extract_personality(docx_path: str) -> dict:
+def _call_llm_extract_personality(
+    raw_text: str,
+    ai_client: OpenAI,
+    source_file: str = "",
+) -> dict | None:
     """
-    Đọc file .docx chứa danh sách phẩm chất nhân cách (personality traits).
-    Trả về {"nodes": [PERSONALITY...], "relationships": []}.
+    Gọi LLM 1 lần để extract toàn bộ thông tin MBTI từ raw_text.
+    Trả về dict theo schema personality (key "personality") hoặc None nếu lỗi.
+    """
+    prompt = f"""Bạn là hệ thống extract dữ liệu. Đọc tài liệu dưới đây về 1 loại tính cách MBTI,
+rồi trả về JSON CHÍNH XÁC theo schema sau (không thêm bất kỳ text nào ngoài JSON):
+
+Schema:
+{{
+  "personality": {{
+    "code": "<MBTI code 4 chữ cái: INTJ/INTP/ENTJ/ENTP/INFJ/INFP/ENFJ/ENFP/ISTJ/ISFJ/ESTJ/ESFJ/ISTP/ISFP/ESTP/ESFP>",
+    "description": "<mô tả tổng quan>",
+    "structure": {{
+      "IE": {{"dimension": "<Introversion hoặc Extraversion>", "description": "<giải thích>"}},
+      "SN": {{"dimension": "<Sensing hoặc Intuition>",        "description": "<giải thích>"}},
+      "TF": {{"dimension": "<Thinking hoặc Feeling>",         "description": "<giải thích>"}},
+      "JP": {{"dimension": "<Judging hoặc Perceiving>",       "description": "<giải thích>"}}
+    }},
+    "strengths":        ["<điểm mạnh>"],
+    "weaknesses":       ["<điểm yếu>"],
+    "work_environment": "<mô tả môi trường làm việc phù hợp>",
+    "suitable_fields": [
+      {{
+        "field_code": "<mã lĩnh vực, ví dụ F1>",
+        "field_name": "<tên lĩnh vực>",
+        "groups": [
+          {{
+            "group_code": "<mã nhóm ngành, ví dụ G1>",
+            "group_name": "<tên nhóm ngành>",
+            "majors": [
+              {{
+                "major_code": "<mã ngành 7 chữ số nếu có, hoặc chuỗi rỗng>",
+                "major_name": "<tên ngành>",
+                "careers":    ["<tên nghề>"]
+              }}
+            ]
+          }}
+        ]
+      }}
+    ]
+  }}
+}}
+
+Quy tắc:
+- Nếu không tìm thấy mã ngành 7 chữ số, để major_code là "".
+- Nếu tài liệu không có phân cấp field/group, tạo 1 field và 1 group bao gồm tất cả ngành/nghề.
+- suitable_fields phải bao gồm TẤT CẢ ngành và nghề được đề cập trong tài liệu.
+- Trả về JSON duy nhất, không markdown, không giải thích.
+
+Tài liệu:
+{raw_text[:12000]}
+"""
+
+    try:
+        resp = ai_client.chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={"type": "json_object"},
+            max_tokens=4000,
+        )
+        raw = resp.choices[0].message.content
+        parsed = json.loads(raw)
+        return parsed
+    except Exception as e:
+        log.warning(f"  [personality] LLM extract failed for {source_file}: {e}")
+        return None
+
+
+def _build_personality_node_and_rels(mbti_data: dict) -> tuple[dict, list[dict]]:
+    """
+    Từ dict LLM trả về (key "personality"), build PERSONALITY node + relationships.
+    Relationships:
+      personality_suits_major  : personality_key → major_code  (nếu có major_code hợp lệ)
+      personality_suits_career : personality_key → career_name
+    """
+    p = mbti_data.get("personality", mbti_data)   # tolerate missing wrapper key
+
+    code = str(p.get("code", "")).strip().upper()
+    if code not in _VALID_MBTI_CODES:
+        # Thử tìm code trong description
+        for c in _VALID_MBTI_CODES:
+            if c in str(p.get("description", "")).upper():
+                code = c
+                break
+    if not code:
+        log.warning("  [personality] Không xác định được MBTI code, bỏ qua node.")
+        return {}, []
+
+    # Làm sạch structure
+    raw_structure = p.get("structure", {})
+    structure = {}
+    for dim in ("IE", "SN", "TF", "JP"):
+        d = raw_structure.get(dim, {})
+        structure[dim] = {
+            "dimension":   str(d.get("dimension", "")).strip(),
+            "description": str(d.get("description", "")).strip(),
+        }
+
+    node = {
+        "type":            "PERSONALITY",
+        "personality_key": code,
+        "code":            code,
+        "description":     str(p.get("description", "")).strip(),
+        "structure":       structure,
+        "strengths":       [str(s).strip() for s in p.get("strengths",  []) if s],
+        "weaknesses":      [str(w).strip() for w in p.get("weaknesses", []) if w],
+        "work_environment": str(p.get("work_environment", "")).strip(),
+        "suitable_fields": p.get("suitable_fields", []),
+    }
+
+    # Build relationships
+    rels: list[dict] = []
+    seen_majors:  set[str] = set()
+    seen_careers: set[str] = set()
+
+    for field in p.get("suitable_fields", []):
+        for group in field.get("groups", []):
+            for major in group.get("majors", []):
+                major_code = str(major.get("major_code", "")).strip()
+                major_name = str(major.get("major_name", "")).strip()
+
+                # Relationship personality → major (chỉ khi có major_code hợp lệ)
+                if major_code and re.match(r"^\d{7}", major_code) and major_code not in seen_majors:
+                    seen_majors.add(major_code)
+                    rels.append({
+                        "rel_type":           "personality_suits_major",
+                        "from_personality_key": code,
+                        "to_major_code":        major_code,
+                        "field_name":           field.get("field_name", ""),
+                        "group_name":           group.get("group_name", ""),
+                    })
+
+                # Relationship personality → career
+                for career in major.get("careers", []):
+                    career_name = str(career).strip()
+                    if career_name and career_name not in seen_careers:
+                        seen_careers.add(career_name)
+                        rels.append({
+                            "rel_type":             "personality_suits_career",
+                            "from_personality_key": code,
+                            "to_career_name":       career_name,
+                            "major_name":           major_name,
+                            "field_name":           field.get("field_name", ""),
+                        })
+
+    log.info(f"  [personality] {code}: {len(seen_majors)} majors, {len(seen_careers)} careers")
+    return node, rels
+
+
+def extract_personality(docx_path: str, ai_client: OpenAI | None = None) -> dict:
+    """
+    Đọc file .docx chứa thông tin 1 loại tính cách MBTI.
+    Dùng LLM extract theo schema MBTI-based v3.
+    Trả về {"nodes": [PERSONALITY], "relationships": [...]}.
 
     Args:
-        docx_path: Đường dẫn tới file .docx đã tải về local disk.
+        docx_path : Đường dẫn tới file .docx đã tải về local disk.
+        ai_client : OpenAI client (bắt buộc cho LLM extract).
     """
     if not _DOCX_AVAILABLE:
         log.error("python-docx chưa được cài — không thể extract personality")
@@ -608,38 +643,26 @@ def extract_personality(docx_path: str) -> dict:
         log.error(f"File không tồn tại: {docx_path}")
         return {"nodes": [], "relationships": []}
 
+    if ai_client is None:
+        log.error("  [personality] ai_client là None — không thể gọi LLM extract")
+        return {"nodes": [], "relationships": []}
+
     log.info(f"  [personality] Đọc file: {docx_path}")
-    paragraphs = _iter_docx_paragraphs(docx_path)
-    if not paragraphs:
+    raw_text = _extract_text_from_docx(docx_path)
+    if not raw_text.strip():
         log.warning(f"  [personality] Không đọc được nội dung từ {docx_path}")
         return {"nodes": [], "relationships": []}
 
-    entries = _parse_personality_from_paragraphs(paragraphs)
-    log.info(f"  [personality] Tìm thấy {len(entries)} phẩm chất")
+    log.info(f"  [personality] {len(raw_text)} chars → gọi LLM extract...")
+    mbti_data = _call_llm_extract_personality(raw_text, ai_client, source_file=docx_path)
+    if not mbti_data:
+        return {"nodes": [], "relationships": []}
 
-    nodes = []
-    seen_keys: set[str] = set()
+    node, rels = _build_personality_node_and_rels(mbti_data)
+    if not node:
+        return {"nodes": [], "relationships": []}
 
-    for entry in entries:
-        name_vi = entry.get("name_vi", "").strip()
-        if not name_vi:
-            continue
-        pkey = slugify(name_vi)
-        if not pkey or pkey in seen_keys:
-            continue
-        seen_keys.add(pkey)
-
-        nodes.append({
-            "type":            "PERSONALITY",
-            "personality_key": pkey,
-            "name_vi":         name_vi,
-            "name_en":         entry.get("name_en", ""),
-            "category":        entry.get("category", ""),
-            "description":     entry.get("description", ""),
-            "indicators":      entry.get("indicators", []),
-        })
-
-    return {"nodes": nodes, "relationships": []}
+    return {"nodes": [node], "relationships": rels}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1995,7 +2018,7 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
                 minio_client.fget_object(MINIO_BUCKET, obj_name, tmp_path)
                 file_size = Path(tmp_path).stat().st_size
                 log.info(f"  [personality] Đã tải: {file_size} bytes")
-                extracted = extract_personality(tmp_path)
+                extracted = extract_personality(tmp_path, ai_client)
             finally:
                 try:
                     Path(tmp_path).unlink(missing_ok=True)
