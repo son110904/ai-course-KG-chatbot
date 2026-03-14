@@ -1082,7 +1082,7 @@ def extract_syllabus(doc: dict, ai_client: OpenAI | None) -> dict:
 
     if clos:
         # Thử LLM mini-call
-        skill_names = _batch_clo_to_skill_names(clos, subject_code, ai_client)
+        skill_names = _batch_clo_to_skill_names(clos, subject_code, ai_client, subject_name_vi)
 
         for clo, skill_name in zip(clos, skill_names):
             skill_key = slugify(skill_name)
@@ -1160,11 +1160,30 @@ def extract_syllabus(doc: dict, ai_client: OpenAI | None) -> dict:
     return {"nodes": nodes, "relationships": relationships}
 
 
-def _batch_clo_to_skill_names(clos: list[dict], subject_code: str, ai_client: OpenAI | None) -> list[str]:
+def _is_thesis_subject(subject_name_vi: str) -> bool:
+    """
+    Nhận diện môn Khóa luận tốt nghiệp (tương tự Chuyên đề thực tế/thực tập).
+    Trả về True nếu tên môn là dạng Khóa luận tốt nghiệp.
+    """
+    return bool(re.search(
+        r"khóa luận tốt nghiệp|khoá luận tốt nghiệp|khoa luan tot nghiep",
+        subject_name_vi.strip(), re.IGNORECASE
+    ))
+
+
+def _batch_clo_to_skill_names(
+    clos: list[dict],
+    subject_code: str,
+    ai_client: OpenAI | None,
+    subject_name_vi: str = "",
+) -> list[str]:
     """
     Gọi LLM 1 lần duy nhất để rút gọn TẤT CẢ CLO descriptions thành skill names.
     Input LLM: chỉ list CLO descriptions (rất ít token).
     Fallback sang heuristic nếu không có ai_client hoặc lỗi.
+
+    Với môn Khóa luận tốt nghiệp / Chuyên đề thực tế / Chuyên đề thực tập:
+    LLM sẽ tạo tên theo format "<Tên môn> - {tên ngành}" thay vì tên kỹ năng ngắn gọn.
     """
     # Heuristic fallback
     heuristic_names = [_clo_to_skill_name_heuristic(c["description"]) for c in clos]
@@ -1178,12 +1197,36 @@ def _batch_clo_to_skill_names(clos: list[dict], subject_code: str, ai_client: Op
         for c in clos
     )
 
-    prompt = f"""Môn học: {subject_code}
+    # Nhận diện môn dạng "Chuyên đề thực tế/thực tập" hoặc "Khóa luận tốt nghiệp"
+    _INTERNSHIP_RE = re.compile(
+        r"chuyên đề thực t[eế]|chuyên đề thực tập|chuyen de thuc",
+        re.IGNORECASE
+    )
+    is_special_subject = (
+        _INTERNSHIP_RE.search(subject_name_vi)
+        or _is_thesis_subject(subject_name_vi)
+    )
+
+    if is_special_subject:
+        # Xác định nhãn chuẩn của môn (bỏ phần " - {ngành}" nếu đã có trong tên)
+        base_name = re.split(r"\s*[-–]\s*", subject_name_vi.strip(), maxsplit=1)[0].strip()
+        naming_rule = (
+            f'- Môn học này là "{base_name}". Tên skill phải có dạng: '
+            f'"{base_name} - <tên ngành>" — trong đó <tên ngành> được suy ra từ nội dung CLO.\n'
+            f'- VD: "{base_name} - Tài chính Ngân hàng", "{base_name} - Công nghệ thông tin"\n'
+            f'- Nếu không xác định được ngành, dùng: "{base_name}"'
+        )
+    else:
+        naming_rule = (
+            '- Ngắn gọn, súc tích (VD: "Phân tích dữ liệu", "Lập trình Python", "Làm việc nhóm")\n'
+            '- KHÔNG viết cả câu CLO'
+        )
+
+    prompt = f"""Môn học: {subject_name_vi or subject_code}
 Dưới đây là danh sách Chuẩn đầu ra (CLO). Với mỗi CLO, hãy trích xuất TÊN KỸ NĂNG ngắn gọn (2-5 từ tiếng Việt).
 
 Quy tắc:
-- Ngắn gọn, súc tích (VD: "Phân tích dữ liệu", "Lập trình Python", "Làm việc nhóm")
-- KHÔNG viết cả câu CLO
+{naming_rule}
 - Trả về JSON object với key "skills" là array, thứ tự tương ứng với CLO đầu vào
 
 CLOs:
@@ -1653,37 +1696,82 @@ Không markdown, không giải thích."""
 # Map dùng cả tên VI lẫn EN để tăng khả năng match.
 # career_description folder dùng tên VI; curriculum (LLM) có thể dùng tên khác.
 CAREER_MAJOR_MAP = {
-    # ── Tiếng Anh (từ career_description) ────────────────────────────────────
-    "Automation tester":                ["7480201", "7340405", "7480101"],
-    "Automation Tester":                ["7480201", "7340405", "7480101"],
-    "Business analyst":                 ["7480201", "7340405", "7480101"],
-    "Business Analyst":                 ["7480201", "7340405", "7480101"],
-    "Customer Success":                 ["7340115"],
-    "Data Analyst":                     ["7480201", "7340405", "7480101", "7310108","7460108"],
-    "Data Engineer":                    ["7480201", "7480101", "7310108"],
-    "Key Account Manager":              ["7340115"],
-    "Marketing Offline":                ["7340115"],
-    "Media Planner":                    ["7340115"],
-    "Sales Representative":             ["7340115"],
-    "System Administrator":             ["7480201", "7480103", "7480101"],
-    "Tester":                           ["7480201", "7480103", "7480101"],
-    # ── Tiếng Việt ────────────────────────────────────────────────────────────
-    "Kiểm thử tự động":                 ["7480201", "7340405", "7480101"],
-    "Chuyên viên dữ liệu":              ["7480201", "7310108", "7340405", "7480101"],
-    "Lập trình viên":                   ["7480101", "7480201", "7480103", "7480202"],
-    "Kế toán quản trị":                 ["7340201"],
-    "Kỹ sư cầu nối":                    ["7480201", "7480103"],
-    "Kỹ sư phần mềm":                   ["7480101", "7480201", "7480103", "7480202"],
-    "Lập trình game":                   ["7480101", "7480201", "7480103"],
-    "Lập trình nhúng":                  ["7480101"],
-    "Nhân viên Bồi thường bảo hiểm":    ["7340204"],
-    "Nhân viên kinh doanh tiếng Trung": ["7340120", "7340121"],
-    "Nhân viên kinh doanh":             ["7340121", "7310101"],
-    "Nhân viên triển khai phần mềm":    ["7480201", "7480101", "7480103"],
-    "Quản lý kinh doanh":               ["7340101"],
-    "Chuyên viên phân tích dữ liệu": ["7310107","7310108","7460108"],
-    "System Admin": ["7480104"],
-    "Sales Representative": ["7340115","7340101"]
+    "Automation tester":                    ["7480201", "7340405", "7480101"],
+    "Automation Tester":                    ["7480201", "7340405", "7480101"],
+    "Business analyst":                     ["7480201", "7340405", "7480101"],
+    "Business Analyst":                     ["7480201", "7340405", "7480101"],
+    "Customer Success":                     ["7340115"],
+    "Data Analyst":                         ["7480201", "7340405", "7480101", "7310108", "7460108"],
+    "Data Engineer":                        ["7480201", "7480101", "7310108"],
+    "IT Comtor":                            ["7480201", "7480101", "7340120"],
+    "Key Account Manager":                  ["7340115"],
+    "Marketing analytics":                  ["7340115", "7480201", "7310108"],
+    "Marketing Offline":                    ["7340115"],
+    "Media Planner":                        ["7340115"],
+    "Sales Representative":                 ["7340115", "7340101"],
+    "System Admin":                         ["7480104", "7480201", "7480103"],
+    "System Administrator":                 ["7480201", "7480103", "7480101"],
+    "Tester":                               ["7480201", "7480103", "7480101"],
+    # ── Tiếng Việt — Nhóm Công nghệ thông tin ────────────────────────────────
+    "Chuyên viên dữ liệu":                  ["7480201", "7310108", "7340405", "7480101"],
+    "Chuyên viên phân tích dữ liệu":        ["7310107", "7310108", "7460108"],
+    "Kiểm thử tự động":                     ["7480201", "7340405", "7480101"],
+    "Kỹ sư cầu nối":                        ["7480201", "7480103", "7340120"],
+    "Kỹ sư phần mềm":                       ["7480101", "7480201", "7480103", "7480202"],
+    "Lập trình game":                       ["7480101", "7480201", "7480103"],
+    "Lập trình nhúng":                      ["7480101"],
+    "Lập trình viên":                       ["7480101", "7480201", "7480103", "7480202"],
+    "Nhân viên triển khai phần mềm":        ["7480201", "7480101", "7480103"],
+    # ── Tiếng Việt — Nhóm Kế toán – Tài chính ────────────────────────────────
+    "Giao dịch viên":                       ["7340201", "7340115"],
+    "Kế toán bán hàng":                     ["7340301", "7340201"],
+    "Kế toán kho":                          ["7340301", "7340201"],
+    "Kế toán ngân hàng":                    ["7340201"],
+    "Kế toán quản trị":                     ["7340201"],
+    "Kế toán thuế":                         ["7340301", "7340201"],
+    "Kế toán tổng hợp":                     ["7340301", "7340201"],
+    "Nhân viên tín dụng ngân hàng":         ["7340201"],
+    # ── Tiếng Việt — Nhóm Kinh doanh – Marketing ─────────────────────────────
+    "Giám đốc sản phẩm":                    ["7340101", "7480201", "7340115"],
+    "Giám đốc thương hiệu":                 ["7340115"],
+    "Giám đốc vận hành":                    ["7340101", "7340115"],
+    "Nhà sáng tạo nội dung":                ["7340115"],
+    "Nhân viên Marketing":                  ["7340115"],
+    "Nhân viên SEO":                        ["7340115", "7340121"],
+    "Nhân viên bán hàng B2B":               ["7340115", "7340121"],
+    "Nhân viên bán hàng online":            ["7340115","7340122"],
+    "Nhân viên kinh doanh":                 ["7340121", "7310101","7340101_EP06"],
+    "Nhân viên kinh doanh bất động sản":    ["7340101", "7340120"],
+    "Nhân viên kinh doanh du lịch":         ["7810103", "7340101"],
+    "Nhân viên kinh doanh ô tô":            ["7340101", "7340115","7340101_EP05"],
+    "Nhân viên kinh doanh tiếng Trung":     ["7340120", "7340121"],
+    "Nhân viên phát triển thị trường":      ["7340115", "7340101"],
+    "Nhân viên tư vấn":                     ["7340115", "7340101"],
+    "Quản lý kinh doanh":                   ["7340101"],
+    "Tổng quản lý":                         ["7340409"],
+    # ── Tiếng Việt — Nhóm Nhân sự – Hành chính ───────────────────────────────
+    "Chuyên viên tuyển dụng nhân sự":       ["7310101"],
+    "Nhân viên Hành chính nhân sự":         ["7310101"],
+    "Nhân viên hành chính":                 ["7340404", "7340403"],
+    # ── Tiếng Việt — Nhóm Pháp lý ────────────────────────────────────────────
+    "Chuyên viên pháp lý":                  ["7380101","7380107"],
+    "Nhân viên pháp lý":                    ["7380101","7380107"],
+    # ── Tiếng Việt — Nhóm Logistics – Xuất nhập khẩu ────────────────────────
+    "Nhân viên chứng từ xuất nhập khẩu":    ["7340120", "7510605_CLC3"],
+    "Nhân viên kế hoạch sản xuất":          ["7510605", "7510605"],
+    "Nhân viên quản lý đơn hàng":           ["7510605", "7340101", "7510605_EP14"],
+    "Nhân viên xuất nhập khẩu":             ["7340120", "7510605", "7510605_EP14"],
+    # ── Tiếng Việt — Nhóm Kỹ thuật – Môi trường – Nông nghiệp ───────────────
+    "Kỹ sư môi trường":                     ["7850101"],
+    "Kỹ sư nông nghiệp":                    ["7620115"],
+    # ── Tiếng Việt — Nhóm Du lịch – Dịch vụ ─────────────────────────────────
+    "Nhân viên điều hành tour":             ["7810103","7810201_EP11"],
+    "Nhân viên điều phối":                  ["7810103", "7340101","7810101_EP18"],
+    "Nhân viên tổ chức sự kiện":            ["7810103", "7340115","7810101_EP18"],
+    # ── Tiếng Việt — Nhóm Bảo hiểm ───────────────────────────────────────────
+    "Nhân viên Bồi thường bảo hiểm":        ["7340204"],
+    # ── Tiếng Việt — Nhóm Đấu thầu ───────────────────────────────────────────
+    "Nhân viên đấu thầu":                   ["7340101", "7340116"],
 }
 
 
@@ -1851,9 +1939,23 @@ def list_json_objects(client: Minio, bucket: str, prefix: str) -> list[str]:
 
 def list_docx_objects(client: Minio, bucket: str, prefix: str) -> list[str]:
     """Liệt kê file .docx trong MinIO bucket/prefix (dùng cho folder personality)."""
-    objects = client.list_objects(bucket, prefix=prefix + "/", recursive=True)
-    all_names = [obj.object_name for obj in objects]
-    return [o for o in all_names if o.lower().endswith(".docx")]
+    # Thử cả 2 dạng prefix: có và không có trailing slash
+    found: list[str] = []
+    for pfx in [prefix + "/", prefix]:
+        try:
+            objects = client.list_objects(bucket, prefix=pfx, recursive=True)
+            names = [obj.object_name for obj in objects]
+            docx = [o for o in names if o.lower().endswith(".docx")]
+            if docx:
+                log.info(f"[list_docx] prefix='{pfx}' → {len(docx)} file .docx")
+                return docx
+            elif names:
+                log.warning(f"[list_docx] prefix='{pfx}' → {len(names)} files nhưng không có .docx: {names[:5]}")
+            else:
+                log.debug(f"[list_docx] prefix='{pfx}' → không có file nào")
+        except Exception as e:
+            log.warning(f"[list_docx] Lỗi list với prefix='{pfx}': {e}")
+    return found
 
 
 def download_json(client: Minio, bucket: str, object_name: str) -> dict:
@@ -1888,8 +1990,11 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
             suffix = Path(filename).suffix or ".docx"
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 tmp_path = tmp.name
+            log.info(f"  [personality] Tải về: {obj_name} → {tmp_path}")
             try:
                 minio_client.fget_object(MINIO_BUCKET, obj_name, tmp_path)
+                file_size = Path(tmp_path).stat().st_size
+                log.info(f"  [personality] Đã tải: {file_size} bytes")
                 extracted = extract_personality(tmp_path)
             finally:
                 try:
@@ -1925,12 +2030,15 @@ def process_one(minio_client: Minio, ai_client: OpenAI, folder: str, obj_name: s
 
 def process_folder(minio_client: Minio, ai_client: OpenAI, folder: str) -> dict:
     log.info(f"\n{'=' * 60}\nProcessing folder: {folder}")
-    prefix  = f"{MINIO_BASE_FOLDER}/{folder}"
-    objects = list_docx_objects(minio_client, MINIO_BUCKET, prefix) \
-              if folder == "personality" \
-              else list_json_objects(minio_client, MINIO_BUCKET, prefix)
+    prefix = f"{MINIO_BASE_FOLDER}/{folder}"
+    log.info(f"  MinIO prefix: '{prefix}' (bucket='{MINIO_BUCKET}')")
+    if folder == "personality":
+        objects = list_docx_objects(minio_client, MINIO_BUCKET, prefix)
+    else:
+        objects = list_json_objects(minio_client, MINIO_BUCKET, prefix)
     if not objects:
-        log.warning(f"Không tìm thấy file trong {folder}/")
+        log.warning(f"Không tìm thấy file trong {folder}/ (prefix='{prefix}')")
+        log.warning(f"  Kiểm tra: MINIO_BASE_FOLDER='{MINIO_BASE_FOLDER}', bucket='{MINIO_BUCKET}'")
         return {"ok": 0, "skip": 0, "error": 0}
 
     counts = {"ok": 0, "skip": 0, "error": 0}

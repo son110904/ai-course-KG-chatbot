@@ -1,21 +1,29 @@
 """
-Script 2 (OPTIMIZED v4): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
+Script 2 (OPTIMIZED v5): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
 → push to Neo4j Aura
 
-Hỗ trợ 3 schema thực tế:
-  - CUR  (curriculum):         type MAJOR/SUBJECT/CAREER, rel: major_offers_subject, major_leads_to_career
-  - SYL  (syllabus):           type SUBJECT/TEACHER/SKILL, rel: teach, provides, prerequisite_for
-  - CAR  (career_description): type CAREER/SKILL/MAJOR,   rel: requires
+Hỗ trợ 4 schema thực tế:
+  - CUR  (curriculum):         type MAJOR/SUBJECT/CAREER,      rel: major_offers_subject, major_leads_to_career
+  - SYL  (syllabus):           type SUBJECT/TEACHER/SKILL,     rel: teach, provides, prerequisite_for
+  - CAR  (career_description): type CAREER/SKILL/MAJOR,        rel: requires
+  - PER  (personality):        type PERSONALITY,               rel: (không có)
 
 Relationship names trong Neo4j (đồng bộ với script 1 & 3):
-  MAJOR    -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT
-  MAJOR    -[:LEADS_TO]->             CAREER
-  TEACHER  -[:TEACH]->               SUBJECT
-  SUBJECT  -[:PROVIDES]->            SKILL
-  SUBJECT  -[:PREREQUISITE_FOR]->    SUBJECT
-  CAREER   -[:REQUIRES]->            SKILL
+  MAJOR       -[:MAJOR_OFFERS_SUBJECT]-> SUBJECT
+  MAJOR       -[:LEADS_TO]->             CAREER
+  TEACHER     -[:TEACH]->                SUBJECT
+  SUBJECT     -[:PROVIDES]->             SKILL
+  SUBJECT     -[:PREREQUISITE_FOR]->     SUBJECT
+  CAREER      -[:REQUIRES]->             SKILL
 
 Tất cả idempotent (MERGE everywhere), không dùng LLM.
+
+Thay đổi v5 (đồng bộ script1 v3):
+  - PER: xử lý thêm node PERSONALITY (personality_key, name_vi, name_en, category, description, indicators)
+  - detect_schema: nhận dạng personality qua node type PERSONALITY
+  - FOLDERS: bổ sung "personality"
+  - Indexes: bổ sung index cho PERSONALITY
+  - SKILL.name dùng skill_name đầy đủ (giữ nguyên "Khóa luận tốt nghiệp - Tên ngành")
 
 Thay đổi v4 (đồng bộ script1 v2):
   - CAR: xử lý thêm node MAJOR từ recommended_majors
@@ -51,7 +59,7 @@ NEO4J_USERNAME = os.getenv("DB_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("DB_PASSWORD")
 
 LOCAL_OUT_DIR = Path("./cache/output")
-FOLDERS = ["curriculum", "career_description", "syllabus"]
+FOLDERS = ["curriculum", "career_description", "syllabus", "personality"]
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -81,7 +89,7 @@ def _json_prop(value) -> str:
 def detect_schema(kg_data: dict) -> str:
     """
     Tự động nhận dạng loại file từ nội dung JSON.
-    Returns: 'curriculum' | 'syllabus' | 'career' | 'unknown'
+    Returns: 'curriculum' | 'syllabus' | 'career' | 'personality' | 'unknown'
 
     Lưu ý: career_description (v4) có thể chứa node MAJOR (từ recommended_majors),
     nên không dùng sự vắng mặt của MAJOR để phân biệt career vs curriculum nữa.
@@ -91,6 +99,10 @@ def detect_schema(kg_data: dict) -> str:
     rels       = kg_data.get("relationships", [])
     node_types = {n.get("type", "") for n in nodes}
     rel_types  = {r.get("rel_type", "") for r in rels}
+
+    # personality: chứa node PERSONALITY
+    if "PERSONALITY" in node_types:
+        return "personality"
 
     # syllabus: có TEACHER hoặc teacher_instructs_subject
     if "TEACHER" in node_types or "teacher_instructs_subject" in rel_types:
@@ -308,14 +320,20 @@ def syl_node_cypher(node: dict) -> str | None:
 
     if t == "SKILL":
         key        = _esc(node.get("skill_key"))
-        name       = _esc(node.get("skill_name"))
+        name       = _esc(node.get("skill_name"))   # giữ nguyên tên đầy đủ, kể cả "Khóa luận tốt nghiệp - Tên ngành"
         skill_type = _esc(node.get("skill_type"))
-        if not name:
+        clo_code   = _esc(node.get("clo_code"))
+        if not key and not name:
             return None
-        stmt = f"MERGE (n:SKILL {{name: '{name}'}})"
+        # Ưu tiên MERGE theo skill_key (unique), fallback theo name
+        merge_key  = key if key else name
+        merge_prop = "skill_key" if key else "name"
+        stmt = f"MERGE (n:SKILL {{{merge_prop}: '{merge_key}'}})"
         sets = []
+        if name:       sets.append(f"n.name = '{name}'")
         if key:        sets.append(f"n.skill_key = '{key}'")
         if skill_type: sets.append(f"n.skill_type = '{skill_type}'")
+        if clo_code:   sets.append(f"n.clo_code = '{clo_code}'")
         if sets:
             stmt += " SET " + ", ".join(sets)
         return stmt
@@ -420,12 +438,15 @@ def car_node_cypher(node: dict) -> str | None:
 
     if t == "SKILL":
         key        = _esc(node.get("skill_key"))
-        name       = _esc(node.get("skill_name"))
+        name       = _esc(node.get("skill_name"))   # giữ nguyên tên đầy đủ
         skill_type = _esc(node.get("skill_type"))
-        if not name:
+        if not key and not name:
             return None
-        stmt = f"MERGE (n:SKILL {{name: '{name}'}})"
+        merge_key  = key if key else name
+        merge_prop = "skill_key" if key else "name"
+        stmt = f"MERGE (n:SKILL {{{merge_prop}: '{merge_key}'}})"
         sets = []
+        if name:       sets.append(f"n.name = '{name}'")
         if key:        sets.append(f"n.skill_key = '{key}'")
         if skill_type: sets.append(f"n.skill_type = '{skill_type}'")
         if sets:
@@ -492,18 +513,66 @@ def car_rel_cypher(rel: dict) -> str | None:
     return None
 
 
+
+# ══════════════════════════════
+#  PERSONALITY
+# ══════════════════════════════
+
+def per_node_cypher(node: dict) -> str | None:
+    """PER: PERSONALITY"""
+    t = node.get("type", "")
+
+    if t == "PERSONALITY":
+        key      = _esc(node.get("personality_key"))
+        name_vi  = _esc(node.get("name_vi"))
+        name_en  = _esc(node.get("name_en"))
+        category = _esc(node.get("category"))
+        desc     = _esc(node.get("description"))
+        # indicators là list → serialize thành JSON string
+        indicators = node.get("indicators")
+
+        # Bắt buộc: phải có personality_key
+        if not key:
+            return None
+
+        stmt = f"MERGE (n:PERSONALITY {{personality_key: '{key}'}})"
+        sets = []
+        # name = name_vi (tên hiển thị chính)
+        name_display = name_vi or key
+        sets.append(f"n.name = '{name_display}'")
+        if name_vi:  sets.append(f"n.name_vi = '{name_vi}'")
+        if name_en:  sets.append(f"n.name_en = '{name_en}'")
+        if category: sets.append(f"n.category = '{category}'")
+        if desc:     sets.append(f"n.description = '{desc}'")
+        if indicators is not None:
+            sets.append(f"n.indicators = '{_json_prop(indicators)}'")
+
+        if sets:
+            stmt += " SET " + ", ".join(sets)
+        return stmt
+
+    return None
+
+
+def per_rel_cypher(rel: dict) -> str | None:
+    """PER: không có relationship nào trong schema hiện tại."""
+    return None
+
+
 # ─── DISPATCH ─────────────────────────────────────────────────────────────────
 
 NODE_BUILDERS = {
-    "curriculum": cur_node_cypher,
-    "syllabus":   syl_node_cypher,
-    "career":     car_node_cypher,
+    "curriculum":  cur_node_cypher,
+    "syllabus":    syl_node_cypher,
+    "career":      car_node_cypher,
+    "personality": per_node_cypher,
 }
 
 REL_BUILDERS = {
-    "curriculum": cur_rel_cypher,
-    "syllabus":   syl_rel_cypher,
-    "career":     car_rel_cypher,
+    "curriculum":  cur_rel_cypher,
+    "syllabus":    syl_rel_cypher,
+    "career":      car_rel_cypher,
+    "personality": per_rel_cypher,
 }
 
 
@@ -549,17 +618,20 @@ def get_driver():
 def create_indexes(session):
     stmts = [
         # Unique constraints
-        "CREATE CONSTRAINT IF NOT EXISTS FOR (n:MAJOR)   REQUIRE n.code IS UNIQUE",
-        "CREATE CONSTRAINT IF NOT EXISTS FOR (n:SUBJECT) REQUIRE n.code IS UNIQUE",
+        "CREATE CONSTRAINT IF NOT EXISTS FOR (n:MAJOR)       REQUIRE n.code IS UNIQUE",
+        "CREATE CONSTRAINT IF NOT EXISTS FOR (n:SUBJECT)     REQUIRE n.code IS UNIQUE",
+        "CREATE CONSTRAINT IF NOT EXISTS FOR (n:PERSONALITY) REQUIRE n.personality_key IS UNIQUE",
         # Node indexes
-        "CREATE INDEX IF NOT EXISTS FOR (n:SKILL)   ON (n.name)",
-        "CREATE INDEX IF NOT EXISTS FOR (n:SKILL)   ON (n.skill_key)",
-        "CREATE INDEX IF NOT EXISTS FOR (n:CAREER)  ON (n.name)",
-        "CREATE INDEX IF NOT EXISTS FOR (n:CAREER)  ON (n.career_key)",
-        "CREATE INDEX IF NOT EXISTS FOR (n:TEACHER) ON (n.name)",
-        "CREATE INDEX IF NOT EXISTS FOR (n:TEACHER) ON (n.teacher_key)",
-        "CREATE INDEX IF NOT EXISTS FOR (n:MAJOR)   ON (n.name)",
-        "CREATE INDEX IF NOT EXISTS FOR (n:SUBJECT) ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:SKILL)       ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:SKILL)       ON (n.skill_key)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:CAREER)      ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:CAREER)      ON (n.career_key)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:TEACHER)     ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:TEACHER)     ON (n.teacher_key)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:MAJOR)       ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:SUBJECT)     ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:PERSONALITY) ON (n.name)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:PERSONALITY) ON (n.category)",
     ]
     for stmt in stmts:
         try:
@@ -661,7 +733,7 @@ def process_files(driver):
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
-    log.info("Starting Neo4j ingestion pipeline (v4 – synchronized with script1 v2)...")
+    log.info("Starting Neo4j ingestion pipeline (v5 – synchronized with script1 v3)...")
 
     if not NEO4J_URI:
         raise ValueError("DB_URL không tìm thấy trong .env")
