@@ -110,14 +110,12 @@ def cur_node_cypher(node: dict) -> str | None:
     if t == "MAJOR":
         code    = _esc(node.get("major_code"))
         name_vi = _esc(node.get("major_name_vi"))
-        name_en = _esc(node.get("major_name_en"))
         if not code:
             return None
 
         sets = [
             f"n.name = '{name_vi}'",
             f"n.name_vi = '{name_vi}'",
-            f"n.name_en = '{name_en}'",
         ]
 
         # Thuộc tính mở rộng (script1 v2)
@@ -146,14 +144,12 @@ def cur_node_cypher(node: dict) -> str | None:
     if t == "SUBJECT":
         code    = _esc(node.get("subject_code"))
         name_vi = _esc(node.get("subject_name_vi"))
-        name_en = _esc(node.get("subject_name_en"))
         if not code:
             return None
 
         sets = [
             f"n.name = '{name_vi}'",
             f"n.name_vi = '{name_vi}'",
-            f"n.name_en = '{name_en}'",
         ]
 
         # Thuộc tính mở rộng từ curriculum (số tín chỉ nếu có)
@@ -242,14 +238,12 @@ def syl_node_cypher(node: dict) -> str | None:
     if t == "SUBJECT":
         code    = _esc(node.get("subject_code"))
         name_vi = _esc(node.get("subject_name_vi"))
-        name_en = _esc(node.get("subject_name_en"))
         if not code:
             return None
 
         sets = [
             f"n.name = '{name_vi}'",
             f"n.name_vi = '{name_vi}'",
-            f"n.name_en = '{name_en}'",
         ]
 
         # Thuộc tính mở rộng (script1 v2)
@@ -431,15 +425,13 @@ def car_node_cypher(node: dict) -> str | None:
     # MERGE bằng name, chờ Phase 2 mapping để gắn code
     if t == "MAJOR":
         name_vi = _esc(node.get("major_name_vi"))
-        name_en = _esc(node.get("major_name_en"))
         code    = _esc(node.get("major_code"))
-        name    = name_vi or name_en
+        name    = name_vi
         if not name:
             return None
         stmt = f"MERGE (n:MAJOR {{name: '{name}'}})"
         sets = []
         if name_vi: sets.append(f"n.name_vi = '{name_vi}'")
-        if name_en: sets.append(f"n.name_en = '{name_en}'")
         if code:    sets.append(f"n.code = '{code}'")
         if sets:
             stmt += " SET " + ", ".join(sets)
