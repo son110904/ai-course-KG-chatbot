@@ -24,6 +24,77 @@ OPENAI_MODEL   = os.getenv("OPENAI_MODEL")
 MAX_HOPS = int(os.getenv("MAX_HOPS", "3"))
 LOG_DIR  = Path("./qa_logs")
 
+# ── Danh sách môn đại cương bắt buộc chung mọi ngành ────────────────────────
+# Các môn này KHÔNG được gợi ý khi người dùng hỏi "nên học môn gì".
+# Nhưng nếu hỏi "ngành X có học môn Y không?" thì vẫn xác nhận là CÓ.
+EXCLUDED_SUBJECT_CODES = {
+    "llnl1105", "llnl1106", "llnl1107", "lldl1102", "lltt1101",
+    "khmi1101", "khma1101", "lucs1129",
+}
+EXCLUDED_SUBJECT_NAMES_PATTERNS = re.compile(
+    r"tri\s*[eé]t\s*h[oọ]c\s*m[aá]c[\s\-]*l[eê][- ]?nin"
+    r"|kinh\s*t[eế]\s*ch[ií]nh\s*tr[ij]\s*m[aá]c[\s\-]*l[eê][- ]?nin"
+    r"|ch[uủ]\s*ngh[iĩ]a\s*x[aã]\s*h[oộ]i\s*khoa\s*h[oọ]c"
+    r"|l[iị]ch\s*s[uử]\s*[dđ][aả]ng\s*c[oộ]ng\s*s[aả]n\s*vi[eệ]t\s*nam"
+    r"|t[uư]\s*t[uư][oở]ng\s*h[oồ]\s*ch[ií]\s*minh"
+    r"|gi[aá]o\s*d[uụ]c\s*th[eể]\s*ch[aấ]t"
+    r"|gi[aá]o\s*d[uụ]c\s*qu[oố]c\s*ph[oò]ng"
+    r"|gdtc|gdqp"
+    r"|kinh\s*t[eế]\s*vi\s*m[oô]\s*1"
+    r"|kinh\s*t[eế]\s*v[iĩ]\s*m[oô]\s*1"
+    r"|ph[aá]p\s*lu[aậ]t\s*[dđ][aạ]i\s*c[uư][oơ]ng",
+    re.IGNORECASE | re.UNICODE,
+)
+
+# Pattern để nhận diện câu hỏi "nên học môn gì" (câu hỏi gợi ý môn)
+_RECOMMEND_SUBJECT_PATTERN = re.compile(
+    r"n[eê]n\s+h[oọ]c\s+m[oô]n\s+g[iì]"
+    r"|g[oợ]i\s+[yý]\s+m[oô]n"
+    r"|m[oô]n\s+n[aà]o\s+n[eê]n\s+h[oọ]c"
+    r"|ch[oọ]n\s+m[oô]n\s+h[oọ]c"
+    r"|[dđ][aă]ng\s+k[yý]\s+m[oô]n\s+g[iì]"
+    r"|n[eê]n\s+[dđ][aă]ng\s+k[yý]\s+m[oô]n\s+n[aà]o"
+    r"|m[oô]n\s+t[uự]\s+ch[oọ]n\s+n[aà]o",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def is_recommend_subject_question(question: str) -> bool:
+    """Trả về True nếu câu hỏi là hỏi gợi ý / nên học môn gì."""
+    return bool(_RECOMMEND_SUBJECT_PATTERN.search(question))
+
+
+def filter_excluded_subjects(nodes: list[dict], exclude: bool) -> list[dict]:
+    """
+    Nếu exclude=True: loại bỏ các SUBJECT node thuộc danh sách đại cương bắt buộc.
+    Nếu exclude=False: giữ nguyên toàn bộ (dùng cho câu hỏi xác nhận sự tồn tại).
+    """
+    if not exclude:
+        return nodes
+    result = []
+    for n in nodes:
+        if n.get("label") != "SUBJECT":
+            result.append(n)
+            continue
+        code = (n.get("code") or "").lower().strip()
+        name = (n.get("name") or "").lower().strip()
+        if code in EXCLUDED_SUBJECT_CODES:
+            continue
+        if EXCLUDED_SUBJECT_NAMES_PATTERNS.search(name):
+            continue
+        result.append(n)
+    return result
+
+
+# Pattern nhận diện câu hỏi XÁC NHẬN sự tồn tại môn đại cương ("ngành X có học môn Y không?")
+_CONFIRM_SUBJECT_PATTERN = re.compile(
+    r"c[oó]\s+h[oọ]c\s+m[oô]n"
+    r"|c[oó]\s+d[aạ]y\s+m[oô]n"
+    r"|m[oô]n\s+.{0,40}\s+c[oó]\s+kh[oô]ng"
+    r"|c[oó]\s+m[oô]n\s+.{0,40}\s+kh[oô]ng",
+    re.IGNORECASE | re.UNICODE,
+)
+
 
 
 COMMUNITY_LEVELS: dict[str, dict] = {
@@ -683,6 +754,20 @@ F. Nếu [DỮ LIỆU GRAPH] trống → trả lời:
 G. TUYỆT ĐỐI KHÔNG liệt kê CAREER node có tên bắt đầu bằng danh hiệu học vị:
    "Cử nhân", "Kỹ sư" (khi là danh hiệu bằng cấp), "Thạc sĩ", "Tiến sĩ", "Bachelor", "Master".
    Đây là kết quả đào tạo, KHÔNG phải vị trí công việc. Bỏ qua hoàn toàn.
+H. KHI GỢI Ý / TƯ VẤN "NÊN HỌC MÔN GÌ": TUYỆT ĐỐI KHÔNG đề cập, liệt kê, hay nhắc đến
+   các môn đại cương bắt buộc chung sau đây (dù có trong dữ liệu hay không, dù viết hoa/thường/có dấu/không dấu):
+     • Triết học Mác-Lênin (LLNL1105)
+     • Kinh tế chính trị Mác-Lênin (LLNL1106)
+     • Chủ nghĩa xã hội khoa học (LLNL1107)
+     • Lịch sử Đảng Cộng sản Việt Nam (LLDL1102)
+     • Tư tưởng Hồ Chí Minh (LLTT1101)
+     • Giáo dục thể chất (GDTC)
+     • Giáo dục quốc phòng và an ninh (GDQP)
+     • Kinh tế vi mô 1 (KHMI1101)
+     • Kinh tế vĩ mô 1 (KHMA1101)
+     • Pháp luật đại cương (LUCS1129)
+   Lý do: đây là môn bắt buộc chung mọi ngành, không cần tư vấn riêng.
+   NGOẠI LỆ: Nếu người dùng HỎI TRỰC TIẾP "ngành X có học môn Y không?" → trả lời "Có".
 
 ĐỊNH DẠNG ĐẦU RA — BẮT BUỘC TUÂN THỦ:
 - Tiếng Việt tự nhiên, thân thiện.
@@ -1700,6 +1785,20 @@ def generate_answer(
             "Thông báo lịch sự, không bịa thông tin.]"
         )
 
+    # Nhắc LLM không nhắc đến môn đại cương khi đang trả lời câu hỏi gợi ý môn
+    excluded_hint = ""
+    if intent.get("_exclude_common_subjects"):
+        excluded_hint = (
+            "\n[LUẬT BỔ SUNG — ÁP DỤNG CHO CÂU TRẢ LỜI NÀY]: "
+            "Đây là câu hỏi gợi ý môn học. "
+            "TUYỆT ĐỐI KHÔNG đề cập hoặc liệt kê các môn sau (dù tên viết hoa, thường, có dấu hay không): "
+            "Triết học Mác-Lênin, Kinh tế chính trị Mác-Lênin, Chủ nghĩa xã hội khoa học, "
+            "Lịch sử Đảng Cộng sản Việt Nam, Tư tưởng Hồ Chí Minh, "
+            "Giáo dục thể chất (GDTC), Giáo dục quốc phòng và an ninh (GDQP), "
+            "Kinh tế vi mô 1 (KHMI1101), Kinh tế vĩ mô 1 (KHMA1101), Pháp luật đại cương (LUCS1129). "
+            "Đây là các môn bắt buộc chung mọi ngành — không cần tư vấn riêng.]"
+        )
+
     response = ai_client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=[
@@ -1707,7 +1806,8 @@ def generate_answer(
             {"role": "user",   "content": (
                 f"Câu hỏi: {question}\n\n"
                 f"[DỮ LIỆU GRAPH]:\n{context}"
-                f"{no_data_hint}\n\n"
+                f"{no_data_hint}"
+                f"{excluded_hint}\n\n"
                 "Trả lời CHỈ dùng tên/code từ [DỮ LIỆU GRAPH]:"
             )},
         ],
@@ -1877,6 +1977,15 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
         if not any(neg in (n.get("name") or "").lower() for neg in negated_lower)
     ]
 
+    # ── Bước 4-excluded: Lọc môn đại cương bắt buộc khi câu hỏi là gợi ý môn ──
+    _is_confirm = bool(_CONFIRM_SUBJECT_PATTERN.search(question))
+    _is_recommend = is_recommend_subject_question(question)
+    # Lọc khỏi context nếu là câu hỏi gợi ý MÀ KHÔNG phải câu hỏi xác nhận
+    _should_exclude = _is_recommend and not _is_confirm
+    context_nodes = filter_excluded_subjects(context_nodes, exclude=_should_exclude)
+    # Gắn flag vào intent để generate_answer biết
+    intent["_exclude_common_subjects"] = _should_exclude
+
     # ── Bước 4b-pre: Lọc CAREER node dạng bằng cấp (không phải vị trí công việc) ──
     _DEGREE_PREFIXES = (
         "cử nhân", "kỹ sư", "thạc sĩ", "tiến sĩ", "bác sĩ",
@@ -1957,8 +2066,6 @@ def get_driver():
 def interactive_loop(driver, ai_client: OpenAI):
     print("\n🎓 Knowledge Graph Chatbot v11 — GraphRAG 3-Tier + MBTI Personality (label-scoped BFS)")
     print(f"max_hops={MAX_HOPS} | BFS dùng label filter (không dùng community number filter)")
-    print("Communities: L1_GLOBAL | L2_ACADEMIC | L2_CAREER_ALIGNMENT | L2_PERSONALITY_FIT")
-    print("             L3_MAJOR_CENTRIC | L3_SKILL_CENTRIC")
     print("Gõ câu hỏi. Nhập 'exit' để thoát.\n")
 
     counter = 1
