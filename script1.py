@@ -601,12 +601,14 @@ def _build_personality_node_and_rels(mbti_data: dict) -> tuple[dict, list[dict]]
                 if major_code and re.match(r"^\d{7}", major_code) and major_code not in seen_majors:
                     seen_majors.add(major_code)
                     rels.append({
-                        "rel_type":           "personality_suits_major",
+                        "rel_type":"personality_suits_career",
                         "from_personality_key": code,
-                        "to_major_code":        major_code,
-                        "field_name":           field.get("field_name", ""),
-                        "group_name":           group.get("group_name", ""),
-                    })
+                        "to_career_name":       career_name,
+                        "major_code":major_code,     
+                        "major_name":major_name,
+                        "group_name":group.get("group_name", ""),
+                        "field_name":field.get("field_name", ""),
+})
 
                 # Relationship personality → career
                 for career in major.get("careers", []):
