@@ -1,6 +1,18 @@
 """
-Script 2 (OPTIMIZED v6): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
+Script 2 (OPTIMIZED v7): Load extracted KG JSON → generate Cypher TRỰC TIẾP (không dùng LLM)
 → push to Neo4j Aura
+
+Thay đổi so với v6:
+  [FIX-1] per_rel_cypher: SUITS_CAREER edge lưu thêm property major_code và group_name
+          → script3 dùng để lọc nghề theo ngành khi user hỏi "ENFP + CNTT thì làm gì"
+
+  [FIX-4] per_node_cypher: lưu thêm 3 list property vào PERSONALITY node:
+            field_names        — list tên lĩnh vực
+            group_names        — list tên nhóm ngành
+            major_codes_index  — list mã ngành 7 chữ số phẳng
+          → script3 query ngược "tính cách gì hợp làm IT/CNTT"
+
+  [FIX-4] create_indexes: thêm index cho field_names và major_codes_index
 """
 
 import os
@@ -97,11 +109,6 @@ def detect_schema(kg_data: dict) -> str:
     return "unknown"
 
 
-# ─── CYPHER BUILDERS PER SCHEMA ───────────────────────────────────────────────
-
-# ══════════════════════════════
-#  CURRICULUM
-# ══════════════════════════════
 
 def cur_node_cypher(node: dict) -> str | None:
     """CUR: MAJOR | SUBJECT | CAREER"""
@@ -118,7 +125,6 @@ def cur_node_cypher(node: dict) -> str | None:
             f"n.name_vi = '{name_vi}'",
         ]
 
-        # Thuộc tính mở rộng (script1 v2)
         extended_fields = [
             ("philosophy_and_objectives",              "philosophy_and_objectives"),
             ("admission_requirements",                 "admission_requirements"),
@@ -152,7 +158,6 @@ def cur_node_cypher(node: dict) -> str | None:
             f"n.name_vi = '{name_vi}'",
         ]
 
-        # Thuộc tính mở rộng từ curriculum (số tín chỉ nếu có)
         credits = node.get("credits")
         if credits is not None:
             try:
@@ -198,7 +203,6 @@ def cur_rel_cypher(rel: dict) -> str | None:
         req_type     = _esc(rel.get("required_type"))
         if not major_code or not subject_code:
             return None
-        # Only add semester/req_type if both are provided and valid
         if semester is not None and req_type:
             try:
                 semester_int = int(semester)
@@ -207,7 +211,7 @@ def cur_rel_cypher(rel: dict) -> str | None:
                     f" MERGE (a)-[:MAJOR_OFFERS_SUBJECT {{semester: {semester_int}, required_type: '{req_type}'}}]->(b)"
                 )
             except (ValueError, TypeError):
-                pass  # Fall back to without semester/req_type
+                pass
         return (
             f"MATCH (a:MAJOR {{code: '{major_code}'}}), (b:SUBJECT {{code: '{subject_code}'}})"
             f" MERGE (a)-[:MAJOR_OFFERS_SUBJECT]->(b)"
@@ -246,7 +250,6 @@ def syl_node_cypher(node: dict) -> str | None:
             f"n.name_vi = '{name_vi}'",
         ]
 
-        # Thuộc tính mở rộng (script1 v2)
         simple_fields = [
             "course_description",
             "learning_resources",
@@ -288,12 +291,11 @@ def syl_node_cypher(node: dict) -> str | None:
 
     if t == "SKILL":
         key        = _esc(node.get("skill_key"))
-        name       = _esc(node.get("skill_name"))   # giữ nguyên tên đầy đủ, kể cả "Khóa luận tốt nghiệp - Tên ngành"
+        name       = _esc(node.get("skill_name"))
         skill_type = _esc(node.get("skill_type"))
         clo_code   = _esc(node.get("clo_code"))
         if not key and not name:
             return None
-        # Ưu tiên MERGE theo skill_key (unique), fallback theo name
         merge_key  = key if key else name
         merge_prop = "skill_key" if key else "name"
         stmt = f"MERGE (n:SKILL {{{merge_prop}: '{merge_key}'}})"
@@ -388,7 +390,6 @@ def car_node_cypher(node: dict) -> str | None:
             codes_lit = "[" + ", ".join(f"'{_esc(str(c))}'" for c in majors) + "]"
             sets.append(f"n.major_codes = {codes_lit}")
 
-        # Thuộc tính mở rộng (script1 v2)
         extended_fields = [
             "description",
             "job_tasks",
@@ -406,7 +407,7 @@ def car_node_cypher(node: dict) -> str | None:
 
     if t == "SKILL":
         key        = _esc(node.get("skill_key"))
-        name       = _esc(node.get("skill_name"))   # giữ nguyên tên đầy đủ
+        name       = _esc(node.get("skill_name"))
         skill_type = _esc(node.get("skill_type"))
         if not key and not name:
             return None
@@ -422,7 +423,6 @@ def car_node_cypher(node: dict) -> str | None:
         return stmt
 
     # MAJOR từ recommended_majors — chỉ có tên, chưa có code
-    # MERGE bằng name, chờ Phase 2 mapping để gắn code
     if t == "MAJOR":
         name_vi = _esc(node.get("major_name_vi"))
         code    = _esc(node.get("major_code"))
@@ -479,16 +479,20 @@ def car_rel_cypher(rel: dict) -> str | None:
     return None
 
 
-
-# ══════════════════════════════
-#  PERSONALITY  (MBTI-based v6)
-# ══════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
+#  PERSONALITY  (MBTI-based v7 — fixed)
+# ══════════════════════════════════════════════════════════════════════════════
 
 def per_node_cypher(node: dict) -> str | None:
     """
-    PER: PERSONALITY — schema MBTI-based v6.
+    PER: PERSONALITY — schema MBTI-based v7.
     MERGE theo personality_key (= MBTI code, e.g. "ESTP").
-    Lưu toàn bộ trường MBTI; suitable_fields serialize thành JSON string.
+
+    [FIX-4] Thêm 3 list property mới so với v6:
+      - field_names        (list[str]) — tên các lĩnh vực trong suitable_fields
+      - group_names        (list[str]) — tên các nhóm ngành
+      - major_codes_index  (list[str]) — mã ngành 7 chữ số phẳng
+    Dùng để script3 query "tính cách gì hợp làm CNTT/IT" qua Phase 1c fallback.
     """
     t = node.get("type", "")
     if t != "PERSONALITY":
@@ -500,7 +504,7 @@ def per_node_cypher(node: dict) -> str | None:
 
     stmt = f"MERGE (n:PERSONALITY {{personality_key: '{key}'}})"
     sets = [
-        f"n.name = '{key}'",          # name hiển thị = MBTI code
+        f"n.name = '{key}'",
         f"n.code = '{key}'",
     ]
 
@@ -508,7 +512,6 @@ def per_node_cypher(node: dict) -> str | None:
     if desc:
         sets.append(f"n.description = '{_esc(desc)}'")
 
-    # 4 chiều structure → JSON string
     structure = node.get("structure")
     if structure:
         sets.append(f"n.structure = '{_json_prop(structure)}'")
@@ -525,10 +528,26 @@ def per_node_cypher(node: dict) -> str | None:
     if work_env:
         sets.append(f"n.work_environment = '{_esc(work_env)}'")
 
-    # suitable_fields: lưu nguyên JSON để script3 có thể query trực tiếp
+    # suitable_fields: lưu nguyên JSON để script3 parse khi cần
     suitable = node.get("suitable_fields")
     if suitable:
         sets.append(f"n.suitable_fields = '{_json_prop(suitable)}'")
+
+    # ── [FIX-4] 3 list property mới — lưu dạng Neo4j native list ─────────────
+    field_names = node.get("field_names", [])
+    if field_names:
+        items = ", ".join(f"'{_esc(str(fn))}'" for fn in field_names)
+        sets.append(f"n.field_names = [{items}]")
+
+    group_names = node.get("group_names", [])
+    if group_names:
+        items = ", ".join(f"'{_esc(str(gn))}'" for gn in group_names)
+        sets.append(f"n.group_names = [{items}]")
+
+    major_codes_index = node.get("major_codes_index", [])
+    if major_codes_index:
+        items = ", ".join(f"'{_esc(str(mc))}'" for mc in major_codes_index)
+        sets.append(f"n.major_codes_index = [{items}]")
 
     stmt += " SET " + ", ".join(sets)
     return stmt
@@ -536,13 +555,16 @@ def per_node_cypher(node: dict) -> str | None:
 
 def per_rel_cypher(rel: dict) -> str | None:
     """
-    PER relationships (v6):
+    PER relationships (v7 — fixed):
       personality_suits_major  → PERSONALITY -[:SUITS_MAJOR]->  MAJOR
       personality_suits_career → PERSONALITY -[:SUITS_CAREER]-> CAREER
+
+    [FIX-1] SUITS_CAREER edge lưu thêm property major_code và group_name
+            → script3 dùng để lọc nghề theo ngành khi user đề cập cả MBTI lẫn ngành học.
     """
     rtype = rel.get("rel_type", "")
 
-    # ── PERSONALITY -[:SUITS_MAJOR]-> MAJOR ──────────────────────────────────
+    # ── PERSONALITY -[:SUITS_MAJOR]-> MAJOR ─────────────────── (không đổi) ──
     if rtype == "personality_suits_major":
         pkey       = _esc(rel.get("from_personality_key"))
         major_code = _esc(rel.get("to_major_code"))
@@ -560,18 +582,24 @@ def per_rel_cypher(rel: dict) -> str | None:
             f" MERGE (a)-[:SUITS_MAJOR{' ' + props_str if props_str else ''}]->(b)"
         )
 
-    # ── PERSONALITY -[:SUITS_CAREER]-> CAREER ────────────────────────────────
+    # ── PERSONALITY -[:SUITS_CAREER]-> CAREER ──────────────────── [FIX-1] ───
     if rtype == "personality_suits_career":
         pkey        = _esc(rel.get("from_personality_key"))
         career_name = _esc(rel.get("to_career_name"))
         if not pkey or not career_name:
             return None
-        major_name = _esc(rel.get("major_name", ""))
-        field_name = _esc(rel.get("field_name", ""))
+        major_name  = _esc(rel.get("major_name", ""))
+        field_name  = _esc(rel.get("field_name", ""))
+        group_name  = _esc(rel.get("group_name", ""))
+        # ── [FIX-1] major_code mới — từ script1 patch ────────────────────────
+        major_code  = _esc(rel.get("major_code", ""))
+
         # CAREER node: MERGE by name (tạo mới nếu chưa có)
         props = []
-        if major_name: props.append(f"major_name: '{major_name}'")
-        if field_name: props.append(f"field_name: '{field_name}'")
+        if major_name:  props.append(f"major_name: '{major_name}'")
+        if field_name:  props.append(f"field_name: '{field_name}'")
+        if group_name:  props.append(f"group_name: '{group_name}'")
+        if major_code:  props.append(f"major_code: '{major_code}'")   # THÊM MỚI
         props_str = "{" + ", ".join(props) + "}" if props else ""
         return (
             f"MERGE (b:CAREER {{name: '{career_name}'}})"
@@ -640,12 +668,18 @@ def get_driver():
 
 
 def create_indexes(session):
+    """
+    [FIX-4] Thêm index cho PERSONALITY.field_names và PERSONALITY.major_codes_index.
+    Neo4j v5+ hỗ trợ index trên array property.
+    Nếu dùng Neo4j < v5, 2 index cuối sẽ bị skip (warning) nhưng không làm crash —
+    ANY() query vẫn chạy được, chỉ chậm hơn một chút.
+    """
     stmts = [
         # Unique constraints
         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:MAJOR)       REQUIRE n.code IS UNIQUE",
         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:SUBJECT)     REQUIRE n.code IS UNIQUE",
         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:PERSONALITY) REQUIRE n.personality_key IS UNIQUE",
-        # Node indexes
+        # Node indexes (giữ nguyên từ v6)
         "CREATE INDEX IF NOT EXISTS FOR (n:SKILL)       ON (n.name)",
         "CREATE INDEX IF NOT EXISTS FOR (n:SKILL)       ON (n.skill_key)",
         "CREATE INDEX IF NOT EXISTS FOR (n:CAREER)      ON (n.name)",
@@ -656,6 +690,9 @@ def create_indexes(session):
         "CREATE INDEX IF NOT EXISTS FOR (n:SUBJECT)     ON (n.name)",
         "CREATE INDEX IF NOT EXISTS FOR (n:PERSONALITY) ON (n.name)",
         "CREATE INDEX IF NOT EXISTS FOR (n:PERSONALITY) ON (n.code)",
+        # ── [FIX-4] Index mới cho PERSONALITY list properties ─────────────────
+        "CREATE INDEX IF NOT EXISTS FOR (n:PERSONALITY) ON (n.major_codes_index)",
+        "CREATE INDEX IF NOT EXISTS FOR (n:PERSONALITY) ON (n.field_names)",
     ]
     for stmt in stmts:
         try:
@@ -748,16 +785,16 @@ def process_files(driver):
                 ok, fail = run_statements_in_tx(session, statements, jf.name)
                 total_ok   += ok
                 total_fail += fail
-                log.info(f"    ✓ {ok}  ✗ {fail}")
+                log.info(f"     {ok}   {fail}")
 
         log.info(f"\n{'='*60}")
-        log.info(f"TỔNG KẾT: {total_files} files | ✓ {total_ok} statements | ✗ {total_fail} lỗi")
+        log.info(f"TỔNG KẾT: {total_files} files |  {total_ok} statements |  {total_fail} lỗi")
 
 
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
-    log.info("Starting Neo4j ingestion pipeline (v6 – MBTI personality schema)...")
+    log.info("Starting Neo4j ingestion pipeline (v7 – MBTI personality schema fixed)...")
 
     if not NEO4J_URI:
         raise ValueError("DB_URL không tìm thấy trong .env")
@@ -768,7 +805,7 @@ def main():
     finally:
         driver.close()
 
-    log.info("\n✅ Ingestion complete.")
+    log.info("\nIngestion complete.")
 
 
 if __name__ == "__main__":

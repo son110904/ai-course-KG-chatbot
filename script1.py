@@ -589,10 +589,12 @@ def _build_personality_node_and_rels(mbti_data: dict) -> tuple[dict, list[dict]]
     # Build relationships
     rels: list[dict] = []
     seen_majors:  set[str] = set()
-    seen_careers: set[str] = set()
+    seen_careers_links: set[tuple[str, str, str, str]] = set()  
 
     for field in p.get("suitable_fields", []):
+        field_name = str(field.get("field_name", "")).strip()
         for group in field.get("groups", []):
+            group_name = str(group.get("group_name", "")).strip()
             for major in group.get("majors", []):
                 major_code = str(major.get("major_code", "")).strip()
                 major_name = str(major.get("major_name", "")).strip()
@@ -605,25 +607,27 @@ def _build_personality_node_and_rels(mbti_data: dict) -> tuple[dict, list[dict]]
                         "from_personality_key": code,
                         "to_career_name":       career_name,
                         "major_code":major_code,     
-                        "major_name":major_name,
-                        "group_name":group.get("group_name", ""),
-                        "field_name":field.get("field_name", ""),
+                        "group_name":group_name,
+                        "field_name":field_name,
 })
 
                 # Relationship personality → career
                 for career in major.get("careers", []):
                     career_name = str(career).strip()
-                    if career_name and career_name not in seen_careers:
-                        seen_careers.add(career_name)
+                    rel_key = (career_name, field_name, group_name, major_name)  # tránh trùng lặp nếu cùng nghề xuất hiện nhiều lần
+                    if career_name and rel_key not in seen_careers_links:
+                        seen_careers_links.add(rel_key)
                         rels.append({
                             "rel_type":             "personality_suits_career",
                             "from_personality_key": code,
                             "to_career_name":       career_name,
                             "major_name":           major_name,
-                            "field_name":           field.get("field_name", ""),
+                            "field_name":           field_name,
+                            "group_name":           group_name,
+
                         })
 
-    log.info(f"  [personality] {code}: {len(seen_majors)} majors, {len(seen_careers)} careers")
+    log.info(f"  [personality] {code}: {len(seen_majors)} majors, {len(seen_careers_links)} careers")
     return node, rels
 
 
