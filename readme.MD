@@ -1,4 +1,5 @@
-# GraphRAG Chatbot — Neo4j Aura
+# GraphRAG Chatbot — Neo4j 
+# Live Demo: ai.neu.edu.vn/tuyen-sinh
 
 Hệ thống hỏi đáp học thuật dựa trên Knowledge Graph, sử dụng Neo4j Aura + OpenAI.
 
