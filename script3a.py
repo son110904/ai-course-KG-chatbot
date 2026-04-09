@@ -402,6 +402,72 @@ EXCLUDED_SUBJECT_NAMES_PATTERNS = re.compile(
     re.IGNORECASE | re.UNICODE,
 )
 
+_F = re.IGNORECASE | re.UNICODE  # shorthand
+_EXCLUDED_SUBJECT_KEYWORD_MAP: list[tuple[re.Pattern, str]] = [
+    # Triết học — user có thể gõ "triết", "triet", "Triết học"
+    (re.compile(r"tri[eếệề]t|triet", _F), "Triết học Mác-Lênin (LLNL1105)"),
+    # Kinh tế chính trị
+    (re.compile(r"kinh\s*t[eế]\s*ch[ií]nh\s*tr[ịi]|ktct", _F),
+     "Kinh tế chính trị Mác-Lênin (LLNL1106)"),
+    # Chủ nghĩa xã hội khoa học
+    (re.compile(r"ch[uủ]\s*ngh[iĩ]a\s*x[aã]\s*h[oộ]i|cnxhkh", _F),
+     "Chủ nghĩa xã hội khoa học (LLNL1107)"),
+    # Lịch sử Đảng
+    (re.compile(r"l[iị]ch\s*s[uử]\s*[dđ][aả]ng|lsd\b", _F),
+     "Lịch sử Đảng Cộng sản Việt Nam (LLDL1102)"),
+    # Tư tưởng Hồ Chí Minh
+    (re.compile(r"t[uư]\s*t[uư][oở]ng\s*h[oồ]\s*ch[ií]\s*minh|tthcm", _F),
+     "Tư tưởng Hồ Chí Minh (LLTT1101)"),
+    # Giáo dục thể chất
+    (re.compile(r"gdtc|gi[aá]o\s*d[uụ]c\s*th[eể]\s*ch[aấ]t", _F),
+     "Giáo dục thể chất (GDTC)"),
+    # Giáo dục quốc phòng
+    (re.compile(r"gdqp|gi[aá]o\s*d[uụ]c\s*qu[oố]c\s*ph[oò]ng", _F),
+     "Giáo dục quốc phòng và an ninh (GDQP)"),
+    # Kinh tế vi mô 1 — phải đặt TRƯỚC vĩ mô để tránh overlap
+    (re.compile(r"kinh\s*t[eế]\s*vi\s*m[oô]|vi\s*m[oô]\s*1", _F),
+     "Kinh tế vi mô 1 (KHMI1101)"),
+    # Kinh tế vĩ mô 1
+    (re.compile(r"kinh\s*t[eế]\s*v[iĩ]\s*m[oô]|v[iĩ]\s*m[oô]\s*1", _F),
+     "Kinh tế vĩ mô 1 (KHMA1101)"),
+    # Pháp luật đại cương
+    (re.compile(r"ph[aá]p\s*lu[aậ]t\s*[dđ][aạ]i\s*c[uư][oơ]ng", _F),
+     "Pháp luật đại cương (LUCS1129)"),
+]
+
+# Pattern nhận diện câu hỏi dạng "ngành nào không (cần) học [môn]"
+_WHICH_MAJOR_NOT_STUDY_PATTERN = re.compile(
+    r"ng[àa]nh\s*(n[àa]o)?.{0,20}(kh[oô]ng|ko|ch[aẳ]ng)\s*(c[aầ]n\s*)?"
+    r"(h[oọ]c|d[aạ]y|ph[aả]i\s*h[oọ]c)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+
+def handle_which_major_not_study(question: str) -> str | None:
+    """
+    Nếu user hỏi "ngành nào không học [môn đại cương bắt buộc]",
+    trả về câu trả lời cứng vì các môn này bắt buộc toàn trường.
+    Ngược lại trả về None để pipeline xử lý bình thường.
+    """
+    if not _WHICH_MAJOR_NOT_STUDY_PATTERN.search(question):
+        return None
+
+    # Kiểm tra xem môn được hỏi có phải môn đại cương bắt buộc không
+    matched_subjects: list[str] = []
+    for pattern, display_name in _EXCLUDED_SUBJECT_KEYWORD_MAP:
+        if pattern.search(question):
+            matched_subjects.append(display_name)
+
+    if not matched_subjects:
+        return None  # Hỏi về môn khác → để pipeline xử lý
+
+    subjects_str = ", ".join(matched_subjects)
+    return (
+        f"Hiện tại không có ngành nào không học {subjects_str}. "
+        f"Đây là môn học bắt buộc chung cho tất cả các ngành tại NEU."
+    )
+
+
 # Pattern để nhận diện câu hỏi "nên học môn gì" (câu hỏi gợi ý môn)
 _RECOMMEND_SUBJECT_PATTERN = re.compile(
     r"n[eê]n\s+h[oọ]c\s+m[oô]n\s+g[iì]"
@@ -2557,6 +2623,18 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
              "keywords": [], "negated_keywords": [],
              "community_id": "ADMISSION_STATIC"},
             [], [], "admission_static_lookup",
+        )
+
+    # ── Bước 0-pre2: Môn đại cương bắt buộc — câu hỏi "ngành nào không học X" ──
+    not_study_answer = handle_which_major_not_study(question)
+    if not_study_answer is not None:
+        print(f"\nA (not_study_excluded): {not_study_answer}")
+        return _build_record(
+            query_id, question, not_study_answer, [],
+            {"asked_label": "SUBJECT", "mentioned_labels": ["MAJOR", "SUBJECT"],
+             "keywords": [], "negated_keywords": [],
+             "community_id": "EXCLUDED_SUBJECT_STATIC"},
+            [], [], "excluded_subject_static_reply",
         )
 
     # ── Bước 0: Aggregation Router ────────────────────────────────────────────
