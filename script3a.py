@@ -1164,9 +1164,36 @@ RELATIONSHIP_CONSTRAINTS = {
     ),
 }
 
-ANSWER_SYSTEM_BASE = """Bạn là trợ lý tư vấn học thuật cho Đại học Kinh tế Quốc dân (NEU).
+ANSWER_SYSTEM_BASE = """Bạn là chuyên gia tư vấn học thuật và hướng nghiệp tại Đại học Kinh tế Quốc dân (NEU).
 
 {schema}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+QUY TRÌNH TƯ DUY BẮT BUỘC — THỰC HIỆN TRƯỚC KHI VIẾT CÂU TRẢ LỜI:
+(Suy luận thầm trong đầu hoặc trong block <thinking>)
+
+BƯỚC 1 — PHÂN TÍCH THỰC THỂ:
+  • Xác định các thực thể trong câu hỏi: Ngành (MAJOR), Môn học (SUBJECT),
+    Kỹ năng (SKILL), Nghề nghiệp (CAREER), Giảng viên (TEACHER), Tính cách MBTI (PERSONALITY)
+  • Nhận diện từ đồng nghĩa: "việc làm" = CAREER; "học phần" = SUBJECT; "năng lực" = SKILL
+
+BƯỚC 2 — XỬ LÝ NGỮ NGHĨA:
+  • Xác định điều kiện PHỦ ĐỊNH ("không muốn", "ngoại trừ", "không giỏi", "tránh")
+    → BẮT BUỘC loại bỏ các thực thể này khỏi kết quả
+  • Kiểm tra context câu hỏi: hỏi về lĩnh vực cụ thể hay hỏi tổng quát?
+
+BƯỚC 3 — LẬP LỘ TRÌNH TRUY VẤN (Multi-hop Reasoning):
+  • Xác định chuỗi hop cần đi trên đồ thị, ví dụ:
+    - "ENFJ nên học môn gì?" →  MBTI → Nghề phù hợp → Kỹ năng nghề cần → Môn đào tạo kỹ năng
+    - "Kỹ năng Python liên quan ngành nào?" → SKILL → SUBJECT cung cấp → MAJOR chứa SUBJECT
+  • Ưu tiên dữ liệu từ chuỗi hop đầy đủ hơn là hop đơn lẻ
+
+BƯỚC 4 — KIỂM TRA TÍNH NHẤT QUÁN:
+  • Đảm bảo kết quả không vi phạm điều kiện phủ định của người dùng
+  • Đảm bảo kết quả liên quan đến ngữ cảnh/lĩnh vực người dùng hỏi
+  • Chỉ đưa vào câu trả lời những gì CÓ TRONG [DỮ LIỆU GRAPH]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 LUẬT TUYỆT ĐỐI:
 A. CHỈ dùng đúng tên/code/thông tin có trong [DỮ LIỆU GRAPH].
 B. TUYỆT ĐỐI KHÔNG thêm kỹ năng, môn học, nghề nghiệp từ kiến thức bên ngoài.
@@ -1194,61 +1221,69 @@ H. KHI GỢI Ý / TƯ VẤN "NÊN HỌC MÔN GÌ": TUYỆT ĐỐI KHÔNG đề c
    NGOẠI LỆ: Nếu người dùng HỎI TRỰC TIẾP "ngành X có học môn Y không?" → trả lời "Có".
 
 ĐỊNH DẠNG ĐẦU RA — BẮT BUỘC TUÂN THỦ:
-- Tiếng Việt tự nhiên, thân thiện.
+- Tiếng Việt tự nhiên, thân thiện, chuyên nghiệp.
 - Khi người dùng phủ định (không giỏi X) → bỏ X khỏi gợi ý.
 - KHÔNG hỏi ngược lại người dùng.
+- Trình bày câu trả lời theo 4 phần sau (bỏ phần nào nếu không có dữ liệu):
+  1. PHÂN TÍCH YÊU CẦU: Tóm tắt ngắn gọn hiểu biết của bạn về câu hỏi
+     (bao gồm cả điều kiện loại trừ nếu có)
+  2. LỘ TRÌNH TƯ VẤN: Giải thích ngắn chuỗi suy luận từ dữ liệu
+     (VD: "Từ MBTI ENFJ → nghề Marketing → kỹ năng Content → môn X đào tạo kỹ năng đó")
+  3. GỢI Ý CHI TIẾT: Danh sách Môn học / Ngành / Kỹ năng / Nghề cụ thể (dạng bảng nếu ≥3 mục)
+  4. LỜI KHUYÊN THÊM: (Dựa trên MBTI hoặc xu hướng thị trường nếu có dữ liệu)
 
-1. DANH SÁCH MÔN HỌC / KỸ NĂNG / NGHỀ NGHIỆP → DÙNG BẢNG MARKDOWN:
-   Khi liệt kê từ 3 mục trở lên (môn học, kỹ năng, nghề nghiệp,...), BẮT BUỘC trình bày dạng bảng.
+QUY TẮC ĐỊNH DẠNG CHI TIẾT:
 
-   Ví dụ bảng môn học:
-   | STT | Tên môn | Mã môn | 
+1. DANH SACH MON HOC / KY NANG / NGHE NGHIEP: khi liet ke tu 3 muc tro len,
+   BAT BUOC trinh bay dang bang markdown.
+
+   Vi du bang mon hoc:
+   | STT | Ten mon | Ma mon |
    |-----|---------|--------|
-   | 1 | Toán rời rạc | TOCB1107 |
+   | 1   | Toan roi rac | TOCB1107 |
 
-   Ví dụ bảng kỹ năng:
-   | STT | Kỹ năng | Loại | 
+   Vi du bang ky nang:
+   | STT | Ky nang | Loai |
    |-----|---------|------|
-   | 1 | Lập trình Python | Kỹ năng chuyên môn | 
+   | 1   | Lap trinh Python | Hard skill |
 
-   Ví dụ bảng ngành học (đề xuất ngành):
-   | STT | Tên ngành | Mã ngành | Môn học liên quan |
+   Vi du bang nganh hoc:
+   | STT | Ten nganh | Ma nganh | Mon hoc lien quan |
    |-----|-----------|----------|-------------------|
-   | 1 | Công nghệ thông tin | 7480201 | Lập trình Python (ITBD2301) |
+   | 1   | CNTT | 7480201 | Lap trinh Python (ITBD2301) |
 
-   Ví dụ bảng nghề nghiệp:
-   | STT | Tên nghề |
+   Vi du bang nghe nghiep:
+   | STT | Ten nghe |
    |-----|----------|
-   | 1 | Kỹ sư phần mềm |
+   | 1   | Ky su phan mem |
 
-   Chọn cột phù hợp với dữ liệu thực có trong [DỮ LIỆU GRAPH]. Bỏ cột nếu không có dữ liệu.
+   Chon cot phu hop voi du lieu thuc co trong [DU LIEU GRAPH]. Bo cot neu khong co du lieu.
 
-2. THÔNG TIN CHI TIẾT (mô tả ngành, nghề, môn học) → DÙNG BULLET / NUMBERING:
-   • Dùng chữ IN HOA cho tiêu đề mục (VD: MỤC TIÊU ĐÀO TẠO, CÔNG VIỆC CHÍNH).
-   • Dùng ký tự • ở đầu dòng cho từng ý trong mỗi mục.
-   • Dùng số thứ tự (1. 2. 3.) khi liệt kê các bước hoặc thứ tự ưu tiên.
-   • Ví dụ:
-     KỸ NĂNG YÊU CẦU:
-     • Lập trình Python (hard skill, trung cấp)
-     • Phân tích dữ liệu (hard skill, nâng cao)
+2. THONG TIN CHI TIET (mo ta nganh, nghe, mon hoc): dung BULLET / NUMBERING.
+   - Dung chu IN HOA cho tieu de muc (VD: MUC TIEU DAO TAO, CONG VIEC CHINH).
+   - Dung ky tu * o dau dong cho tung y trong moi muc.
+   - Dung so thu tu (1. 2. 3.) khi liet ke cac buoc hoac thu tu uu tien.
 
-3. CÂU TRẢ LỜI NGẮN (dưới 3 mục, hỏi thông tin đơn giản) → VĂN XUÔI BÌNH THƯỜNG.
-   - Môn học: "Tên môn (mã môn)" — VD: "Toán rời rạc (TOCB1107)".
-   - Ngành: "Tên ngành (mã ngành)" — VD: "Công nghệ thông tin (7480201)".
+3. CAU TRA LOI NGAN (duoi 3 muc, hoi thong tin don gian): van xuoi binh thuong.
+   - Mon hoc: "Ten mon (ma mon)" -- VD: "Toan roi rac (TOCB1107)".
+   - Nganh: "Ten nganh (ma nganh)" -- VD: "CNTT (7480201)".
 
-4. KẾT THÚC CÂU TRẢ LỜI: Thêm 1 dòng tóm tắt hoặc gợi ý tiếp theo nếu phù hợp.
+4. KET THUC CAU TRA LOI: Them 1 dong tom tat hoac goi y tiep theo neu phu hop.
 
-SỬ DỤNG THUỘC TÍNH MỞ RỘNG KHI CÓ:
-• SUBJECT:      dùng course_description, courses_goals khi hỏi nội dung môn học.
-• CAREER:       dùng description, job_tasks, market khi hỏi về nghề nghiệp.
-• MAJOR:        dùng philosophy_and_objectives, learning_outcomes khi hỏi về ngành.
-• PERSONALITY:  dùng code (MBTI type), description (mô tả tổng quan), structure (4 chiều IE/SN/TF/JP), strengths/weaknesses, work_environment. Trường suitable_fields là JSON string → parse để lấy field_name, group_name, major_name, major_code, careers.
-• Nếu field là JSON string → parse và trình bày ngắn gọn phần liên quan dùng ký tự •.
+SU DUNG THUOC TINH MO RONG KHI CO:
+- SUBJECT:     dung course_description, courses_goals khi hoi noi dung mon hoc.
+- CAREER:      dung description, job_tasks, market khi hoi ve nghe nghiep.
+- MAJOR:       dung philosophy_and_objectives, learning_outcomes khi hoi ve nganh.
+- PERSONALITY: dung code (MBTI type), description, structure (4 chieu IE/SN/TF/JP),
+               strengths/weaknesses, work_environment.
+               Truong suitable_fields la JSON string, parse de lay field_name,
+               group_name, major_name, major_code, careers.
+- Neu field la JSON string: parse va trinh bay ngan gon phan lien quan dung ky tu *.
 
-RÀNG BUỘC THEO LOẠI CÂU HỎI:
+RANG BUOC THEO LOAI CAU HOI:
 {constraint}
 
-CỘNG ĐỒNG ĐÃ ĐƯỢC ĐỊNH TUYẾN:
+CONG DONG DA DUOC DINH TUYEN:
 {community_context}
 """
 
@@ -1333,6 +1368,88 @@ ABBREVIATION_MAP: dict[str, list[str]] = {
     "ecom": ["thương mại điện tử"],
     "acct": ["kế toán"],
 }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHẦN 5c: SYNONYM LAYER — ánh xạ từ đồng nghĩa → Canonical Name trong đồ thị
+# Mục đích: tránh LLM tự đoán keyword; đảm bảo recall đồng đều
+# ══════════════════════════════════════════════════════════════════════════════
+
+SYNONYM_MAP: dict[str, str] = {
+    # ── Nghề nghiệp (CAREER) ─────────────────────────────────────────────────
+    "việc làm": "nghề nghiệp",
+    "công việc": "nghề nghiệp",
+    "nghề": "nghề nghiệp",
+    "vị trí": "nghề nghiệp",
+    "vị trí công việc": "nghề nghiệp",
+    "ngành nghề": "nghề nghiệp",
+    "job": "nghề nghiệp",
+    "career": "nghề nghiệp",
+    "ra làm gì": "nghề nghiệp",
+    "làm gì sau khi ra trường": "nghề nghiệp",
+    "cơ hội việc làm": "nghề nghiệp",
+    "triển vọng nghề": "nghề nghiệp",
+    # ── Ngành học (MAJOR) ────────────────────────────────────────────────────
+    "chuyên ngành": "ngành",
+    "chương trình": "ngành",
+    "ngành đào tạo": "ngành",
+    "bộ môn": "ngành",
+    "lĩnh vực học": "ngành",
+    "major": "ngành",
+    "chương trình học": "ngành",
+    # ── Môn học (SUBJECT) ────────────────────────────────────────────────────
+    "học phần": "môn học",
+    "môn": "môn học",
+    "course": "môn học",
+    "subject": "môn học",
+    "lớp học": "môn học",
+    # ── Kỹ năng (SKILL) ──────────────────────────────────────────────────────
+    "năng lực": "kỹ năng",
+    "kỹ năng cần thiết": "kỹ năng",
+    "skill": "kỹ năng",
+    "competency": "kỹ năng",
+    "ability": "kỹ năng",
+    # ── Tính cách (PERSONALITY) ──────────────────────────────────────────────
+    "nhóm tính cách": "tính cách",
+    "loại người": "tính cách",
+    "đặc điểm bản thân": "tính cách",
+    "personality type": "tính cách",
+    # ── Học máy / AI ─────────────────────────────────────────────────────────
+    "học máy": "machine learning",
+    "trí tuệ nhân tạo": "trí tuệ nhân tạo",
+    # ── Data ─────────────────────────────────────────────────────────────────
+    "khoa học dữ liệu": "data science",
+    "phân tích dữ liệu": "data analyst",
+    "kỹ sư dữ liệu": "data engineer",
+    # ── Finance / Accounting ─────────────────────────────────────────────────
+    "ngân hàng": "tài chính ngân hàng",
+    "tài chính": "tài chính ngân hàng",
+    "kế toán kiểm toán": "kế toán",
+    # ── Others ───────────────────────────────────────────────────────────────
+    "logistics": "logistics và quản lý chuỗi cung ứng",
+    "supply chain": "logistics và quản lý chuỗi cung ứng",
+    "pr": "quan hệ công chúng",
+    "public relations": "quan hệ công chúng",
+    "hr": "quản trị nhân lực",
+    "human resources": "quản trị nhân lực",
+    "kinh doanh quốc tế": "kinh doanh quốc tế",
+    "ibm": "kinh doanh quốc tế",
+}
+
+
+def normalize_keywords(keywords: list[str]) -> list[str]:
+    """
+    Ánh xạ từ đồng nghĩa → Canonical Name trước khi đưa vào graph query.
+    Giữ nguyên từ gốc và bổ sung thêm canonical name (không xóa gốc để tránh mất recall).
+    """
+    result = list(keywords)
+    seen_lower = {k.lower() for k in result}
+    for kw in list(keywords):
+        canonical = SYNONYM_MAP.get(kw.lower())
+        if canonical and canonical.lower() not in seen_lower:
+            result.append(canonical)
+            seen_lower.add(canonical.lower())
+    return result
 
 
 def expand_abbreviations(question: str) -> tuple[str, list[str]]:
@@ -1433,6 +1550,243 @@ def extract_query_intent(ai_client: OpenAI, question: str) -> dict:
             if d in ("E", "I", "S", "N", "T", "F", "J", "P")
         ],
     }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHẦN 5d: QUERY TRANSFORMATION — Pre-processing trước khi truy vấn Graph
+# Áp dụng 3 kỹ thuật: Self-Correction, Decomposition, Negative Logic Handling
+# ══════════════════════════════════════════════════════════════════════════════
+
+def query_transformation(ai_client: OpenAI, question: str, intent: dict) -> dict:
+    """
+    Tiền xử lý câu hỏi trước khi đưa vào graph:
+    1. Self-Correction: viết lại câu hỏi rõ ràng hơn
+    2. Decomposition: chia câu hỏi phức tạp thành sub-queries
+    3. Negative Logic Handling: tách điều kiện loại trừ
+
+    Trả về dict bổ sung: rewritten_question, sub_queries, explicit_exclusions
+    """
+    # Chỉ áp dụng nếu câu hỏi đủ phức tạp (>10 từ hoặc có dấu hiệu multi-hop)
+    word_count = len(question.split())
+    has_condition = any(kw in question.lower() for kw in [
+        "nhưng", "ngoài ra", "ngoại trừ", "không muốn", "tránh",
+        "và", "hoặc", "nếu", "vừa", "không giỏi", "yếu",
+    ])
+    if word_count < 8 and not has_condition:
+        return {"rewritten_question": question, "sub_queries": [], "explicit_exclusions": []}
+
+    system_msg = (
+        "Bạn là bộ tiền xử lý câu hỏi cho hệ thống GraphRAG tư vấn học thuật.\n\n"
+        "NHIỆM VỤ: Phân tích câu hỏi và trả về JSON với 3 trường:\n\n"
+        "1. rewritten_question: Viết lại câu hỏi rõ ràng, tường minh hơn (Self-Correction).\n"
+        "   - Giải nghĩa viết tắt (CNTT → công nghệ thông tin)\n"
+        "   - Thêm ngữ cảnh nếu thiếu ('học môn gì' → 'sinh viên nên học môn nào để...')\n"
+        "   - Giữ nguyên mọi yêu cầu gốc, chỉ làm rõ thêm\n\n"
+        "2. sub_queries: List các câu hỏi nhỏ (Decomposition) nếu câu hỏi phức tạp.\n"
+        "   - Mỗi sub-query là một bước hop trên graph\n"
+        "   - Ví dụ 'ENFJ nên học môn tự chọn nào?' → [\n"
+        "       'ENFJ phù hợp nghề nghiệp nào?',\n"
+        "       'Nghề đó cần kỹ năng gì?',\n"
+        "       'Môn tự chọn nào đào tạo kỹ năng đó?'\n"
+        "     ]\n"
+        "   - Nếu câu hỏi đơn giản thì để []\n\n"
+        "3. explicit_exclusions: List điều kiện loại trừ tường minh (Negative Logic).\n"
+        "   - Những gì user KHÔNG muốn, KHÔNG phù hợp, 'ngoại trừ', 'tránh'\n"
+        "   - Ví dụ: ['môn tính toán nặng', 'ngành kế toán', 'không giỏi toán']\n"
+        "   - Nếu không có thì để []\n\n"
+        "Trả về ĐÚNG JSON:\n"
+        '{"rewritten_question": "...", "sub_queries": [], "explicit_exclusions": []}'
+    )
+    try:
+        response = ai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user",   "content": f"Câu hỏi gốc: {question}"},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        parsed = json.loads(response.choices[0].message.content)
+        return {
+            "rewritten_question":  parsed.get("rewritten_question", question),
+            "sub_queries":         parsed.get("sub_queries", []),
+            "explicit_exclusions": parsed.get("explicit_exclusions", []),
+        }
+    except Exception as e:
+        print(f"  [query_transform] WARNING: {e}")
+        return {"rewritten_question": question, "sub_queries": [], "explicit_exclusions": []}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHẦN 5e: STRUCTURED PREPROCESSING — Entity Extraction & Intent Analysis
+# Workflow 3-bước: Preprocessing JSON → Neo4j query → Generation
+# Thiết kế cho mô hình nhỏ (8B): tách biệt hoàn toàn logic exclude khỏi LLM
+# ══════════════════════════════════════════════════════════════════════════════
+
+_STRUCTURED_INTENT_SYSTEM = """Bạn là chuyên gia phân tích ngôn ngữ tự nhiên (NLP) cho hệ thống CoursesGuide AI của Đại học Kinh tế Quốc dân (NEU).
+Nhiệm vụ: Chuyển câu hỏi tự nhiên của sinh viên thành cấu trúc JSON chính xác để truy vấn Neo4j Knowledge Graph.
+
+ONTOLOGY — Các loại thực thể cần nhận diện:
+  MBTI      : Nhóm tính cách 16 loại (ENFJ, ISTP, INTJ,...)
+  Major     : Ngành đào tạo tại NEU (Marketing, CNTT, Kế toán,...)
+  Subject   : Môn học / học phần (tên hoặc mã môn)
+  Skill     : Kỹ năng chuyên môn hoặc mềm (Python, phân tích dữ liệu,...)
+  Career    : Vị trí công việc / nghề nghiệp (Data Analyst, Kế toán viên,...)
+
+QUY TẮC XỬ LÝ:
+
+1. NORMALIZE (từ đồng nghĩa → từ chuẩn):
+   "việc làm","chỗ làm","job","career","vị trí" → Career
+   "học phần","môn","course","subject"           → Subject
+   "năng lực","ability","skill","kỹ năng"        → Skill
+   "ngành","chuyên ngành","major","program"      → Major
+   "tính cách","personality","nhóm tính cách"   → MBTI
+   Chuẩn hóa value: "mkt" → "Marketing", "CNTT" → "Công nghệ thông tin",
+   "DA"/"data analyst" → "Data Analyst", "BA" → "Business Analyst"
+
+2. NEGATION (exclude: true) — khi người dùng dùng:
+   "không muốn","không thích","ngoại trừ","bỏ qua","tránh",
+   "không giỏi","yếu","không phù hợp","ngoài ra loại trừ"
+   → Đánh dấu exclude: true cho thực thể đó
+
+3. AMBIGUITY: Nếu từ lạ, xếp vào loại thực thể gần nhất dựa vào ngữ cảnh.
+
+4. CONSTRAINTS: Tách các ràng buộc ngầm định thành text mô tả.
+   VD: "không thích tính toán" → "Tránh các môn học tính toán định lượng nặng"
+
+OUTPUT FORMAT — Chỉ trả ra JSON, không nói gì thêm:
+{
+  "intent": "Định hướng môn học / Tư vấn lộ trình / Định hướng nghề nghiệp / So sánh nghề / Thông tin ngành / Thông tin môn học / Hỏi tính cách / Hỏi kỹ năng / Khác",
+  "entities": [
+    {"type": "MBTI|Major|Subject|Skill|Career", "value": "tên thực thể đã chuẩn hóa", "exclude": false}
+  ],
+  "constraints": ["Ràng buộc 1", "Ràng buộc 2"],
+  "original_context": "Tóm tắt mục đích thực sự của người dùng trong 1-2 câu"
+}"""
+
+
+def extract_structured_intent(ai_client: OpenAI, question: str) -> dict:
+    """
+    Bước 1 (Preprocessing): Trích xuất structured JSON với entities + exclude flags.
+    Đây là lớp phân tích ngữ nghĩa chính, thay thế phương pháp keyword thô.
+    Trả về dict với keys: intent, entities, constraints, original_context
+    """
+    try:
+        response = ai_client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": _STRUCTURED_INTENT_SYSTEM},
+                {"role": "user",   "content": f"Phân tích câu hỏi sau:\n{question}"},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        parsed = json.loads(response.choices[0].message.content)
+        # Đảm bảo schema đúng
+        entities = parsed.get("entities", [])
+        # Validate từng entity
+        valid_types = {"MBTI", "Major", "Subject", "Skill", "Career"}
+        clean_entities = []
+        for ent in entities:
+            if isinstance(ent, dict) and ent.get("type") in valid_types and ent.get("value"):
+                clean_entities.append({
+                    "type":    str(ent["type"]),
+                    "value":   str(ent["value"]).strip(),
+                    "exclude": bool(ent.get("exclude", False)),
+                })
+        return {
+            "intent":           parsed.get("intent", "Khác"),
+            "entities":         clean_entities,
+            "constraints":      [str(c) for c in parsed.get("constraints", [])],
+            "original_context": parsed.get("original_context", ""),
+        }
+    except Exception as e:
+        print(f"  [structured_intent] WARNING: {e}")
+        return {"intent": "Khác", "entities": [], "constraints": [], "original_context": ""}
+
+
+def fuzzy_match_entity(value: str, candidates: list[str], threshold: float = 0.6) -> str | None:
+    """
+    Fuzzy matching: Nếu không tìm thấy entity value chính xác trong DB,
+    tìm candidate có tên gần giống nhất (dùng SequenceMatcher).
+    Trả về matched name hoặc None nếu không đủ ngưỡng.
+    """
+    import difflib
+    if not candidates or not value:
+        return None
+    value_lower = value.lower()
+    best_match = None
+    best_ratio = 0.0
+    for cand in candidates:
+        ratio = difflib.SequenceMatcher(None, value_lower, cand.lower()).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_match = cand
+    if best_ratio >= threshold:
+        return best_match
+    return None
+
+
+def build_excluded_names(structured: dict) -> list[str]:
+    """
+    Trích xuất danh sách các entity value có exclude=True từ structured intent.
+    Đây là input cho negation filter — đảm bảo loại trừ tuyệt đối ở tầng code,
+    KHÔNG phụ thuộc vào LLM nhớ constraint.
+    """
+    return [
+        ent["value"]
+        for ent in structured.get("entities", [])
+        if ent.get("exclude") is True
+    ]
+
+
+def merge_structured_into_intent(structured: dict, intent: dict) -> dict:
+    """
+    Hợp nhất kết quả Preprocessing vào intent dict hiện có.
+    - entities có exclude=False → thêm value vào keywords
+    - entities có exclude=True  → thêm value vào negated_keywords
+    - constraints               → lưu vào intent["constraints"]
+    - original_context          → lưu vào intent["original_context"]
+    """
+    existing_kws    = set(k.lower() for k in intent.get("keywords", []))
+    existing_neg    = set(k.lower() for k in intent.get("negated_keywords", []))
+    new_kws:  list[str] = []
+    new_neg:  list[str] = []
+
+    # Map entity type → node label (để thống nhất với intent labels)
+    TYPE_TO_LABEL = {
+        "MBTI":    "PERSONALITY",
+        "Major":   "MAJOR",
+        "Subject": "SUBJECT",
+        "Skill":   "SKILL",
+        "Career":  "CAREER",
+    }
+
+    for ent in structured.get("entities", []):
+        val   = ent.get("value", "").strip()
+        excl  = ent.get("exclude", False)
+        label = TYPE_TO_LABEL.get(ent.get("type", ""), "")
+
+        if not val:
+            continue
+
+        if excl:
+            if val.lower() not in existing_neg:
+                new_neg.append(val)
+        else:
+            if val.lower() not in existing_kws:
+                new_kws.append(val)
+            # Đảm bảo label có trong mentioned_labels
+            if label and label not in intent.get("mentioned_labels", []):
+                intent.setdefault("mentioned_labels", []).append(label)
+
+    intent["keywords"]         = _unique_keep_order(intent.get("keywords", []) + new_kws)
+    intent["negated_keywords"] = _unique_keep_order(intent.get("negated_keywords", []) + new_neg)
+    intent["constraints"]      = structured.get("constraints", [])
+    intent["original_context"] = structured.get("original_context", "")
+    intent["structured_intent"] = structured.get("intent", "Khác")
+    return intent
 
 
 def resolve_mbti_codes_from_dimensions(dimensions: list[str]) -> list[str]:
@@ -1711,6 +2065,46 @@ EXTENDED_PROPS: dict[str, list[str]] = {
 # Targeted Queries — trả về các columns chuẩn: name, label, code, rel_types, node_names, hops
 # + extended cols: course_description, semester, required_type
 TARGETED_QUERIES: dict[tuple[str, str], str] = {
+
+    # ── Multi-hop: PERSONALITY → CAREER → SKILL ← SUBJECT (4-hop tư vấn ngược) ─
+    # Dùng khi câu hỏi: "MBTI X nên học môn gì?" → full chain
+    ("PERSONALITY", "SUBJECT_VIA_CAREER"): """
+        MATCH (p:PERSONALITY)-[:SUITS_CAREER]->(c:CAREER)-[:REQUIRES]->(sk:SKILL)<-[:PROVIDES]-(n:SUBJECT)
+        WHERE p.personality_key = toUpper($kw)
+           OR toLower(p.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['SUITS_CAREER','REQUIRES','PROVIDES'] AS rel_types,
+               [p.name, c.name, sk.name, n.name] AS node_names,
+               3 AS hops,
+               null AS semester, null AS required_type,
+               n.course_description AS course_description
+        ORDER BY c.name, sk.name, n.name LIMIT 60
+    """,
+    # ── Multi-hop: PERSONALITY → CAREER → SKILL (2-hop skills từ MBTI) ──────
+    ("PERSONALITY", "SKILL_VIA_CAREER"): """
+        MATCH (p:PERSONALITY)-[:SUITS_CAREER]->(c:CAREER)-[:REQUIRES]->(n:SKILL)
+        WHERE p.personality_key = toUpper($kw)
+           OR toLower(p.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, null AS code,
+               ['SUITS_CAREER','REQUIRES'] AS rel_types,
+               [p.name, c.name, n.name] AS node_names,
+               2 AS hops,
+               null AS semester, null AS required_type, null AS course_description
+        ORDER BY c.name, n.name LIMIT 60
+    """,
+    # ── Multi-hop: PERSONALITY → MAJOR → SUBJECT (ngành → môn từ MBTI) ──────
+    ("PERSONALITY", "SUBJECT_VIA_MAJOR"): """
+        MATCH (p:PERSONALITY)-[:SUITS_MAJOR]->(m:MAJOR)-[:MAJOR_OFFERS_SUBJECT]->(n:SUBJECT)
+        WHERE p.personality_key = toUpper($kw)
+           OR toLower(p.name) CONTAINS toLower($kw)
+        RETURN n.name AS name, labels(n)[0] AS label, n.code AS code,
+               ['SUITS_MAJOR','MAJOR_OFFERS_SUBJECT'] AS rel_types,
+               [p.name, m.name, n.name] AS node_names,
+               2 AS hops,
+               null AS semester, null AS required_type,
+               n.course_description AS course_description
+        ORDER BY m.name, n.name LIMIT 60
+    """,
 
     # ── Academic ──────────────────────────────────────────────────────────────
     ("MAJOR", "SUBJECT"): """
@@ -2210,6 +2604,39 @@ def multihop_traversal_community_aware(
         if all_nodes:
             print(f"  [targeted] ({targeted_key}) → {len(all_nodes)} nodes")
 
+    # ── Phase 1a-fuzzy: Fuzzy Matching fallback ───────────────────────────────
+    # Nếu targeted query không tìm thấy gì, thử so khớp mờ tên node trong DB
+    # để xử lý lỗi chính tả / biến thể tên entity từ user
+    if not all_nodes and keywords and targeted_cypher:
+        _FUZZY_SEED_QUERY = """
+            MATCH (n)
+            WHERE (n:MAJOR OR n:SUBJECT OR n:SKILL OR n:CAREER OR n:TEACHER OR n:PERSONALITY)
+            RETURN n.name AS name, labels(n)[0] AS label
+            LIMIT 2000
+        """
+        try:
+            with driver.session() as session:
+                all_names_in_db = [
+                    (r["name"], r["label"])
+                    for r in session.run(_FUZZY_SEED_QUERY).data()
+                    if r.get("name")
+                ]
+            db_names = [n for n, _ in all_names_in_db]
+            for kw in keywords:
+                fuzzy_match = fuzzy_match_entity(kw, db_names, threshold=0.65)
+                if fuzzy_match and fuzzy_match.lower() != kw.lower():
+                    print(f"  [fuzzy] '{kw}' → '{fuzzy_match}' (fallback)")
+                    with driver.session() as session:
+                        try:
+                            for rec in session.run(targeted_cypher, kw=fuzzy_match):
+                                _add_node_and_paths(rec, all_nodes, all_paths)
+                        except Exception as e:
+                            print(f"  [fuzzy] WARNING: {e}")
+            if all_nodes:
+                print(f"  [fuzzy] recovered {len(all_nodes)} nodes via fuzzy match")
+        except Exception as e:
+            print(f"  [fuzzy] seed query WARNING: {e}")
+
     # ── Phase 1c: Field-context PERSONALITY lookup ────────────────────────────
     # Khi câu hỏi là "tính cách gì hợp làm IT" → asked=PERSONALITY, field_context="Công nghệ thông tin"
     # Cần tìm tất cả PERSONALITY có suitable_fields chứa lĩnh vực đó
@@ -2306,6 +2733,42 @@ def multihop_traversal_community_aware(
                         print(f"  [mbti fallback] WARNING: {e}")
             if all_nodes:
                 print(f"  [mbti fallback] Found PERSONALITY node for {mbti_kws}")
+
+    # ── Phase 1d: Multi-hop PERSONALITY queries (tư vấn ngược đầy đủ) ────────
+    # Khi hỏi "MBTI X nên học môn gì?" hoặc "cần kỹ năng gì?" → chạy 3/4-hop chain
+    mbti_kws_all = [kw for kw in keywords
+                    if re.match(r'^(INTJ|INTP|ENTJ|ENTP|INFJ|INFP|ENFJ|ENFP'
+                                r'|ISTJ|ISFJ|ESTJ|ESFJ|ISTP|ISFP|ESTP|ESFP)$',
+                                kw, re.IGNORECASE)]
+    if mbti_kws_all and asked_label in ("SUBJECT", "SKILL", "MAJOR", "CAREER", "UNKNOWN"):
+        # Chọn đúng multi-hop query dựa trên asked_label
+        multihop_keys = []
+        if asked_label in ("SUBJECT", "UNKNOWN"):
+            multihop_keys = [
+                ("PERSONALITY", "SUBJECT_VIA_CAREER"),  # MBTI→Career→Skill←Subject
+                ("PERSONALITY", "SUBJECT_VIA_MAJOR"),   # MBTI→Major→Subject
+            ]
+        elif asked_label == "SKILL":
+            multihop_keys = [("PERSONALITY", "SKILL_VIA_CAREER")]
+        elif asked_label == "MAJOR":
+            multihop_keys = [("PERSONALITY", "MAJOR")]   # already standard, but add SUBJECT_VIA_MAJOR for context
+            multihop_keys.append(("PERSONALITY", "SUBJECT_VIA_MAJOR"))
+
+        if multihop_keys:
+            with driver.session() as session:
+                for mhk in multihop_keys:
+                    mhq = TARGETED_QUERIES.get(mhk)
+                    if not mhq:
+                        continue
+                    for mbti_code in mbti_kws_all:
+                        try:
+                            rows = list(session.run(mhq, kw=mbti_code))
+                            for rec in rows:
+                                _add_node_and_paths(rec, all_nodes, all_paths)
+                            if rows:
+                                print(f"  [multihop] {mhk} code={mbti_code} → {len(rows)} nodes")
+                        except Exception as e:
+                            print(f"  [multihop] WARNING {mhk}: {e}")
 
     # ── Phase 2: BFS label-scoped ─────────────────────────────────────────────
     # Dùng allowed_labels filter, KHÔNG filter theo community number
@@ -2488,17 +2951,25 @@ def generate_answer(
     negated = intent.get("negated_keywords", [])
     if negated:
         constraint += (
-            f"\n\nLƯU Ý PHỦ ĐỊNH: Người dùng KHÔNG giỏi/thích: {negated}. "
-            "Loại bỏ khỏi gợi ý."
+            f"\n\nLUAT PHU DINH TUYET DOI: Nguoi dung KHONG muon: {negated}. "
+            "LOAI BO HOAN TOAN khoi goi y — day la luat code, khong phai goi y."
+        )
+
+    # Đính kèm constraints từ structured preprocessing (nếu có)
+    constraints_list = intent.get("constraints", [])
+    if constraints_list:
+        constraint += (
+            f"\n\nRANG BUOC NGUOI DUNG (trich xuat tu phan tich cau hoi): "
+            + "; ".join(constraints_list)
         )
 
     if community_def:
         community_context = (
-            f"Tầng {community_def['level']} — {community_def['name']}\n"
-            f"Mục tiêu: {community_def['purpose']}"
+            f"Tang {community_def['level']} - {community_def['name']}\n"
+            f"Muc tieu: {community_def['purpose']}"
         )
     else:
-        community_context = "L1 Global — Toàn bộ hệ sinh thái đào tạo"
+        community_context = "L1 Global - Toan bo he sinh thai dao tao"
 
     system_prompt = ANSWER_SYSTEM_BASE.format(
         schema=SCHEMA_DESC,
@@ -2509,38 +2980,61 @@ def generate_answer(
     no_data_hint = ""
     if not ranked_nodes:
         no_data_hint = (
-            "\n[CẢNH BÁO: Không tìm thấy dữ liệu trong Knowledge Graph. "
-            "Thông báo lịch sự, không bịa thông tin.]"
+            "\n[CANH BAO: Khong tim thay du lieu trong Knowledge Graph. "
+            "Thong bao lich su, khong bia thong tin.]"
         )
+
+    # Block [PHAN TICH CAU HOI] — structured intent từ Preprocessing step
+    # Giúp LLM biết chính xác mục đích và các ràng buộc, KHÔNG cần tự đoán lại
+    analysis_block = ""
+    original_context = intent.get("original_context", "")
+    structured_intent_label = intent.get("structured_intent", "")
+    if original_context or structured_intent_label:
+        analysis_block = (
+            "\n\n[PHAN TICH CAU HOI - DA DUOC XU LY TRUOC]:\n"
+            f"  Loai yeu cau: {structured_intent_label}\n"
+            f"  Muc dich: {original_context}\n"
+        )
+        if constraints_list:
+            analysis_block += (
+                "  Rang buoc can tuan thu:\n"
+                + "".join(f"    - {c}\n" for c in constraints_list)
+            )
+        if negated:
+            analysis_block += (
+                f"  Loai tru tuyet doi (exclude=true): {negated}\n"
+                "  (Day la ket qua phan tich code — BAN PHAI tuan thu, "
+                "khong duoc neu cac muc nay trong cau tra loi.)\n"
+            )
 
     # Nhắc LLM filter theo lĩnh vực khi câu hỏi là "tính cách gì hợp làm X"
     field_context_hint = ""
     field_context = intent.get("field_context")
     if field_context and intent.get("asked_label") == "PERSONALITY":
         field_context_hint = (
-            f"\n[HƯỚNG DẪN ĐẶC BIỆT — LĨNH VỰC: {field_context}]: "
-            f"Câu hỏi hỏi tính cách phù hợp với lĩnh vực '{field_context}'. "
-            f"Từ [DỮ LIỆU GRAPH], CHỈ liệt kê các PERSONALITY node có suitable_fields "
-            f"chứa lĩnh vực '{field_context}' hoặc đã được liên kết (SUITS_MAJOR/SUITS_CAREER) "
-            f"với ngành/nghề thuộc lĩnh vực '{field_context}'. "
-            f"Với mỗi tính cách, giải thích ngắn gọn TẠI SAO phù hợp với lĩnh vực này "
-            f"(dựa vào strengths/structure trong node PERSONALITY). "
-            f"ĐỊNH DẠNG: bảng markdown | MBTI | Tên tính cách | Lý do phù hợp |, "
-            f"sau đó thêm đoạn tóm tắt đặc điểm chung.]"
+            f"\n[HUONG DAN DAC BIET - LINH VUC: {field_context}]: "
+            f"Cau hoi hoi tinh cach phu hop voi linh vuc '{field_context}'. "
+            f"Tu [DU LIEU GRAPH], CHI liet ke cac PERSONALITY node co suitable_fields "
+            f"chua linh vuc '{field_context}' hoac da duoc lien ket (SUITS_MAJOR/SUITS_CAREER) "
+            f"voi nganh/nghe thuoc linh vuc '{field_context}'. "
+            f"Voi moi tinh cach, giai thich ngan gon TAI SAO phu hop voi linh vuc nay "
+            f"(dua vao strengths/structure trong node PERSONALITY). "
+            f"DINH DANG: bang markdown | MBTI | Ten tinh cach | Ly do phu hop |, "
+            f"sau do them doan tom tat dac diem chung.]"
         )
 
     # Nhắc LLM không nhắc đến môn đại cương khi đang trả lời câu hỏi gợi ý môn
     excluded_hint = ""
     if intent.get("_exclude_common_subjects"):
         excluded_hint = (
-            "\n[LUẬT BỔ SUNG — ÁP DỤNG CHO CÂU TRẢ LỜI NÀY]: "
-            "Đây là câu hỏi gợi ý môn học. "
-            "TUYỆT ĐỐI KHÔNG đề cập hoặc liệt kê các môn sau (dù tên viết hoa, thường, có dấu hay không): "
-            "Triết học Mác-Lênin, Kinh tế chính trị Mác-Lênin, Chủ nghĩa xã hội khoa học, "
-            "Lịch sử Đảng Cộng sản Việt Nam, Tư tưởng Hồ Chí Minh, "
-            "Giáo dục thể chất (GDTC), Giáo dục quốc phòng và an ninh (GDQP), "
-            "Kinh tế vi mô 1 (KHMI1101), Kinh tế vĩ mô 1 (KHMA1101), Pháp luật đại cương (LUCS1129). "
-            "Đây là các môn bắt buộc chung mọi ngành — không cần tư vấn riêng.]"
+            "\n[LUAT BO SUNG - AP DUNG CHO CAU TRA LOI NAY]: "
+            "Day la cau hoi goi y mon hoc. "
+            "TUYET DOI KHONG de cap hoac liet ke cac mon sau: "
+            "Triet hoc Mac-Lenin, Kinh te chinh tri Mac-Lenin, Chu nghia xa hoi khoa hoc, "
+            "Lich su Dang Cong san Viet Nam, Tu tuong Ho Chi Minh, "
+            "Giao duc the chat (GDTC), Giao duc quoc phong va an ninh (GDQP), "
+            "Kinh te vi mo 1 (KHMI1101), Kinh te vi mo 1 (KHMA1101), Phap luat dai cuong (LUCS1129). "
+            "Day la cac mon bat buoc chung moi nganh - khong can tu van rieng.]"
         )
 
     response = ai_client.chat.completions.create(
@@ -2548,15 +3042,16 @@ def generate_answer(
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user",   "content": (
-                f"Câu hỏi: {question}\n\n"
-                f"[DỮ LIỆU GRAPH]:\n{context}"
+                f"Cau hoi: {question}"
+                f"{analysis_block}"
+                f"\n\n[DU LIEU GRAPH]:\n{context}"
                 f"{no_data_hint}"
                 f"{field_context_hint}"
                 f"{excluded_hint}\n\n"
-                "Trả lời CHỈ dùng tên/code từ [DỮ LIỆU GRAPH]:"
+                "Tra loi CHI dung ten/code tu [DU LIEU GRAPH]:"
             )},
         ],
-        temperature=0,
+        temperature=0.1,
     )
     return response.choices[0].message.content.strip()
 
@@ -2680,11 +3175,44 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
     if abbrev_keywords:
         print(f"  [abbrev] {abbrev_keywords}")
 
+    # ── Bước 0d: Query Transformation (Self-Correction + Decomposition + Neg) ──
+    transformation = query_transformation(ai_client, expanded_question, {})
+    rewritten_q   = transformation["rewritten_question"]
+    sub_queries    = transformation["sub_queries"]
+    extra_neg_kws  = transformation["explicit_exclusions"]
+    if rewritten_q != expanded_question:
+        print(f"  [transform] rewritten: {rewritten_q[:100]}")
+    if sub_queries:
+        print(f"  [transform] sub_queries: {sub_queries}")
+    if extra_neg_kws:
+        print(f"  [transform] exclusions: {extra_neg_kws}")
+    query_for_intent = rewritten_q
+
+    # ── Bước 1-pre: Structured Preprocessing (Entity Extraction + Exclude flags) ──
+    # Bước này trích xuất entities có exclude=True → loại trừ ở tầng CODE (không dùng LLM nhớ)
+    structured = extract_structured_intent(ai_client, query_for_intent)
+    excluded_from_structured = build_excluded_names(structured)
+    if structured["entities"]:
+        print(f"  [structured] intent={structured['intent']} | "
+              f"entities={[(e['type'],e['value'],e['exclude']) for e in structured['entities']]}")
+    if excluded_from_structured:
+        print(f"  [structured] excluded (code-level): {excluded_from_structured}")
+
     # ── Bước 1: Extract intent (LLM) — trả về cả mbti_dimensions ─────────────
-    intent = extract_query_intent(ai_client, expanded_question)
+    intent = extract_query_intent(ai_client, query_for_intent)
     intent["keywords"] = list(dict.fromkeys(
         intent["keywords"] + mbti_keywords + abbrev_keywords
     ))
+    # Merge structured intent vào intent dict (keywords, negated, constraints, context)
+    intent = merge_structured_into_intent(structured, intent)
+    # Merge exclusions từ query_transformation
+    if extra_neg_kws:
+        intent["negated_keywords"] = list(dict.fromkeys(
+            intent.get("negated_keywords", []) + extra_neg_kws
+        ))
+    # Normalize keywords qua synonym layer
+    intent["keywords"] = normalize_keywords(intent["keywords"])
+
     intent = apply_intent_rules(question, intent)
 
     # ── Bước 1b: Resolve MBTI codes ──────────────────────────────────────────
