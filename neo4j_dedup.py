@@ -26,9 +26,9 @@ from collections import defaultdict
 from neo4j import GraphDatabase
 
 # ── Cấu hình mặc định ────────────────────────────────────────────────────────
-DB_URL= "neo4j+s://bdfc7297.databases.neo4j.io"
-DB_USER= "bdfc7297"
-DB_PASSWORD= "0WWAdQtwxMMeoPqTT62bTLBb0DOVqlZs3bjNlASrPDs"
+DB_URL= "bolt://101.96.66.232:8083"
+DB_USER= "neo4j"
+DB_PASSWORD= "Son@110904"
 # ─────────────────────────────────────────────────────────────────────────────
 
 

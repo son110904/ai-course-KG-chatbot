@@ -677,13 +677,9 @@ def extract_personality(docx_path: str, ai_client: OpenAI | None = None) -> dict
 
 def _parse_syllabus_info_table(doc: dict) -> dict:
     """
-    Parse thông tin chung của syllabus từ paragraphs (không dùng table_index cứng).
-    Hỗ trợ nhiều format khác nhau:
-      - "Mã học phần: CNTT1197"          (paragraph riêng)
-      - "Mã số học phần: NLKT1126"       (variant label)
-      - "Mã HP: TIKT1134"                (viết tắt)
-      - Thông tin nằm trong key_value table
-    Fallback cuối: lấy code từ source_file nếu không parse được.
+    Parse thông tin syllabus.
+    Ưu tiên 1: Nội dung file (table + paragraph)
+    Ưu tiên 2: Fallback mạnh từ tên file (bắt hầu hết các mã như EP32.STA1105, TOCB1107, LLNL1107, ...)
     """
     info = {
         "subject_code": "",
@@ -693,120 +689,91 @@ def _parse_syllabus_info_table(doc: dict) -> dict:
         "prerequisites_raw": [],
     }
 
-    # ── Bước 1: Thử parse từ key_value table (một số syllabus dùng format này) ──
+    source_file = doc.get("source_file", "") or ""
+    stem = Path(source_file).stem
+
+    # ── 1. Parse từ nội dung file ───────────────────────────────────────────
     stream = doc.get("content", {}).get("stream", [])
+
     for item in stream:
-        if item.get("table_type") != "key_value":
-            continue
-        data = item.get("data", {})
-        for k, v in data.items():
-            k_lower = k.lower()
-            v_str = str(v).strip() if v else ""
-            if not v_str:
-                continue
-            if re.search(r"mã.*?(học phần|hp|môn|số)", k_lower):
-                m = re.search(r"([A-Z]{2,6}\d{4,})", v_str, re.IGNORECASE)
-                if m:
-                    info["subject_code"] = m.group(1).strip()
-            elif re.search(r"tên.*?việt|tiếng việt", k_lower):
-                info["subject_name_vi"] = v_str
-            elif re.search(r"tên.*?anh|tiếng anh|english", k_lower):
-                info["subject_name_en"] = v_str
-            elif re.search(r"tín chỉ|credits", k_lower):
-                m = re.search(r"\d+", v_str)
-                if m and not info["credits"]:
-                    info["credits"] = m.group(0)
-            elif re.search(r"tiên quyết|prerequisite", k_lower):
-                for p in re.split(r"[\n,;]+", v_str):
-                    p = p.strip().lstrip("+-")
-                    if p:
-                        info["prerequisites_raw"].append(p)
-        if info["subject_code"]:
-            break
+        if item.get("table_type") == "key_value":
+            for k, v in item.get("data", {}).items():
+                k_lower = str(k).lower()
+                v_str = str(v).strip() if v else ""
+                if not v_str:
+                    continue
+                if re.search(r"mã.*?(học phần|hp|môn|số)", k_lower):
+                    m = re.search(r"([A-Z]{2,8}\d{3,}[A-Z0-9._-]*)", v_str, re.IGNORECASE)
+                    if m:
+                        info["subject_code"] = m.group(1).strip()
 
-    # ── Bước 2: Parse từ paragraphs ───────────────────────────────────────────
+    # Parse từ paragraphs
     paragraphs = get_paragraphs(doc)
-    texts = [p.get("text", "").strip() for p in paragraphs]
+    texts = [p.get("text", "").strip() for p in paragraphs if p.get("text", "").strip()]
 
-    # Pattern bắt mọi biến thể label mã học phần
     CODE_PATTERN = re.compile(
-        r"(?:mã|ma)\s*(?:số\s*)?(?:học phần|hp|môn học|lớp|lh)?\s*[:\s]+([A-Z]{2,8}\d{3,})",
+        r"(?:mã|ma)\s*(?:số\s*)?(?:học phần|hp|môn)?\s*[:\s]+([A-Z]{2,8}\d{3,}[A-Z0-9._-]*)",
         re.IGNORECASE
     )
 
-    in_prereq = False
     for text in texts:
-        if not text:
-            continue
-
-        # Tên học phần tiếng Việt
-        m = re.search(r"tên học phần.*?(?:tiếng việt|vi).*?[:\s]+(.+)", text, re.IGNORECASE)
-        if m:
-            info["subject_name_vi"] = m.group(1).strip()
-            in_prereq = False
-            continue
-
-        # Tên học phần tiếng Anh
-        m = re.search(r"tên học phần.*?(?:tiếng anh|en|english).*?[:\s]+(.+)", text, re.IGNORECASE)
-        if m:
-            info["subject_name_en"] = m.group(1).strip()
-            in_prereq = False
-            continue
-
-        # Mã học phần — dùng pattern rộng hơn
         if not info["subject_code"]:
             m = CODE_PATTERN.search(text)
             if m:
                 info["subject_code"] = m.group(1).strip()
-                in_prereq = False
-                continue
+
+        # Tên môn tiếng Việt
+        m = re.search(r"tên học phần.*?(?:tiếng việt|vi).*?[:\s]+(.+)", text, re.IGNORECASE)
+        if m and not info["subject_name_vi"]:
+            info["subject_name_vi"] = m.group(1).strip()
+
+        # Tên môn tiếng Anh
+        m = re.search(r"tên học phần.*?(?:tiếng anh|en|english).*?[:\s]+(.+)", text, re.IGNORECASE)
+        if m and not info["subject_name_en"]:
+            info["subject_name_en"] = m.group(1).strip()
 
         # Số tín chỉ
         m = re.search(r"số tín chỉ\s*[:\s]+(\d+)", text, re.IGNORECASE)
         if m and not info["credits"]:
             info["credits"] = m.group(1)
-            in_prereq = False
-            continue
 
-        # Header tiên quyết
-        if re.search(r"các học phần tiên quyết|tiên quyết", text, re.IGNORECASE):
-            rest = re.sub(r"^.*?tiên quyết\s*[:\s]*", "", text, flags=re.IGNORECASE).strip()
-            if rest:
-                for p in re.split(r"[\n,;]+", rest):
-                    p = p.strip().lstrip("+-")
-                    if p:
-                        info["prerequisites_raw"].append(p)
-            in_prereq = True
-            continue
+    # ── 2. FALLBACK MẠNH TỪ TÊN FILE (quan trọng nhất) ───────────────────────
+    if not info["subject_code"] and stem:
+        # Pattern cải tiến: bắt tất cả mã dạng XXxxNNNN hoặc XXXXNNNN sau dấu _
+        # Hỗ trợ: EP32.STA1105, TOCB1107, LLNL1107, TOKT11120, KHMA1142, ...
+        patterns = [
+            r"_([A-Z]{2,6}\d{2,}\.[A-Z0-9]+)",           # EP32.STA1105
+            r"_([A-Z]{2,8}\d{3,}[A-Z0-9._-]*)",          # EP30.TOCB1107, LLNL1107
+            r"([A-Z]{2,8}\d{3,}[A-Z0-9._-]*)$"           # cuối tên file
+        ]
 
-        # Dòng tiếp theo sau header tiên quyết
-        if in_prereq:
-            if re.match(r"^\d+\.", text) or re.search(
-                r"(mã|số tín chỉ|giảng viên|khoa|viện|mô tả|số giờ|trình độ)",
-                text, re.IGNORECASE
-            ):
-                in_prereq = False
-            else:
-                for p in re.split(r"[\n,;]+", text):
-                    p = p.strip().lstrip("+-")
-                    if p:
-                        info["prerequisites_raw"].append(p)
+        for pattern in patterns:
+            m = re.search(pattern, stem, re.IGNORECASE)
+            if m:
+                candidate = m.group(1).strip()
+                if len(candidate) >= 6 and re.search(r"\d", candidate):
+                    info["subject_code"] = candidate
+                    log.info(f"  [fallback] subject_code từ tên file: {info['subject_code']} ← {stem}")
+                    break
 
-    # ── Bước 3: Fallback — lấy code từ source_file nếu vẫn chưa có ──────────
-    if not info["subject_code"]:
-        src = doc.get("source_file", "")
-        m = re.search(r"_([A-Z]{2,8}\d{3,})(?:\.\w+)?$", src, re.IGNORECASE)
-        if m:
-            info["subject_code"] = m.group(1).strip()
-            log.debug(f"subject_code fallback từ filename: {info['subject_code']}")
+    # Nếu vẫn không có, thử lấy phần sau dấu _ cuối cùng và làm sạch
+    if not info["subject_code"] and "_" in stem:
+        candidate = stem.split("_")[-1].strip()
+        if re.match(r"[A-Z]{2,}", candidate, re.IGNORECASE) and any(c.isdigit() for c in candidate):
+            info["subject_code"] = candidate
+            log.info(f"  [fallback] subject_code từ phần cuối: {info['subject_code']}")
 
-    # ── Bước 4: Fallback tên môn từ source_file nếu chưa có ─────────────────
-    if not info["subject_name_vi"]:
-        src = doc.get("source_file", "")
-        stem = Path(src).stem  # "An ninh không gian mạng_CNTT1197"
-        name_part = re.sub(r"_[A-Z]{2,8}\d{3,}$", "", stem, flags=re.IGNORECASE).strip()
+    # ── 3. Fallback tên môn từ tên file ─────────────────────────────────────
+    if not info["subject_name_vi"] and stem:
+        name_part = re.sub(r"_[A-Z].*$", "", stem, flags=re.IGNORECASE).strip()
         if name_part:
             info["subject_name_vi"] = name_part
+
+    # Log nếu vẫn thất bại
+    if not info["subject_code"]:
+        log.warning(f"Syllabus: Vẫn không tìm thấy subject_code — {source_file}")
+    else:
+        log.debug(f"  subject_code cuối cùng: {info['subject_code']}")
 
     return info
 

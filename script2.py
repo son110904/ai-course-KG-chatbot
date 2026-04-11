@@ -203,6 +203,7 @@ def cur_rel_cypher(rel: dict) -> str | None:
         req_type     = _esc(rel.get("required_type"))
         if not major_code or not subject_code:
             return None
+
         if semester is not None and req_type:
             try:
                 semester_int = int(semester)
@@ -422,17 +423,24 @@ def car_node_cypher(node: dict) -> str | None:
             stmt += " SET " + ", ".join(sets)
         return stmt
 
-    # MAJOR từ recommended_majors — chỉ có tên, chưa có code
+    # MAJOR từ recommended_majors — ưu tiên MERGE bằng code nếu có,
+    # fallback sang name để tránh tạo node MAJOR trùng lặp (code vs name split)
     if t == "MAJOR":
         name_vi = _esc(node.get("major_name_vi"))
         code    = _esc(node.get("major_code"))
-        name    = name_vi
-        if not name:
+        if not code and not name_vi:
             return None
-        stmt = f"MERGE (n:MAJOR {{name: '{name}'}})"
-        sets = []
-        if name_vi: sets.append(f"n.name_vi = '{name_vi}'")
-        if code:    sets.append(f"n.code = '{code}'")
+        if code:
+            # MERGE bằng code — nhất quán với cur_node_cypher và cur_rel_cypher
+            stmt = f"MERGE (n:MAJOR {{code: '{code}'}})"
+            sets = []
+            if name_vi:
+                sets.append(f"n.name = '{name_vi}'")
+                sets.append(f"n.name_vi = '{name_vi}'")
+        else:
+            # Không có code → fallback MERGE bằng name
+            stmt = f"MERGE (n:MAJOR {{name: '{name_vi}'}})"
+            sets = [f"n.name_vi = '{name_vi}'"]
         if sets:
             stmt += " SET " + ", ".join(sets)
         return stmt

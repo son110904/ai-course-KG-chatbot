@@ -1,6 +1,3 @@
-"""
-Script 3: Knowledge Graph Q&A Chatbot
-"""
 
 import os
 import re
@@ -75,47 +72,9 @@ ADMISSION_DATA: list[dict] = [
     {"so": 41, "ten_chuong_trinh": "Quản trị giải trí và sự kiện",       "ma_xet_tuyen": "EP18",      "ma_nganh": "7810101", "ten_nganh": "Du lịch",                                "khoa_vien": "Khoa Du lịch và Khách sạn",                       "chi_tieu": 50,  "diem_chuan_2025": 25.89},
     {"so": 42, "ten_chuong_trinh": "Quản lý công và Chính sách (E-PMP)", "ma_xet_tuyen": "EPMP",      "ma_nganh": "7340403", "ten_nganh": "Quản lý công",                           "khoa_vien": "Khoa Khoa học quản lý",                           "chi_tieu": 70,  "diem_chuan_2025": 23.04},
     # ── Hệ Đại trà / Chính quy ────────────────────────────────────────────
-    {"so": 43, "ten_chuong_trinh": "An toàn thông tin",                   "ma_xet_tuyen": "7480202",   "ma_nganh": "7480202", "ten_nganh": "An toàn thông tin",                      "khoa_vien": "Khoa Công nghệ thông tin",                         "chi_tieu": 50,  "diem_chuan_2025": 25.59},
-    {"so": 44, "ten_chuong_trinh": "Bảo hiểm",                            "ma_xet_tuyen": "7340204",   "ma_nganh": "7340204", "ten_nganh": "Bảo hiểm",                               "khoa_vien": "Khoa Bảo hiểm",                                   "chi_tieu": 80,  "diem_chuan_2025": 24.75},
-    {"so": 45, "ten_chuong_trinh": "Bất động sản",                        "ma_xet_tuyen": "7340116",   "ma_nganh": "7340116", "ten_nganh": "Bất động sản",                           "khoa_vien": "Khoa Bất động sản và Kinh tế Tài nguyên",          "chi_tieu": 70,  "diem_chuan_2025": 25.41},
-    {"so": 46, "ten_chuong_trinh": "Công nghệ thông tin",                 "ma_xet_tuyen": "7480201",   "ma_nganh": "7480201", "ten_nganh": "Công nghệ thông tin",                    "khoa_vien": "Khoa Công nghệ thông tin",                         "chi_tieu": 100, "diem_chuan_2025": 25.89},
-    {"so": 47, "ten_chuong_trinh": "Hệ thống thông tin",                  "ma_xet_tuyen": "7480104",   "ma_nganh": "7480104", "ten_nganh": "Hệ thống thông tin",                     "khoa_vien": "Khoa Hệ thống thông tin quản lý",                  "chi_tieu": 50,  "diem_chuan_2025": 26.38},
-    {"so": 48, "ten_chuong_trinh": "Hệ thống thông tin quản lý",          "ma_xet_tuyen": "7340405",   "ma_nganh": "7340405", "ten_nganh": "Hệ thống thông tin quản lý",             "khoa_vien": "Khoa Hệ thống thông tin quản lý",                  "chi_tieu": 100, "diem_chuan_2025": 27.54},
-    {"so": 49, "ten_chuong_trinh": "Kế toán",                             "ma_xet_tuyen": "7340301",   "ma_nganh": "7340301", "ten_nganh": "Kế toán",                                "khoa_vien": "Viện Kế toán - Kiểm toán",                         "chi_tieu": 150, "diem_chuan_2025": 27.1},
-    {"so": 50, "ten_chuong_trinh": "Khoa học máy tính",                   "ma_xet_tuyen": "7480101",   "ma_nganh": "7480101", "ten_nganh": "Khoa học máy tính",                      "khoa_vien": "Khoa Công nghệ thông tin",                         "chi_tieu": 50,  "diem_chuan_2025": 26.27},
-    {"so": 51, "ten_chuong_trinh": "Khoa học quản lý",                    "ma_xet_tuyen": "7340401",   "ma_nganh": "7340401", "ten_nganh": "Khoa học quản lý",                       "khoa_vien": "Khoa Khoa học quản lý",                            "chi_tieu": 90,  "diem_chuan_2025": 26.06},
-    {"so": 52, "ten_chuong_trinh": "Kiểm toán",                           "ma_xet_tuyen": "7340302",   "ma_nganh": "7340302", "ten_nganh": "Kiểm toán",                              "khoa_vien": "Viện Kế toán - Kiểm toán",                         "chi_tieu": 50,  "diem_chuan_2025": 28.38},
-    {"so": 53, "ten_chuong_trinh": "Kinh doanh nông nghiệp",              "ma_xet_tuyen": "7620114",   "ma_nganh": "7620114", "ten_nganh": "Kinh doanh nông nghiệp",                 "khoa_vien": "Khoa Bất động sản và Kinh tế Tài nguyên",          "chi_tieu": 50,  "diem_chuan_2025": 23.75},
-    {"so": 54, "ten_chuong_trinh": "Kinh doanh quốc tế",                  "ma_xet_tuyen": "7340120",   "ma_nganh": "7340120", "ten_nganh": "Kinh doanh quốc tế",                     "khoa_vien": "Viện Thương mại và Kinh tế quốc tế",               "chi_tieu": 100, "diem_chuan_2025": 28.65},
-    {"so": 55, "ten_chuong_trinh": "Kinh doanh thương mại",               "ma_xet_tuyen": "7340121",   "ma_nganh": "7340121", "ten_nganh": "Kinh doanh thương mại",                  "khoa_vien": "Viện Thương mại và Kinh tế quốc tế",               "chi_tieu": 100, "diem_chuan_2025": 28.0},
-    {"so": 56, "ten_chuong_trinh": "Kinh tế đầu tư",                      "ma_xet_tuyen": "7310104",   "ma_nganh": "7310104", "ten_nganh": "Kinh tế đầu tư",                         "khoa_vien": "Khoa Đầu tư",                                      "chi_tieu": 100, "diem_chuan_2025": 27.5},
     {"so": 57, "ten_chuong_trinh": "Kinh tế học",                         "ma_xet_tuyen": "7310101_1", "ma_nganh": "7310101", "ten_nganh": "Kinh tế",                                "khoa_vien": "Khoa Kinh tế học",                                 "chi_tieu": 50,  "diem_chuan_2025": 26.52},
-    {"so": 58, "ten_chuong_trinh": "Kinh tế nông nghiệp",                 "ma_xet_tuyen": "7620115",   "ma_nganh": "7620115", "ten_nganh": "Kinh tế nông nghiệp",                    "khoa_vien": "Khoa Bất động sản và Kinh tế Tài nguyên",          "chi_tieu": 50,  "diem_chuan_2025": 24.35},
-    {"so": 59, "ten_chuong_trinh": "Kinh tế phát triển",                  "ma_xet_tuyen": "7310105",   "ma_nganh": "7310105", "ten_nganh": "Kinh tế phát triển",                     "khoa_vien": "Khoa Kế hoạch và Phát triển",                      "chi_tieu": 80,  "diem_chuan_2025": 26.77},
-    {"so": 60, "ten_chuong_trinh": "Kinh tế quốc tế",                     "ma_xet_tuyen": "7310106",   "ma_nganh": "7310106", "ten_nganh": "Kinh tế quốc tế",                        "khoa_vien": "Viện Thương mại và Kinh tế quốc tế",               "chi_tieu": 50,  "diem_chuan_2025": 28.13},
-    {"so": 61, "ten_chuong_trinh": "Kinh tế tài nguyên thiên nhiên",      "ma_xet_tuyen": "7850102",   "ma_nganh": "7850102", "ten_nganh": "Kinh tế tài nguyên thiên nhiên",         "khoa_vien": "Khoa Bất động sản và Kinh tế Tài nguyên",          "chi_tieu": 50,  "diem_chuan_2025": 23.5},
     {"so": 62, "ten_chuong_trinh": "Kinh tế và quản lý đô thị",           "ma_xet_tuyen": "7310101_2", "ma_nganh": "7310101", "ten_nganh": "Kinh tế",                                "khoa_vien": "Khoa Môi trường, Biến đổi khí hậu và Đô thị",      "chi_tieu": 50,  "diem_chuan_2025": 25.86},
     {"so": 63, "ten_chuong_trinh": "Kinh tế và quản lý nguồn nhân lực",   "ma_xet_tuyen": "7310101_3", "ma_nganh": "7310101", "ten_nganh": "Kinh tế",                                "khoa_vien": "Khoa Kinh tế và Quản lý nguồn nhân lực",           "chi_tieu": 50,  "diem_chuan_2025": 26.79},
-    {"so": 64, "ten_chuong_trinh": "Logistics và Quản lý chuỗi cung ứng", "ma_xet_tuyen": "7510605",   "ma_nganh": "7510605", "ten_nganh": "Logistics và Quản lý chuỗi cung ứng",    "khoa_vien": "Viện Thương mại và Kinh tế quốc tế",               "chi_tieu": 100, "diem_chuan_2025": 28.61},
-    {"so": 65, "ten_chuong_trinh": "Luật",                                 "ma_xet_tuyen": "7380101",   "ma_nganh": "7380101", "ten_nganh": "Luật",                                   "khoa_vien": "Khoa Luật",                                        "chi_tieu": 50,  "diem_chuan_2025": 25.96},
-    {"so": 66, "ten_chuong_trinh": "Luật kinh tế",                        "ma_xet_tuyen": "7380107",   "ma_nganh": "7380107", "ten_nganh": "Luật kinh tế",                           "khoa_vien": "Khoa Luật",                                        "chi_tieu": 80,  "diem_chuan_2025": 26.75},
-    {"so": 67, "ten_chuong_trinh": "Luật thương mại quốc tế",             "ma_xet_tuyen": "7380109",   "ma_nganh": "7380109", "ten_nganh": "Luật thương mại quốc tế",                "khoa_vien": "Khoa Luật",                                        "chi_tieu": 50,  "diem_chuan_2025": 26.44},
-    {"so": 68, "ten_chuong_trinh": "Marketing",                            "ma_xet_tuyen": "7340115",   "ma_nganh": "7340115", "ten_nganh": "Marketing",                              "khoa_vien": "Khoa Marketing",                                   "chi_tieu": 100, "diem_chuan_2025": 28.12},
-    {"so": 69, "ten_chuong_trinh": "Ngôn ngữ Anh",                        "ma_xet_tuyen": "7220201",   "ma_nganh": "7220201", "ten_nganh": "Ngôn ngữ Anh",                           "khoa_vien": "Khoa Ngoại ngữ Kinh tế",                           "chi_tieu": 90,  "diem_chuan_2025": 26.51},
-    {"so": 70, "ten_chuong_trinh": "Quan hệ công chúng",                   "ma_xet_tuyen": "7320108",   "ma_nganh": "7320108", "ten_nganh": "Quan hệ công chúng",                     "khoa_vien": "Khoa Marketing",                                   "chi_tieu": 50,  "diem_chuan_2025": 28.07},
-    {"so": 71, "ten_chuong_trinh": "Quan hệ lao động",                    "ma_xet_tuyen": "7340408",   "ma_nganh": "7340408", "ten_nganh": "Quan hệ lao động",                       "khoa_vien": "Khoa Kinh tế và Quản lý nguồn nhân lực",           "chi_tieu": 40,  "diem_chuan_2025": 25.0},
-    {"so": 72, "ten_chuong_trinh": "Quản lý công",                        "ma_xet_tuyen": "7340403",   "ma_nganh": "7340403", "ten_nganh": "Quản lý công",                           "khoa_vien": "Khoa Khoa học quản lý",                            "chi_tieu": 50,  "diem_chuan_2025": 25.42},
-    {"so": 73, "ten_chuong_trinh": "Quản lý đất đai",                     "ma_xet_tuyen": "7850103",   "ma_nganh": "7850103", "ten_nganh": "Quản lý đất đai",                        "khoa_vien": "Khoa Bất động sản và Kinh tế Tài nguyên",          "chi_tieu": 50,  "diem_chuan_2025": 24.38},
-    {"so": 74, "ten_chuong_trinh": "Quản lý dự án",                       "ma_xet_tuyen": "7340409",   "ma_nganh": "7340409", "ten_nganh": "Quản lý dự án",                          "khoa_vien": "Khoa Đầu tư",                                      "chi_tieu": 50,  "diem_chuan_2025": 26.63},
-    {"so": 75, "ten_chuong_trinh": "Quản lý tài nguyên và môi trường",    "ma_xet_tuyen": "7850101",   "ma_nganh": "7850101", "ten_nganh": "Quản lý tài nguyên và môi trường",       "khoa_vien": "Khoa Môi trường, Biến đổi khí hậu và Đô thị",      "chi_tieu": 50,  "diem_chuan_2025": 24.17},
-    {"so": 76, "ten_chuong_trinh": "Quản trị dịch vụ du lịch và lữ hành", "ma_xet_tuyen": "7810103",  "ma_nganh": "7810103", "ten_nganh": "Quản trị dịch vụ du lịch và lữ hành",    "khoa_vien": "Khoa Du lịch và Khách sạn",                        "chi_tieu": 60,  "diem_chuan_2025": 26.06},
-    {"so": 77, "ten_chuong_trinh": "Quản trị khách sạn",                  "ma_xet_tuyen": "7810201",   "ma_nganh": "7810201", "ten_nganh": "Quản trị khách sạn",                     "khoa_vien": "Khoa Du lịch và Khách sạn",                        "chi_tieu": 50,  "diem_chuan_2025": 26.25},
-    {"so": 78, "ten_chuong_trinh": "Quản trị kinh doanh",                 "ma_xet_tuyen": "7340101",   "ma_nganh": "7340101", "ten_nganh": "Quản trị kinh doanh",                    "khoa_vien": "Khoa Quản trị kinh doanh",                         "chi_tieu": 180, "diem_chuan_2025": 27.1},
-    {"so": 79, "ten_chuong_trinh": "Quản trị nhân lực",                   "ma_xet_tuyen": "7340404",   "ma_nganh": "7340404", "ten_nganh": "Quản trị nhân lực",                      "khoa_vien": "Khoa Kinh tế và Quản lý nguồn nhân lực",           "chi_tieu": 70,  "diem_chuan_2025": 27.1},
-    {"so": 80, "ten_chuong_trinh": "Tài chính - Ngân hàng",               "ma_xet_tuyen": "7340201",   "ma_nganh": "7340201", "ten_nganh": "Tài chính Ngân hàng",                    "khoa_vien": "Viện Ngân hàng - Tài chính",                       "chi_tieu": 230, "diem_chuan_2025": 27.34},
-    {"so": 81, "ten_chuong_trinh": "Thống kê kinh tế",                    "ma_xet_tuyen": "7310107",   "ma_nganh": "7310107", "ten_nganh": "Thống kê kinh tế",                       "khoa_vien": "Khoa Thống kê",                                    "chi_tieu": 50,  "diem_chuan_2025": 26.79},
-    {"so": 82, "ten_chuong_trinh": "Thương mại điện tử",                  "ma_xet_tuyen": "7340122",   "ma_nganh": "7340122", "ten_nganh": "Thương mại điện tử",                     "khoa_vien": "Viện Thương mại và Kinh tế quốc tế",               "chi_tieu": 50,  "diem_chuan_2025": 28.83},
-    {"so": 83, "ten_chuong_trinh": "Toán kinh tế",                        "ma_xet_tuyen": "7310108",   "ma_nganh": "7310108", "ten_nganh": "Toán kinh tế",                           "khoa_vien": "Khoa Toán kinh tế",                                "chi_tieu": 50,  "diem_chuan_2025": 26.73},
     # ── TT1 / TT2 ─────────────────────────────────────────────────────────
     {"so": 84, "ten_chuong_trinh": "Kế toán (TT1)",                       "ma_xet_tuyen": "TT1",       "ma_nganh": "7340301", "ten_nganh": "Kế toán",                                "khoa_vien": "Viện Kế toán - Kiểm toán",                         "chi_tieu": 55,  "diem_chuan_2025": 24.75},
     {"so": 85, "ten_chuong_trinh": "Kế hoạch tài chính (TT1)",            "ma_xet_tuyen": "TT1",       "ma_nganh": "7340201", "ten_nganh": "Tài chính Ngân hàng",                    "khoa_vien": "Viện Ngân hàng - Tài chính",                       "chi_tieu": 55,  "diem_chuan_2025": 24.75},
@@ -350,10 +309,90 @@ def format_admission_answer(question: str, programs: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def handle_admission_question(question: str) -> str | None:
+
+def _extract_admission_term(question: str) -> tuple[str, str]:
+    """
+    Trích xuất (term_clean, ma_nganh_7chu) từ câu hỏi tuyển sinh.
+    Returns: (term, code_7digit_or_empty)
+    """
+    # Tìm mã ngành 7 chữ số tường minh
+    code_match = re.search(r"\b(7\d{6})\b", question)
+    code = code_match.group(1) if code_match else ""
+
+    CONTEXT_PAT = re.compile(
+        r"điểm\s*chuẩn|điểm\s*đầu\s*vào|chỉ\s*tiêu|tuyển\s*sinh"
+        r"|chương\s*trình\s*đào\s*tạo|chương\s*trình|đào\s*tạo"
+        r"|ngành\s*học|ngành|ctđt|năm\s*\d{4}|\b20\d{2}\b"
+        r"|bao\s*nhiêu|của\s*trường|tại\s*neu|tại\s*trường"
+        r"|\blà\s*bao\s*nhiêu\b|\blà\s*gì\b|\blà\b"
+        r"|\bnhư\s*thế\s*nào\b|\bthế\s*nào\b|\bcủa\b|\bcó\b"
+        r"|\bcho\s*tôi\s*biết\b|\bcho\s*biết\b|\bxin\s*hỏi\b|\bhỏi\b",
+        re.IGNORECASE | re.UNICODE,
+    )
+    term = CONTEXT_PAT.sub(" ", question.lower())
+    term = re.sub(r"\s+", " ", term).strip()
+    return term, code
+
+
+def query_neo4j_major_admission(driver, question: str) -> list[dict]:
+    """
+    Query Neo4j để lấy diem_chuan / chi_tieu từ MAJOR node.
+    Trả về list dict tương thích format_admission_answer (có key ten_chuong_trinh,
+    ma_nganh, chi_tieu, diem_chuan_2025, khoa_vien).
+    Chỉ trả về kết quả khi node thực sự có ít nhất 1 trong 2 trường này.
+    """
+    term, code = _extract_admission_term(question)
+
+    # Bỏ mã EP/POHE/CLC/TT (chương trình đặc biệt) — những này không có node MAJOR riêng
+    special_code_pat = re.compile(r"\b(EP\d+|POHE\d*|EBBA|EPMP|CLC[123]|TT[12])\b", re.IGNORECASE)
+    if special_code_pat.search(question):
+        return []   # fallback sang ADMISSION_DATA
+
+    cypher = """
+        MATCH (m:MAJOR)
+        WHERE (
+            ($code <> '' AND m.code STARTS WITH $code)
+            OR ($term <> '' AND (
+                toLower(m.name)    CONTAINS toLower($term)
+                OR toLower(m.name_vi) CONTAINS toLower($term)
+            ))
+        )
+        AND (m.diem_chuan IS NOT NULL OR m.chi_tieu IS NOT NULL)
+        RETURN m.name      AS name,
+               m.name_vi   AS name_vi,
+               m.code      AS code,
+               m.diem_chuan AS diem_chuan,
+               m.chi_tieu   AS chi_tieu,
+               m.khoa_vien  AS khoa_vien
+        ORDER BY m.code
+        LIMIT 10
+    """
+    try:
+        with driver.session() as session:
+            rows = session.run(cypher, term=term, code=code).data()
+    except Exception:
+        return []
+
+    results = []
+    for r in rows:
+        name = r.get("name_vi") or r.get("name") or ""
+        results.append({
+            "ten_chuong_trinh": name,
+            "ma_nganh":         r.get("code", ""),
+            "chi_tieu":         r.get("chi_tieu"),
+            "diem_chuan_2025":  r.get("diem_chuan"),
+            "khoa_vien":        r.get("khoa_vien", ""),
+            "_source":          "neo4j",
+        })
+    return results
+
+def handle_admission_question(question: str, driver=None) -> str | None:
     """
     Nếu câu hỏi liên quan đến chỉ tiêu/điểm chuẩn → trả về answer string.
     Ngược lại trả về None để pipeline tiếp tục xử lý bình thường.
+
+    Ưu tiên: Neo4j (diem_chuan / chi_tieu lưu trên MAJOR node)
+    Fallback: ADMISSION_DATA (bảng mapping thủ công — dùng cho EP/POHE/CLC/TT)
     """
     if not _ADMISSION_PATTERN.search(question):
         return None
@@ -370,6 +409,13 @@ def handle_admission_question(question: str) -> str | None:
             "hoặc xem toàn bộ danh sách tại tuyensinh.neu.edu.vn."
         )
 
+    # ── Bước 1: Thử Neo4j trước (chính quy — diem_chuan / chi_tieu trên node MAJOR) ──
+    if driver is not None:
+        neo4j_programs = query_neo4j_major_admission(driver, question)
+        if neo4j_programs:
+            return format_admission_answer(question, neo4j_programs)
+
+    # ── Bước 2: Fallback sang ADMISSION_DATA (EP/POHE/CLC/TT/sub-program) ──
     programs = search_admission_data(question)
     if not programs:
         return (
@@ -3086,6 +3132,127 @@ def detect_ctdt_question(question: str) -> str | None:
         ).strip(" ?")
         return major_name if major_name else "ngành bạn quan tâm"
     return "ngành bạn quan tâm"
+# Câu hỏi về bản thân chatbot
+# Pattern nhận diện câu hỏi về identity/capability của chatbot
+# Gộp từ _META_PATTERNS (script3) + _SELF_INTRO_PATTERN (script3a)
+_SELF_INTRO_PATTERN = re.compile(
+    # Từ script3._META_PATTERNS
+    r"bạn (là|là gì|là ai|có thể|làm được|giúp được|biết gì|dùng để làm|làm gì|làm đc gì|lm đc gì)\b"
+    r"|bạn tên (là |gì)\b"
+    r"|(?:giới thiệu|tự giới thiệu).{0,20}(?:bạn|mình|bản thân)\b"
+    r"|(?:chatbot|trợ lý|bot).{0,30}(?:này|đây|là gì|làm gì|có thể)\b"
+    r"|(?:bạn|mày|m) có (?:thể|biết|làm|hiểu)\b"
+    r"|(?:chào|hello|hi|xin chào).{0,30}(?:bạn|bot|chatbot)\b"
+    # Từ script3a (mở rộng thêm)
+    r"|bạn có thể giúp gì|bạn hỗ trợ gì|bạn giải đáp gì"
+    r"|chatbot này là gì|chatbot này làm gì|chatbot này dùng để làm gì"
+    r"|bạn có thể trả lời (về|câu hỏi) gì|bạn có thể tư vấn"
+    r"|bạn biết gì|bạn hiểu gì|bạn trả lời được gì"
+    r"|em có thể hỏi gì|tôi có thể hỏi gì|mình có thể hỏi gì"
+    r"|nội dung gì|về nội dung|giải đáp.*nội dung"
+    # Biến thể tư vấn (thêm để bắt "bạn tư vấn về gì")
+    r"|bạn tư vấn|tư vấn (về|gì|những gì|được gì|về gì)"
+    r"|bạn (giúp|hỗ trợ|trả lời).{0,15}(gì|được gì|những gì)"
+    r"|(?:cho tôi|cho mình|cho em).{0,20}biết.{0,20}(?:bạn|chatbot|bot)",
+    re.IGNORECASE | re.UNICODE,
+)
+
+# Alias để tương thích nếu code khác import từ đây
+_META_PATTERNS = _SELF_INTRO_PATTERN
+
+def detect_meta_question(question: str) -> bool:
+    """Alias của detect_self_intro — giữ để tương thích."""
+    return bool(_SELF_INTRO_PATTERN.search(question))
+
+
+
+SELF_INTRO_ANSWER = """
+Xin chào! Tôi là **NEU AI Assistant**.
+
+Tôi là chatbot hỗ trợ hỏi đáp học thuật về Đại học Kinh tế Quốc dân (NEU).
+
+Tôi có thể giúp bạn:
+• Tìm hiểu ngành học và chương trình đào tạo  
+• Tra cứu môn học và nội dung môn  
+• Tìm giảng viên dạy môn  
+• Khám phá kỹ năng từ từng môn học  
+• Tìm mối liên hệ giữa ngành học – kỹ năng – nghề nghiệp
+
+Tôi sử dụng **Knowledge Graph + GraphRAG + Neo4j** để truy vấn và tổng hợp thông tin chính xác.
+
+Bạn muốn hỏi gì về việc học tại NEU? 😊
+"""
+
+# Alias để tương thích với script3.py (dùng CHATBOT_IDENTITY)
+CHATBOT_IDENTITY = SELF_INTRO_ANSWER
+
+# Từ khóa nhận diện câu hỏi ngoài phạm vi (off-topic)
+_OFF_TOPIC_PATTERNS = [
+    # Thời tiết, tin tức
+    re.compile(r"thời tiết|dự báo|mưa|nắng|bão|lũ|động đất|tin tức|báo chí|thời sự", re.IGNORECASE | re.UNICODE),
+    # Y tế / sức khỏe cá nhân
+    re.compile(r"bệnh viện|thuốc|chữa bệnh|khám bệnh|sức khỏe|triệu chứng|bác sĩ ơi|đau đầu|sốt|cảm cúm", re.IGNORECASE | re.UNICODE),
+    # Nấu ăn, thực phẩm
+    re.compile(r"nấu ăn|công thức nấu|nguyên liệu nấu|món ăn|thực đơn|ăn gì ngon", re.IGNORECASE | re.UNICODE),
+    # Giải trí, phim ảnh, âm nhạc
+    re.compile(r"phim (?:hay|mới|chiếu)|bài hát|ca sĩ|diễn viên|xem phim|nghe nhạc|game (?:hay|mới)", re.IGNORECASE | re.UNICODE),
+    # Thể thao — kết quả, tỉ số, giải đấu
+    re.compile(
+        r"bóng đá|kết quả bóng|đội tuyển|trận đấu|giải đấu|bóng rổ|tennis|cầu lông"
+        r"|world cup|worldcup|euro|champions league|ngoại hạng anh|la liga|bundesliga"
+        r"|tỉ số|tỷ số|chung kết|vô địch|huy chương|olympic|seagame|sea game"
+        r"|cầu thủ|vận động viên|hlv|huấn luyện viên đội",
+        re.IGNORECASE | re.UNICODE,
+    ),
+    # Chính trị
+    re.compile(r"bầu cử|tổng thống|thủ tướng|quốc hội|đảng phái|chiến tranh|xung đột", re.IGNORECASE | re.UNICODE),
+    # Kỹ thuật ngoài phạm vi
+    re.compile(r"sửa máy tính|cài windows|sửa điện thoại|hack|virus máy tính", re.IGNORECASE | re.UNICODE),
+    # Tình cảm
+    re.compile(r"người yêu|tình yêu|chia tay|cưới|hôn nhân|tâm sự|buồn quá|cô đơn", re.IGNORECASE | re.UNICODE),
+    # Du lịch thuần túy
+    re.compile(r"đặt vé|vé máy bay|khách sạn (?:tốt|rẻ|ở đâu)|du lịch (?:ở đâu|bao nhiêu tiền|mấy ngày)", re.IGNORECASE | re.UNICODE),
+    # Tài chính cá nhân
+    re.compile(r"mua cổ phiếu nào|đầu tư vào đâu|bitcoin|crypto|giá vàng|tỷ giá hôm nay", re.IGNORECASE | re.UNICODE),
+    # Misc: dịch thuật, truyện, công thức toán thuần túy ngoài học thuật
+    re.compile(r"dịch sang tiếng|translate|kể chuyện|viết truyện|viết thơ|tử vi|horoscope", re.IGNORECASE | re.UNICODE),
+]
+
+# Từ khóa "safe" — nếu câu hỏi chứa các từ này thì KHÔNG phải off-topic dù match pattern trên
+_SAFE_KEYWORDS = re.compile(
+    r"ngành|chuyên ngành|môn học|giảng viên|sinh viên|đại học|neu|kinh tế quốc dân"
+    r"|chương trình đào tạo|tuyển sinh|điểm chuẩn|nghề nghiệp|kỹ năng|mbti|tính cách",
+    re.IGNORECASE | re.UNICODE,
+)
+
+OFF_TOPIC_ANSWER = (
+    "Tôi có thể tư vấn **ngành học và nghề nghiệp** theo định hướng và tính cách của bạn. "
+    "Chatbot hiện **không thể trả lời** các câu hỏi không liên quan đến chương trình đào tạo tại NEU, "
+    "vui lòng tham khảo các agent khác.\n\n"
+    "Tôi có thể giúp bạn về:\n"
+    "- 🎓 Ngành học, môn học, chương trình đào tạo tại NEU\n"
+    "- 💼 Nghề nghiệp, cơ hội việc làm sau tốt nghiệp\n"
+    "- 🧠 Định hướng theo tính cách MBTI\n"
+    "- 📊 Điểm chuẩn và chỉ tiêu tuyển sinh\n\n"
+    "Bạn có muốn hỏi về những chủ đề trên không?"
+)
+
+
+def detect_off_topic(question: str) -> bool:
+    """Trả về True nếu câu hỏi ngoài phạm vi của chatbot."""
+    # Nếu câu hỏi có từ khóa học thuật/NEU → không phải off-topic
+    if _SAFE_KEYWORDS.search(question):
+        return False
+    # Kiểm tra pattern off-topic
+    for pattern in _OFF_TOPIC_PATTERNS:
+        if pattern.search(question):
+            return True
+    return False
+
+
+def detect_self_intro(question: str) -> bool:
+    """Trả về True nếu user hỏi về bản thân chatbot."""
+    return bool(_SELF_INTRO_PATTERN.search(question))
 
 def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -> dict:
     if query_id is None:
@@ -3093,6 +3260,29 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
 
     print(f"\n{'='*60}")
     print(f"Q [{query_id}]: {question}")
+    
+
+    if detect_self_intro(question):
+        print(f"\nA: {SELF_INTRO_ANSWER}")
+        return _build_record(
+            query_id, question, SELF_INTRO_ANSWER, [],
+            {"asked_label": "SELF_INTRO", "mentioned_labels": [],
+             "keywords": [], "negated_keywords": [],
+             "community_id": "SELF_INTRO"},
+            [], [], "self_intro_static",
+        )
+
+    # ── Bước 0-pre-B: Off-topic detection ────────────────────────────────────
+    if detect_off_topic(question):
+        print(f"\nA: {OFF_TOPIC_ANSWER}")
+        return _build_record(
+            query_id, question, OFF_TOPIC_ANSWER, [],
+            {"asked_label": "OFF_TOPIC", "mentioned_labels": [],
+             "keywords": [], "negated_keywords": [],
+             "community_id": "OFF_TOPIC"},
+            [], [], "off_topic_static",
+        )
+    
     ctdt_major = detect_ctdt_question(question)
     if ctdt_major is not None:
         answer = (
@@ -3109,7 +3299,7 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
         )
 
     # ── Bước 0-pre: Chỉ tiêu & Điểm chuẩn tuyển sinh ────────────────────────
-    admission_answer = handle_admission_question(question)
+    admission_answer = handle_admission_question(question, driver=driver)
     if admission_answer is not None:
         print(f"\nA (admission): {admission_answer}")
         return _build_record(
