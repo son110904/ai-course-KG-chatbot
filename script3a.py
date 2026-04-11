@@ -1,4 +1,3 @@
-
 import os
 import re
 import json
@@ -1136,10 +1135,11 @@ RELATIONSHIP_CONSTRAINTS = {
         "1. Mô tả nghề: lấy từ description (field short_description hoặc role_in_organization). "
         "2. Công việc chính: liệt kê từ job_tasks. "
         "3. Thị trường lao động: tóm tắt từ field market. "
-        "4. ĐỀ XUẤT NGÀNH HỌC: BẮT BUỘC liệt kê các ngành theo recommended_majors "
+        "4. ĐỀ XUẤT NGÀNH HỌC: BẮT BUỘC liệt kê TỐI ĐA 5 ngành phù hợp nhất theo recommended_majors "
         "(tên ngành + mã ngành). Nếu không có recommended_majors, "
         "dùng education_certification.recommended_majors làm tên gợi ý. "
         "Format: Tên ngành (mã ngành) - VD: Công nghệ thông tin (7480201). "
+        "Chỉ chọn 5 ngành liên quan nhất, không liệt kê thêm. "
         "Nếu không có ngành nào trong DB - nói rõ chưa có dữ liệu ngành phù hợp."
     ),
     ("TEACHER", "TEACHER"): (
@@ -1166,11 +1166,12 @@ RELATIONSHIP_CONSTRAINTS = {
     ),
     ("PERSONALITY", "MAJOR"): (
         "PERSONALITY -[:SUITS_MAJOR]-> MAJOR. "
-        "Liệt kê ngành học phù hợp với loại tính cách MBTI này tại NEU. "
+        "Liệt kê TỐI ĐA 5 ngành học phù hợp nhất với loại tính cách MBTI này tại NEU. "
         "NGUỒN DỮ LIỆU ưu tiên theo thứ tự: "
         "(1) Các node MAJOR trong [DỮ LIỆU GRAPH] có rel_types=['SUITS_MAJOR']. "
         "(2) Trường suitable_fields trong node PERSONALITY (parse JSON string): "
         "    lấy từng field → groups → majors, lấy major_code và major_name. "
+        "Chọn 5 ngành liên quan và phù hợp nhất, ưu tiên ngành có mã ngành rõ ràng. "
         "Định dạng BẮT BUỘC: bảng markdown | STT | Tên ngành | Mã ngành | Lĩnh vực |. "
         "Nếu major_code rỗng: ghi '—'. "
         "SAU BẢNG: thêm 1 đoạn ngắn giải thích TẠI SAO tính cách này phù hợp với "
@@ -1293,7 +1294,7 @@ QUY TẮC ĐỊNH DẠNG CHI TIẾT:
    |-----|---------|------|
    | 1   | Lap trinh Python | Hard skill |
 
-   Vi du bang nganh hoc:
+   Vi du bang nganh hoc (de xuat nganh) -- TOI DA 5 nganh phu hop nhat:
    | STT | Ten nganh | Ma nganh | Mon hoc lien quan |
    |-----|-----------|----------|-------------------|
    | 1   | CNTT | 7480201 | Lap trinh Python (ITBD2301) |
@@ -1856,7 +1857,13 @@ def resolve_mbti_codes_from_dimensions(dimensions: list[str]) -> list[str]:
 
 
 _COMPARE_CUE_PATTERN = re.compile(
-    r"\b(vs|versus)\b|so sánh|phân vân|giữa.+và|nên chọn bên nào|nên chọn cái nào",
+    r"\b(vs|versus)\b|so sánh|phân vân|giữa.+và|nên chọn bên nào|nên chọn cái nào"
+    r"|nên học.{0,30}hay.{0,30}(ngành|chuyên ngành)"
+    r"|(ngành|chuyên ngành).{0,30}hay.{0,30}(ngành|chuyên ngành)"
+    r"|không biết (nên|phải) chọn|chưa biết (nên|chọn)|đang phân vân"
+    r"|so (với|sánh với)|khác nhau (như thế nào|ra sao|thế nào)"
+    r"|(chọn|học).{0,20}hay (là )?(học|chọn)"
+    r"|\bgiữa\b.{0,60}\bvà\b",
     re.IGNORECASE | re.UNICODE,
 )
 _CAREER_CUE_PATTERN = re.compile(
@@ -1996,6 +2003,14 @@ def apply_intent_rules(question: str, intent: dict) -> dict:
     # Rule 2: so sánh giữa 2 nghề => asked = CAREER.
     if is_comp and has_direct_career_alias:
         asked = "CAREER"
+
+    # Rule 2b: so sánh không có tín hiệu nghề rõ ràng → suy luận so sánh MAJOR.
+    # VD: "phân vân quản trị nhân lực và quan hệ công chúng"
+    if is_comp and not has_direct_career_alias and not _CAREER_CUE_PATTERN.search(q):
+        if "MAJOR" not in mentioned:
+            mentioned.append("MAJOR")
+        if asked in ("UNKNOWN", "CAREER") and not has_direct_career_alias:
+            asked = "MAJOR"
 
     # Rule 3: câu mơ hồ nhưng có dấu hiệu nghề + tính cách/skill => hỏi nghề.
     if asked == "UNKNOWN":
@@ -3099,7 +3114,19 @@ def generate_answer(
         ],
         temperature=0.1,
     )
-    return response.choices[0].message.content.strip()
+    raw = response.choices[0].message.content.strip()
+
+    # Thêm gợi ý courses.neu.edu.vn khi hỏi chi tiết về môn học (không phải hỏi giảng viên)
+    _asked     = intent.get("asked_label", "")
+    _mentioned = intent.get("mentioned_labels", [])
+    if _asked == "SUBJECT" and "TEACHER" not in _mentioned:
+        raw += (
+            "\n\n---\nTham khao them: Ban co the vao courses.neu.edu.vn "
+            "de tim hieu chi tiet ve cac mon dai cuong, co so nganh, "
+            "kien thuc nganh, va cac mon tu chon nganh va chuyen sau."
+        )
+
+    return raw
 
 
 # ══════════════════════════════════════════════════════════════════════════════
