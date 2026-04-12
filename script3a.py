@@ -112,6 +112,47 @@ _ADMISSION_PATTERN = re.compile(
 )
 
 
+# Pattern nhận diện câu hỏi về biến động điểm chuẩn — redirect sang agent tuyển sinh
+_SCORE_CHANGE_PATTERN = re.compile(
+    r"tăng\s*điểm|giảm\s*điểm|điểm\s*(có\s*)?(tăng|giảm|thay\s*đổi|biến\s*động)"
+    r"|điểm\s*chuẩn.{0,30}(tăng|giảm|cao\s*hơn|thấp\s*hơn|thay\s*đổi)"
+    r"|(tăng|giảm|thay\s*đổi).{0,30}điểm\s*chuẩn",
+    re.IGNORECASE | re.UNICODE,
+)
+
+SCORE_CHANGE_ANSWER = (
+    "Câu hỏi về biến động điểm chuẩn tuyển sinh thuộc phạm vi agent chuyên biệt.\n"
+    "Vui lòng sử dụng agent Thông tin tuyển sinh NEU 2026 tại:\n"
+    "https://ai.neu.edu.vn/tuyen-sinh/tools/neu-admission-info\n"
+    "Agent này có đầy đủ thông tin về điểm chuẩn, xu hướng thay đổi và lộ trình tuyển sinh."
+)
+
+# Từ điển đồng nghĩa/biến thể tên ngành thường gặp → tên chuẩn trong ADMISSION_DATA
+_MAJOR_SYNONYMS: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"kinh\s*doanh\s*nông\s*nghiệp", re.IGNORECASE | re.UNICODE), "kinh tế nông nghiệp"),
+    (re.compile(r"quản\s*trị\s*nông\s*nghiệp",   re.IGNORECASE | re.UNICODE), "kinh tế nông nghiệp"),
+    (re.compile(r"tài\s*chính\s*doanh\s*nghiệp", re.IGNORECASE | re.UNICODE), "tài chính ngân hàng"),
+    (re.compile(r"ngân\s*hàng\s*số",               re.IGNORECASE | re.UNICODE), "công nghệ tài chính và ngân hàng số"),
+    (re.compile(r"cntt|công\s*nghệ\s*tt",          re.IGNORECASE | re.UNICODE), "công nghệ thông tin"),
+    (re.compile(r"khoa\s*học\s*máy\s*tính",       re.IGNORECASE | re.UNICODE), "công nghệ thông tin"),
+    (re.compile(r"marketing\s*số|digital\s*marketing", re.IGNORECASE | re.UNICODE), "marketing số"),
+    (re.compile(r"pr\b|quan\s*hệ\s*công\s*chúng", re.IGNORECASE | re.UNICODE), "quan hệ công chúng"),
+    (re.compile(r"logistics\b(?!.*chuỗi)",           re.IGNORECASE | re.UNICODE), "logistics và quản lý chuỗi cung ứng"),
+    (re.compile(r"thương\s*mại\s*điện\s*tử|tmđt|e-commerce", re.IGNORECASE | re.UNICODE), "thương mại điện tử"),
+    (re.compile(r"kinh\s*tế\s*số(?!.*dự\s*kiến)",  re.IGNORECASE | re.UNICODE), "kinh tế số"),
+    (re.compile(r"trí\s*tuệ\s*nhân\s*tạo|\bai\b|artificial\s*intelligence", re.IGNORECASE | re.UNICODE), "trí tuệ nhân tạo"),
+    (re.compile(r"khoa\s*học\s*dữ\s*liệu|data\s*science", re.IGNORECASE | re.UNICODE), "khoa học dữ liệu"),
+]
+
+
+def _apply_major_synonyms(question: str) -> str:
+    """Thay thế biến thể tên ngành trong câu hỏi bằng tên chuẩn trước khi tìm kiếm."""
+    q = question
+    for pattern, canonical in _MAJOR_SYNONYMS:
+        q = pattern.sub(canonical, q)
+    return q
+
+
 def search_admission_data(question: str) -> list[dict]:
     """
     Tìm chương trình trong ADMISSION_DATA khớp với câu hỏi.
@@ -122,6 +163,7 @@ def search_admission_data(question: str) -> list[dict]:
          rồi so khớp trực tiếp substring với ten_chuong_trinh / ten_nganh
       4. Fallback: scoring từng từ nếu không có match trực tiếp
     """
+    question = _apply_major_synonyms(question)
     q_lower = question.lower()
     is_broad_program_request = bool(re.search(
         r"t[aấ]t\s*c[aả]|to[aà]n\s*b[ộo]|li[eê]t\s*k[eê]|danh\s*s[aá]ch|c[aá]c\s*chương\s*trình|c[aá]c\s*hệ",
@@ -395,6 +437,10 @@ def handle_admission_question(question: str, driver=None) -> str | None:
     """
     if not _ADMISSION_PATTERN.search(question):
         return None
+
+    # Câu hỏi về tăng/giảm/biến động điểm chuẩn → redirect sang agent tuyển sinh
+    if _SCORE_CHANGE_PATTERN.search(question):
+        return SCORE_CHANGE_ANSWER
 
     q_lower = question.lower()
     is_general = bool(re.search(
@@ -1886,6 +1932,14 @@ _NEGATED_CAREER_PATTERN = re.compile(
     r"(?:không|ko|chẳng|không muốn).{0,20}\b(sale|marketing)\b",
     re.IGNORECASE | re.UNICODE,
 )
+# Pattern nhận diện "ngành nào không cần/yêu cầu [kỹ năng/môn/lĩnh vực X]"
+_MAJOR_EXCLUDE_SKILL_PATTERN = re.compile(
+    r"ng[àa]nh\s*(n[àa]o)?.{0,20}(kh[oô]ng\s*(c[aầ]n|y[eê]u\s*c[aầ]u|đ[oò]i|ph[aả]i)|"
+    r"kh[oô]ng\s*c[aầ]n\s*ph[aả]i|mi[eễ]n\s*(kh[oô]ng\s*)?ph[aả]i|kh[oô]ng\s*dùng)"
+    r".{0,40}",
+    re.IGNORECASE | re.UNICODE, #khớp bất kỳ ký tự nào, tối thiểu 0, tối đa 20- 40 ký tự
+)
+
 _CAREER_ALIAS_HINTS: list[tuple[re.Pattern[str], list[str]]] = [
     (re.compile(r"\b(tester|qa|quality assurance|kiểm thử)\b", re.IGNORECASE | re.UNICODE),
      ["kiểm thử", "tester", "quality assurance"]),
@@ -2012,6 +2066,14 @@ def apply_intent_rules(question: str, intent: dict) -> dict:
         if asked in ("UNKNOWN", "CAREER") and not has_direct_career_alias:
             asked = "MAJOR"
 
+    # Rule 2c: "ngành nào không cần/yêu cầu [X]" → force asked=MAJOR, X vào negated
+    if _MAJOR_EXCLUDE_SKILL_PATTERN.search(q):
+        asked = "MAJOR"
+        if "MAJOR" not in mentioned:
+            mentioned.append("MAJOR")
+        # Giữ SKILL trong mentioned nếu có để query lấy context, nhưng để MAJOR lên đầu
+        # Không để CAREER alias override
+
     # Rule 3: câu mơ hồ nhưng có dấu hiệu nghề + tính cách/skill => hỏi nghề.
     if asked == "UNKNOWN":
         if _CAREER_CUE_PATTERN.search(q):
@@ -2043,7 +2105,11 @@ def apply_intent_rules(question: str, intent: dict) -> dict:
         else:
             priority = ["SKILL", "MAJOR", "PERSONALITY", "CAREER", "SUBJECT", "TEACHER"]
     elif asked == "MAJOR":
-        priority = ["PERSONALITY", "SKILL", "CAREER", "MAJOR", "SUBJECT", "TEACHER"]
+        if negated:
+            # Có phủ định (không cần X) → ưu tiên MAJOR đầu tiên để query ngành là chính
+            priority = ["MAJOR", "SKILL", "PERSONALITY", "CAREER", "SUBJECT", "TEACHER"]
+        else:
+            priority = ["PERSONALITY", "SKILL", "CAREER", "MAJOR", "SUBJECT", "TEACHER"]
     elif asked == "PERSONALITY":
         if re.search(r"hợp làm|hợp nghề|làm\s+\w+", q_lower, re.IGNORECASE):
             priority = ["CAREER", "MAJOR", "PERSONALITY", "SKILL", "SUBJECT", "TEACHER"]
@@ -2068,6 +2134,20 @@ def get_relationship_constraint(intent: dict) -> str:
     mentioned = intent.get("mentioned_labels", [])
     asked     = intent.get("asked_label", "UNKNOWN")
     is_comp   = intent.get("is_comparison", False)
+    negated   = intent.get("negated_keywords", [])
+
+    # asked=MAJOR + có phủ định → "ngành nào KHÔNG cần/yêu cầu [X]"
+    if asked == "MAJOR" and negated:
+        excl = ", ".join(negated)
+        return (
+            f"Người dùng hỏi ngành học KHÔNG cần/yêu cầu: {excl}. "
+            "Từ [DỮ LIỆU GRAPH], liệt kê các node MAJOR (tên ngành + mã ngành). "
+            "Ưu tiên ngành mà chương trình học (MAJOR_OFFERS_SUBJECT→SUBJECT→PROVIDES→SKILL) "
+            f"KHÔNG có kỹ năng '{excl}' hoặc không có môn chuyên về '{excl}'. "
+            "Nếu câu hỏi có 'trừ [ngành X]' → loại bỏ ngành đó khỏi danh sách. "
+            "ĐỊNH DẠNG BẮT BUỘC: bảng markdown | STT | Tên ngành | Mã ngành |. "
+            "TUYỆT ĐỐI không liệt kê CAREER, SKILL hay vị trí công việc — chỉ MAJOR."
+        )
 
     if is_comp and (asked == "CAREER" or "CAREER" in mentioned):
         return (
