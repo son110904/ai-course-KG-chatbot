@@ -4,7 +4,7 @@ import json
 import uuid
 import datetime
 from pathlib import Path
-from collections import defaultdict
+from collections import defaultdict, deque
 from neo4j import GraphDatabase
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -112,19 +112,78 @@ _ADMISSION_PATTERN = re.compile(
 )
 
 
-# Pattern nhận diện câu hỏi về biến động điểm chuẩn — redirect sang agent tuyển sinh
-_SCORE_CHANGE_PATTERN = re.compile(
-    r"tăng\s*điểm|giảm\s*điểm|điểm\s*(có\s*)?(tăng|giảm|thay\s*đổi|biến\s*động)"
+_SCORE_CONVERT_PATTERN = re.compile(
+    r"quy\s*đổi\s*điểm|quy\s*đổi\s*chứng\s*chỉ|điểm\s*quy\s*đổi"
+    r"|ielts.{0,15}(tương\s*đương|bằng|đổi|thành|quy)"
+    r"|toefl.{0,15}(tương\s*đương|bằng|đổi|thành|quy)"
+    r"|toeic.{0,15}(tương\s*đương|bằng|đổi|thành|quy)"
+    r"|sat.{0,15}(tương\s*đương|bằng|đổi|thành|quy)"
+    r"|act.{0,15}(tương\s*đương|bằng|đổi|thành|quy)"
+    r"|(ielts|toefl|toeic|sat|act|hsa|v-act|tsa).{0,20}(neu|điểm|xét\s*tuyển)"
+    r"|chứng\s*chỉ.{0,20}(quy\s*đổi|tính\s*điểm|xét\s*tuyển)"
+    r"|điểm\s*thpt.{0,20}quy\s*đổi|cộng\s*điểm\s*ưu\s*tiên"
+    r"|tính\s*điểm\s*xét\s*tuyển|công\s*thức\s*điểm"
+    r"|(ielts|toefl|toeic|sat|act|hsa|v\-act|tsa).{0,80}(đỗ|đậu|vào\s*được|trúng\s*tuyển|học\s*được)"
+    r"|(đỗ|đậu|vào\s*được|trúng\s*tuyển).{0,60}(ielts|toefl|toeic|sat|act|hsa|v\-act|tsa)"
+    r"|\d[\d,\.]+\s*(ielts|toefl|toeic|sat|act|hsa|v\-act|tsa)"
+    r"|(ielts|toefl|toeic|sat|act|hsa|v\-act|tsa)\s*\d[\d,\.]+"
+    r"|tôi\s*có.{0,50}(ielts|toefl|toeic|sat|hsa|act|tsa).{0,30}(ngành|đỗ|đậu|xét)"
+    r"|với\s*(ielts|toefl|toeic|sat|hsa|act|tsa).{0,60}(ngành|đỗ|đậu|học)"
+    r"|\d[\d,\.]+\s*điểm.{0,50}(học\s*ngành|ngành\s*gì|ngành\s*nào|vào\s*được|đỗ|đậu|trúng\s*tuyển|xét\s*tuyển|học\s*được|nên\s*học)"
+    r"|(được|có|đạt|tôi\s*đạt|tôi\s*được|tôi\s*có).{0,20}\d[\d,\.]+\s*điểm.{0,50}(học|ngành|vào|đỗ|đậu|xét)"
+    r"|\d[\d,\.]+\s*điểm.{0,30}(a00|a01|b00|b01|c00|d01|d07|tổ\s*hợp)"
+    r"|(a00|a01|b00|b01|c00|d01|d07|tổ\s*hợp).{0,30}\d[\d,\.]+\s*điểm",
+    re.IGNORECASE | re.UNICODE,
+)
+
+_ADMISSION_INFO_PATTERN = re.compile(
+    r"phương\s*thức\s*xét\s*tuyển|hồ\s*sơ\s*xét\s*tuyển|đăng\s*ký\s*xét\s*tuyển"
+    r"|lịch\s*tuyển\s*sinh|lộ\s*trình\s*tuyển\s*sinh|kế\s*hoạch\s*tuyển\s*sinh"
+    r"|ngưỡng\s*đầu\s*vào|điều\s*kiện\s*(?:xét\s*tuyển|dự\s*tuyển|tuyển\s*sinh)"
+    r"|xét\s*tuyển\s*thẳng|xét\s*tuyển\s*kết\s*hợp"
+    r"|tổ\s*hợp\s*môn|a00|a01|d01|d07"
+    r"|ưu\s*tiên\s*khu\s*vực|ưu\s*tiên\s*đối\s*tượng|kv1|kv2|kv3"
+    r"|liên\s*thông|học\s*phí.{0,20}(neu|trường|năm\s*học)"
+    r"|open\s*day|tư\s*vấn\s*tuyển\s*sinh|hotline\s*tuyển\s*sinh"
+    r"|neu\s*2026|tuyển\s*sinh\s*2026|ngành\s*mới\s*2026|chương\s*trình\s*mới\s*2026"
+    r"|tăng\s*điểm|giảm\s*điểm|điểm\s*(có\s*)?(tăng|giảm|thay\s*đổi|biến\s*động)"
     r"|điểm\s*chuẩn.{0,30}(tăng|giảm|cao\s*hơn|thấp\s*hơn|thay\s*đổi)"
     r"|(tăng|giảm|thay\s*đổi).{0,30}điểm\s*chuẩn",
     re.IGNORECASE | re.UNICODE,
 )
 
-SCORE_CHANGE_ANSWER = (
-    "Câu hỏi về biến động điểm chuẩn tuyển sinh thuộc phạm vi agent chuyên biệt.\n"
-    "Vui lòng sử dụng agent Thông tin tuyển sinh NEU 2026 tại:\n"
-    "https://ai.neu.edu.vn/tuyen-sinh/tools/neu-admission-info\n"
-    "Agent này có đầy đủ thông tin về điểm chuẩn, xu hướng thay đổi và lộ trình tuyển sinh."
+_ADMISSION_SAFE = re.compile(
+    r"điểm\s*chuẩn\s+ngành\s+\w|chỉ\s*tiêu\s+ngành\s+\w"
+    r"|môn\s+học|giảng\s+viên|kỹ\s+năng|nghề\s+nghiệp",
+    re.IGNORECASE | re.UNICODE,
+)
+
+SCORE_CONVERT_ANSWER = (
+    "Câu hỏi của bạn liên quan đến **quy đổi và tư vấn điểm xét tuyển** — "
+    "lĩnh vực này được xử lý bởi agent chuyên biệt.\n\n"
+    "👉 Vui lòng sử dụng agent **Quy đổi và tư vấn điểm**\n"
+    "**https://ai.neu.edu.vn/tuyen-sinh/tools/convertum**\n\n"
+    "Agent này hỗ trợ:\n"
+    "- Quy đổi điểm từ: IELTS, TOEFL iBT, TOEIC, SAT, ACT, HSA, V-ACT, TSA\n"
+    "- Điểm thi THPT (các tổ hợp A00/A01/D01/D07)\n"
+    "- Tính điểm ưu tiên khu vực/đối tượng\n"
+    "- Tư vấn ngành nào phù hợp với điểm của bạn"
+)
+
+ADMISSION_INFO_ANSWER = (
+    "Câu hỏi của bạn liên quan đến **thông tin tuyển sinh NEU 2026** "
+    "(quy chế, phương thức, lộ trình, học phí...) — "
+    "lĩnh vực này được xử lý bởi agent chuyên biệt.\n\n"
+    "👉 Vui lòng sử dụng agent **Thông tin tuyển sinh NEU 2026** tại:\n"
+    "**https://ai.neu.edu.vn/tuyen-sinh/tools/neu-admission-info**\n\n"
+    "Agent này có đầy đủ:\n"
+    "- Quy chế & điều kiện bắt buộc\n"
+    "- Phương thức xét tuyển (thẳng, kết hợp, THPT)\n"
+    "- Tra cứu chỉ tiêu & điểm chuẩn 2025\n"
+    "- Quy đổi chứng chỉ tiếng Anh quốc tế\n"
+    "- Lộ trình tuyển sinh & kênh liên hệ chính thức\n\n"
+    "Tôi vẫn có thể giúp bạn tra cứu **điểm chuẩn/chỉ tiêu từng ngành** "
+    "hoặc tư vấn **ngành học phù hợp** nếu bạn cần!"
 )
 
 # Từ điển đồng nghĩa/biến thể tên ngành thường gặp → tên chuẩn trong ADMISSION_DATA
@@ -323,7 +382,7 @@ def format_admission_answer(question: str, programs: list[dict]) -> str:
             return f"- **{ten}** (mã {ma}): chỉ tiêu **{ct} sinh viên**"
         # Hỏi cả hai hoặc tổng quát
         diem_part = f"**{diem_str}**" if diem_str is not None else "chưa cập nhật"
-        return f"- **{ten}** (mã {ma}): chỉ tiêu **{ct} sinh viên**, điểm chuẩn 2025: {diem_part}"
+        return f"- **{ten}** (mã {ma}): chỉ tiêu **{ct} sinh viên**, điểm chuẩn 2026: {diem_part}"
 
     if len(programs) == 1:
         p = programs[0]
@@ -341,7 +400,7 @@ def format_admission_answer(question: str, programs: list[dict]) -> str:
         # Hỏi cả hai hoặc tổng quát
         diem_part = f"**{diem_str}**" if diem_str is not None else "chưa cập nhật"
         return (f"Chương trình **{ten}** (mã ngành {ma}): "
-                f"chỉ tiêu **{ct} sinh viên**, điểm chuẩn 2025: {diem_part}.")
+                f"chỉ tiêu **{ct} sinh viên**, điểm chuẩn 2026: {diem_part}.")
 
     # Nhiều chương trình → liệt kê văn xuôi
     lines = ["Dưới đây là thông tin tuyển sinh các chương trình phù hợp:"]
@@ -437,10 +496,6 @@ def handle_admission_question(question: str, driver=None) -> str | None:
     """
     if not _ADMISSION_PATTERN.search(question):
         return None
-
-    # Câu hỏi về tăng/giảm/biến động điểm chuẩn → redirect sang agent tuyển sinh
-    if _SCORE_CHANGE_PATTERN.search(question):
-        return SCORE_CHANGE_ANSWER
 
     q_lower = question.lower()
     is_general = bool(re.search(
@@ -806,24 +861,36 @@ def run_louvain_and_write(driver, community_def: dict) -> dict:
         rel_proj    = {
             rtype: {"type": rtype, "orientation": "UNDIRECTED",
                     "properties": {"weight": {"defaultValue": w}}}
-            for rtype, w in community_def["rel_weights"].items()
+            for rtype, w in community_def.get("rel_weights", {}).items()
         }
 
         try:
-            session.run(
-                "CALL gds.graph.project($gname, $nlabels, $rproj)",
-                gname=graph_name, nlabels=node_labels, rproj=rel_proj,
-            )
+            if rel_proj:
+                session.run(
+                    "CALL gds.graph.project($gname, $nlabels, $rproj)",
+                    gname=graph_name, nlabels=node_labels, rproj=rel_proj,
+                )
+            else:
+                session.run(
+                    "CALL gds.graph.project($gname, $nlabels, '*')",
+                    gname=graph_name, nlabels=node_labels,
+                )
         except Exception as e:
             stats["error"] = f"GDS project error: {e}"
             _fallback_community_assignment(driver, community_def, prop_key)
             return stats
 
         try:
-            session.run(
-                f"CALL gds.louvain.write('{graph_name}', "
-                f"{{relationshipWeightProperty: 'weight', writeProperty: '{prop_key}'}})"
-            )
+            if rel_proj:
+                session.run(
+                    f"CALL gds.louvain.write('{graph_name}', "
+                    f"{{relationshipWeightProperty: 'weight', writeProperty: '{prop_key}'}})"
+                )
+            else:
+                session.run(
+                    f"CALL gds.louvain.write('{graph_name}', "
+                    f"{{writeProperty: '{prop_key}'}})"
+                )
             r = session.run(
                 f"MATCH (n) WHERE n.{prop_key} IS NOT NULL RETURN count(n) AS cnt"
             ).single()
@@ -1902,6 +1969,44 @@ def resolve_mbti_codes_from_dimensions(dimensions: list[str]) -> list[str]:
     return [t for t in all_types if required.issubset(set(t))]
 
 
+# ── Rule-based dimension detector ────────────────────────────────────────────
+# Map từ khóa mô tả tính cách → MBTI dimension letter
+# Đảm bảo "hướng ngoại" không bị LLM đoán thành "ESTP" mà expand đúng sang 8 type E
+_DIMENSION_DETECTOR: list[tuple[re.Pattern, str]] = [
+    # E / I — năng lượng
+    (re.compile(r"hướng\s*ngoại|năng\s*động.*xã\s*hội|thích\s*giao\s*tiếp\s*nhiều|extrovert", re.IGNORECASE | re.UNICODE), "E"),
+    (re.compile(r"hướng\s*nội|điềm\s*tĩnh|kín\s*đáo|suy\s*tư|introvert", re.IGNORECASE | re.UNICODE), "I"),
+    # N / S — nhận thức
+    (re.compile(r"trực\s*giác|tưởng\s*tượng|tầm\s*nhìn\s*xa|sáng\s*tạo.*ý\s*tưởng|intuitive", re.IGNORECASE | re.UNICODE), "N"),
+    (re.compile(r"thực\s*tế|thực\s*tiễn|chi\s*tiết|cụ\s*thể|sensing", re.IGNORECASE | re.UNICODE), "S"),
+    # T / F — quyết định
+    (re.compile(r"logic|lý\s*trí|phân\s*tích\s*lạnh|khách\s*quan|thinking", re.IGNORECASE | re.UNICODE), "T"),
+    (re.compile(r"đồng\s*cảm|cảm\s*xúc|nhân\s*văn|quan\s*tâm\s*người\s*khác|feeling", re.IGNORECASE | re.UNICODE), "F"),
+    # J / P — lối sống
+    (re.compile(r"kỷ\s*luật|ngăn\s*nắp|có\s*kế\s*hoạch|có\s*tổ\s*chức|judging", re.IGNORECASE | re.UNICODE), "J"),
+    (re.compile(r"linh\s*hoạt|ngẫu\s*hứng|tự\s*do|phóng\s*khoáng|perceiving", re.IGNORECASE | re.UNICODE), "P"),
+]
+
+
+def detect_dimensions_from_text(question: str) -> list[str]:
+    """
+    Phát hiện MBTI dimension letters từ từ khóa mô tả tính cách.
+    VD: "tôi hướng ngoại" → ["E"]
+        "tôi logic và có kỷ luật" → ["T", "J"]
+    Không xung đột (I + E cùng lúc → bỏ cả hai).
+    """
+    dims: list[str] = []
+    for pattern, dim in _DIMENSION_DETECTOR:
+        if pattern.search(question) and dim not in dims:
+            dims.append(dim)
+    # Loại xung đột: E vs I, N vs S, T vs F, J vs P
+    conflicts = [("E", "I"), ("N", "S"), ("T", "F"), ("J", "P")]
+    for a, b in conflicts:
+        if a in dims and b in dims:
+            dims = [d for d in dims if d not in (a, b)]
+    return dims
+
+
 _COMPARE_CUE_PATTERN = re.compile(
     r"\b(vs|versus)\b|so sánh|phân vân|giữa.+và|nên chọn bên nào|nên chọn cái nào"
     r"|nên học.{0,30}hay.{0,30}(ngành|chuyên ngành)"
@@ -1937,16 +2042,16 @@ _MAJOR_EXCLUDE_SKILL_PATTERN = re.compile(
     r"ng[àa]nh\s*(n[àa]o)?.{0,20}(kh[oô]ng\s*(c[aầ]n|y[eê]u\s*c[aầ]u|đ[oò]i|ph[aả]i)|"
     r"kh[oô]ng\s*c[aầ]n\s*ph[aả]i|mi[eễ]n\s*(kh[oô]ng\s*)?ph[aả]i|kh[oô]ng\s*dùng)"
     r".{0,40}",
-    re.IGNORECASE | re.UNICODE, #khớp bất kỳ ký tự nào, tối thiểu 0, tối đa 20- 40 ký tự
+    re.IGNORECASE | re.UNICODE,
 )
 
-_CAREER_ALIAS_HINTS: list[tuple[re.Pattern[str], list[str]]] = [
+_CAREER_ALIAS_HINTS: list[tuple[re.Pattern, list[str]]] = [
     (re.compile(r"\b(tester|qa|quality assurance|kiểm thử)\b", re.IGNORECASE | re.UNICODE),
      ["kiểm thử", "tester", "quality assurance"]),
     (re.compile(r"\b(developer|dev|lập trình viên)\b", re.IGNORECASE | re.UNICODE),
      ["lập trình viên", "developer"]),
 ]
-_DOMAIN_HINTS: list[tuple[re.Pattern[str], list[str], list[str]]] = [
+_DOMAIN_HINTS: list[tuple[re.Pattern, list[str], list[str]]] = [
     (re.compile(r"\b(cntt|it|công nghệ thông tin)\b", re.IGNORECASE | re.UNICODE),
      ["công nghệ thông tin"], ["MAJOR"]),
     (re.compile(r"\b(database|cơ sở dữ liệu)\b", re.IGNORECASE | re.UNICODE),
@@ -1957,7 +2062,7 @@ _DOMAIN_HINTS: list[tuple[re.Pattern[str], list[str], list[str]]] = [
 
 # Map pattern → field_name để inject field_context vào intent
 # Dùng khi câu hỏi là "tính cách gì hợp làm X" → cần filter PERSONALITY theo lĩnh vực X
-_FIELD_CONTEXT_HINTS: list[tuple[re.Pattern[str], str]] = [
+_FIELD_CONTEXT_HINTS: list[tuple[re.Pattern, str]] = [
     (re.compile(r"\b(cntt|it|công nghệ thông tin|lập trình|phần mềm|kỹ thuật phần mềm|hệ thống thông tin)\b",
                 re.IGNORECASE | re.UNICODE), "Công nghệ thông tin"),
     (re.compile(r"\b(kinh tế|tài chính|kế toán|ngân hàng|kinh doanh|quản trị|marketing)\b",
@@ -2022,27 +2127,13 @@ def apply_intent_rules(question: str, intent: dict) -> dict:
     # Bổ sung phủ định nghề phổ biến (sale/marketing) khi LLM bỏ sót.
     for m in _NEGATED_CAREER_PATTERN.finditer(q):
         neg_kw = m.group(1).strip()
-        if neg_kw:
+        if neg_kw not in negated:
             negated.append(neg_kw)
 
     if _COMPARE_CUE_PATTERN.search(q):
         is_comp = True
-        if "CAREER" not in mentioned:
-            mentioned.append("CAREER")
 
-    has_personality_signal = (
-        bool(_PERSONALITY_KW_PATTERN.search(q))
-        or bool(_MBTI_PATTERN.search(q))
-        or bool(intent.get("mbti_dimensions", []))
-        or ("PERSONALITY" in mentioned)
-    )
-    if has_personality_signal and "PERSONALITY" not in mentioned:
-        mentioned.append("PERSONALITY")
-
-    if _MAJOR_CUE_PATTERN.search(q) and "MAJOR" not in mentioned:
-        mentioned.append("MAJOR")
-    if _SKILL_CUE_PATTERN.search(q) and "SKILL" not in mentioned:
-        mentioned.append("SKILL")
+    has_personality_signal = "PERSONALITY" in mentioned or _PERSONALITY_KW_PATTERN.search(q)
 
     # Rule 1: hỏi rõ "tính cách gì/nào" => asked = PERSONALITY.
     if _ASK_PERSONALITY_PATTERN.search(q):
@@ -2149,6 +2240,10 @@ def get_relationship_constraint(intent: dict) -> str:
             "TUYỆT ĐỐI không liệt kê CAREER, SKILL hay vị trí công việc — chỉ MAJOR."
         )
 
+    if is_comp and "MAJOR" in mentioned:
+        return RELATIONSHIP_CONSTRAINTS.get(("MAJOR", "MAJOR"), "")
+
+    # So sánh 2 nghề
     if is_comp and (asked == "CAREER" or "CAREER" in mentioned):
         return (
             "So sánh 2 nghề nghiệp được nêu trong câu hỏi dựa trên dữ liệu graph. "
@@ -2160,9 +2255,6 @@ def get_relationship_constraint(intent: dict) -> str:
             "Cuối cùng kết luận nên ưu tiên nghề nào dựa trên tính cách/ưu tiên user nêu trong câu hỏi. "
             "Tuyệt đối không dùng kiến thức ngoài graph."
         )
-
-    if is_comp and "MAJOR" in mentioned:
-        return RELATIONSHIP_CONSTRAINTS.get(("MAJOR", "MAJOR"), "")
 
     for m in ([mentioned[0]] if mentioned else []) + mentioned:
         key = (m, asked)
@@ -3078,6 +3170,7 @@ def generate_answer(
     intent:       dict,
     community_def: dict | None = None,
     override_constraint: str | None = None,
+    history: list[dict] | None = None,
 ) -> str:
     context = json.dumps({
         "ranked_results":  ranked_nodes,
@@ -3092,25 +3185,17 @@ def generate_answer(
     negated = intent.get("negated_keywords", [])
     if negated:
         constraint += (
-            f"\n\nLUAT PHU DINH TUYET DOI: Nguoi dung KHONG muon: {negated}. "
-            "LOAI BO HOAN TOAN khoi goi y — day la luat code, khong phai goi y."
-        )
-
-    # Đính kèm constraints từ structured preprocessing (nếu có)
-    constraints_list = intent.get("constraints", [])
-    if constraints_list:
-        constraint += (
-            f"\n\nRANG BUOC NGUOI DUNG (trich xuat tu phan tich cau hoi): "
-            + "; ".join(constraints_list)
+            f"\n\nLƯU Ý PHỦ ĐỊNH: Người dùng KHÔNG giỏi/thích: {negated}. "
+            "Loại bỏ khỏi gợi ý."
         )
 
     if community_def:
         community_context = (
-            f"Tang {community_def['level']} - {community_def['name']}\n"
-            f"Muc tieu: {community_def['purpose']}"
+            f"Tầng {community_def['level']} — {community_def['name']}\n"
+            f"Mục tiêu: {community_def['purpose']}"
         )
     else:
-        community_context = "L1 Global - Toan bo he sinh thai dao tao"
+        community_context = "L1 Global — Toàn bộ hệ sinh thái đào tạo"
 
     system_prompt = ANSWER_SYSTEM_BASE.format(
         schema=SCHEMA_DESC,
@@ -3121,50 +3206,12 @@ def generate_answer(
     no_data_hint = ""
     if not ranked_nodes:
         no_data_hint = (
-            "\n[CANH BAO: Khong tim thay du lieu trong Knowledge Graph. "
-            "Thong bao lich su, khong bia thong tin.]"
+            "\n[CẢNH BÁO: Không tìm thấy dữ liệu trong Knowledge Graph. "
+            "Thông báo lịch sự, không bịa thông tin.]"
         )
 
     # Block [PHAN TICH CAU HOI] — structured intent từ Preprocessing step
     # Giúp LLM biết chính xác mục đích và các ràng buộc, KHÔNG cần tự đoán lại
-    analysis_block = ""
-    original_context = intent.get("original_context", "")
-    structured_intent_label = intent.get("structured_intent", "")
-    if original_context or structured_intent_label:
-        analysis_block = (
-            "\n\n[PHAN TICH CAU HOI - DA DUOC XU LY TRUOC]:\n"
-            f"  Loai yeu cau: {structured_intent_label}\n"
-            f"  Muc dich: {original_context}\n"
-        )
-        if constraints_list:
-            analysis_block += (
-                "  Rang buoc can tuan thu:\n"
-                + "".join(f"    - {c}\n" for c in constraints_list)
-            )
-        if negated:
-            analysis_block += (
-                f"  Loai tru tuyet doi (exclude=true): {negated}\n"
-                "  (Day la ket qua phan tich code — BAN PHAI tuan thu, "
-                "khong duoc neu cac muc nay trong cau tra loi.)\n"
-            )
-
-    # Nhắc LLM filter theo lĩnh vực khi câu hỏi là "tính cách gì hợp làm X"
-    field_context_hint = ""
-    field_context = intent.get("field_context")
-    if field_context and intent.get("asked_label") == "PERSONALITY":
-        field_context_hint = (
-            f"\n[HUONG DAN DAC BIET - LINH VUC: {field_context}]: "
-            f"Cau hoi hoi tinh cach phu hop voi linh vuc '{field_context}'. "
-            f"Tu [DU LIEU GRAPH], CHI liet ke cac PERSONALITY node co suitable_fields "
-            f"chua linh vuc '{field_context}' hoac da duoc lien ket (SUITS_MAJOR/SUITS_CAREER) "
-            f"voi nganh/nghe thuoc linh vuc '{field_context}'. "
-            f"Voi moi tinh cach, giai thich ngan gon TAI SAO phu hop voi linh vuc nay "
-            f"(dua vao strengths/structure trong node PERSONALITY). "
-            f"DINH DANG: bang markdown | MBTI | Ten tinh cach | Ly do phu hop |, "
-            f"sau do them doan tom tat dac diem chung.]"
-        )
-
-    # Nhắc LLM không nhắc đến môn đại cương khi đang trả lời câu hỏi gợi ý môn
     excluded_hint = ""
     if intent.get("_exclude_common_subjects"):
         excluded_hint = (
@@ -3178,20 +3225,38 @@ def generate_answer(
             "Day la cac mon bat buoc chung moi nganh - khong can tu van rieng.]"
         )
 
+    # Nhắc LLM filter theo lĩnh vực khi câu hỏi là "tính cách gì hợp làm X"
+    field_context_hint = ""
+    field_context = intent.get("field_context")
+    if field_context and intent.get("asked_label") == "PERSONALITY":
+        field_context_hint = (
+            f"\n[HƯỚNG DẪN ĐẶC BIỆT — LĨNH VỰC: {field_context}]: "
+            f"Câu hỏi hỏi tính cách phù hợp với lĩnh vực '{field_context}'. "
+            f"Từ [DỮ LIỆU GRAPH], CHỈ liệt kê các PERSONALITY node có suitable_fields "
+            f"chứa lĩnh vực '{field_context}' hoặc đã được liên kết (SUITS_MAJOR/SUITS_CAREER) "
+            f"với ngành/nghề thuộc lĩnh vực '{field_context}'. "
+            f"Với mỗi tính cách, giải thích ngắn gọn TẠI SAO phù hợp với lĩnh vực này "
+            f"(dựa vào strengths/structure trong node PERSONALITY). "
+            f"ĐỊNH DẠNG: bảng markdown | MBTI | Tên tính cách | Lý do phù hợp |, "
+            f"sau đó thêm đoạn tóm tắt đặc điểm chung.]"
+        )
+
+    # Xây dựng messages với lịch sử hội thoại
+    messages = [{"role": "system", "content": system_prompt}]
+    if history:
+        messages.extend(list(history))
+    messages.append({"role": "user", "content": (
+        f"Câu hỏi: {question}\n\n"
+        f"[DỮ LIỆU GRAPH]:\n{context}"
+        f"{no_data_hint}"
+        f"{field_context_hint}"
+        f"{excluded_hint}\n\n"
+        "Trả lời CHỈ dùng tên/code từ [DỮ LIỆU GRAPH]:"
+    )})
+
     response = ai_client.chat.completions.create(
         model=OPENAI_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user",   "content": (
-                f"Cau hoi: {question}"
-                f"{analysis_block}"
-                f"\n\n[DU LIEU GRAPH]:\n{context}"
-                f"{no_data_hint}"
-                f"{field_context_hint}"
-                f"{excluded_hint}\n\n"
-                "Tra loi CHI dung ten/code tu [DU LIEU GRAPH]:"
-            )},
-        ],
+        messages=messages,
         temperature=0.1,
     )
     raw = response.choices[0].message.content.strip()
@@ -3201,9 +3266,9 @@ def generate_answer(
     _mentioned = intent.get("mentioned_labels", [])
     if _asked == "SUBJECT" and "TEACHER" not in _mentioned:
         raw += (
-            "\n\n---\nTham khao them: Ban co the vao courses.neu.edu.vn "
-            "de tim hieu chi tiet ve cac mon dai cuong, co so nganh, "
-            "kien thuc nganh, va cac mon tu chon nganh va chuyen sau."
+            "\n\n---\nTham khảo thêm: Bạn có thể truy cập courses.neu.edu.vn "
+            "để tìm hiểu chi tiết về các môn đại cương, cơ sở ngành "
+            "kiến thức ngành, các môn tự chọn ngành và chuyên sâu."
         )
 
     return raw
@@ -3242,6 +3307,23 @@ def detect_ctdt_question(question: str) -> str | None:
 # Câu hỏi về bản thân chatbot
 # Pattern nhận diện câu hỏi về identity/capability của chatbot
 # Gộp từ _META_PATTERNS (script3) + _SELF_INTRO_PATTERN (script3a)
+_TUITION_KEYWORDS = re.compile(
+    r"học phí|tiền học|chi phí học|mức phí|phí đào tạo|đóng tiền|nộp tiền"
+    r"|học bổng.*tiền|tiền.*học bổng"
+    r"|giá học|bao nhiêu tiền|tốn bao nhiêu|chi phí.*(?:ngành|khoá|chương trình)"
+    r"|(?:ngành|khoá|chương trình).*chi phí"
+    r"|phí.*(?:ngành|khoá|học kỳ|năm học)"
+    r"|(?:ngành|khoá|học kỳ|năm học).*phí"
+    r"|học kỳ.*tiền|tiền.*học kỳ"
+    r"|đóng.*(?:học phí|tiền)|(?:học phí|tiền).*đóng",
+    re.IGNORECASE | re.UNICODE,
+)
+
+def detect_tuition_question(question: str) -> bool:
+    """Trả về True nếu câu hỏi liên quan đến học phí / tiền học."""
+    return bool(_TUITION_KEYWORDS.search(question.strip()))
+
+
 _SELF_INTRO_PATTERN = re.compile(
     # Từ script3._META_PATTERNS
     r"bạn (là|là gì|là ai|có thể|làm được|giúp được|biết gì|dùng để làm|làm gì|làm đc gì|lm đc gì)\b"
@@ -3345,6 +3427,22 @@ OFF_TOPIC_ANSWER = (
 )
 
 
+def detect_score_convert(question: str) -> bool:
+    """Trả về True nếu câu hỏi hỏi về quy đổi điểm."""
+    if _ADMISSION_SAFE.search(question):
+        return False
+    return bool(_SCORE_CONVERT_PATTERN.search(question))
+
+
+def detect_admission_info(question: str) -> bool:
+    """Trả về True nếu câu hỏi hỏi về thông tin tuyển sinh quy chế/lộ trình."""
+    if _ADMISSION_SAFE.search(question):
+        return False
+    if _ADMISSION_PATTERN.search(question) and not _ADMISSION_INFO_PATTERN.search(question):
+        return False
+    return bool(_ADMISSION_INFO_PATTERN.search(question))
+
+
 def detect_off_topic(question: str) -> bool:
     """Trả về True nếu câu hỏi ngoài phạm vi của chatbot."""
     # Nếu câu hỏi có từ khóa học thuật/NEU → không phải off-topic
@@ -3361,7 +3459,7 @@ def detect_self_intro(question: str) -> bool:
     """Trả về True nếu user hỏi về bản thân chatbot."""
     return bool(_SELF_INTRO_PATTERN.search(question))
 
-def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -> dict:
+def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None, history: list[dict] | None = None) -> dict:
     if query_id is None:
         query_id = "q" + uuid.uuid4().hex[:6]
 
@@ -3390,6 +3488,42 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
             [], [], "off_topic_static",
         )
     
+    # ── Score convert redirect ──────────────────────────────────────────────
+    if detect_score_convert(question):
+        print(f"\nA (score_convert): redirect")
+        return _build_record(
+            query_id, question, SCORE_CONVERT_ANSWER, [],
+            {"asked_label": "SCORE_CONVERT", "mentioned_labels": [],
+             "keywords": [], "negated_keywords": [],
+             "community_id": "REDIRECT"},
+            [], [], "score_convert_redirect",
+        )
+
+    # ── Admission info redirect ───────────────────────────────────────────────
+    if detect_admission_info(question):
+        print(f"\nA (admission_info): redirect")
+        return _build_record(
+            query_id, question, ADMISSION_INFO_ANSWER, [],
+            {"asked_label": "ADMISSION_INFO", "mentioned_labels": [],
+             "keywords": [], "negated_keywords": [],
+             "community_id": "REDIRECT"},
+            [], [], "admission_info_redirect",
+        )
+
+    # ── Tuition question ──────────────────────────────────────────────────────
+    if detect_tuition_question(question):
+        _tuition_ans = (
+            'Mình rất tiếc, hiện tại mình **không có thông tin về học phí** tại NEU. 🙏\\n\\nĐể biết mức học phí chính xác và cập nhật nhất, bạn vui lòng:\\n- Truy cập trang chính thức: [neu.edu.vn](https://neu.edu.vn)\\n- Liên hệ **Phòng Đào tạo** hoặc **Phòng Kế hoạch – Tài chính** của trường\\n- Hoặc gọi đường dây hỗ trợ tuyển sinh của NEU để được tư vấn trực tiếp.\\n\\nNếu bạn có câu hỏi khác về chương trình đào tạo, ngành học hay điểm chuẩn, mình sẵn sàng hỗ trợ! 😊'
+        )
+        print(f"\nA (tuition): not supported")
+        return _build_record(
+            query_id, question, _tuition_ans, [],
+            {"asked_label": "TUITION", "mentioned_labels": [],
+             "keywords": [], "negated_keywords": [],
+             "community_id": "TUITION_NOT_SUPPORTED"},
+            [], [], "tuition_not_supported",
+        )
+
     ctdt_major = detect_ctdt_question(question)
     if ctdt_major is not None:
         answer = (
@@ -3457,6 +3591,7 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
             intent=agg_intent,
             community_def=COMMUNITY_LEVELS["L1_GLOBAL"],
             override_constraint=agg_constraint,
+            history=history,
         )
         print(f"\nA: {answer}")
         return _build_record(query_id, question, answer, [], agg_intent,
@@ -3514,18 +3649,25 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
 
     # ── Bước 1b: Resolve MBTI codes ──────────────────────────────────────────
     # Ưu tiên 1: MBTI code tường minh (INTJ, ESTP...) từ regex expand_mbti
-    # Ưu tiên 2: dimensions do LLM suy luận từ từ đồng nghĩa tính cách
-    dimensions = intent.get("mbti_dimensions", [])
+    # Ưu tiên 2: Rule-based dimension detection (hướng ngoại → E → 8 E-types)
+    # Ưu tiên 3: dimensions do LLM suy luận (fallback, có thể không chính xác)
+    dimensions_llm   = intent.get("mbti_dimensions", [])
+    dimensions_rules = detect_dimensions_from_text(question)
+
+    # Rule-based override: nếu regex bắt được dimensions → dùng rule, bỏ qua LLM guess
+    dimensions = dimensions_rules if dimensions_rules else dimensions_llm
+    if dimensions_rules and dimensions_rules != dimensions_llm:
+        print(f"  [mbti] rule-based dims={dimensions_rules} override LLM dims={dimensions_llm}")
 
     if mbti_keywords:
         # Explicit code → dùng trực tiếp, bỏ qua dimensions
         all_mbti_keywords = mbti_keywords
         print(f"  [mbti override] source=explicit code={mbti_keywords[0].upper()}")
     elif dimensions:
-        # LLM suy luận dimensions → expand thành MBTI codes
+        # Expand dimensions thành tất cả MBTI codes chứa dimension đó
         all_mbti_keywords = resolve_mbti_codes_from_dimensions(dimensions)
-        print(f"  [mbti override] source=llm-dimensions dims={dimensions} "
-              f"→ {len(all_mbti_keywords)} codes: {all_mbti_keywords}")
+        print(f"  [mbti override] source={'rules' if dimensions_rules else 'llm'}-dims "
+              f"dims={dimensions} → {len(all_mbti_keywords)} codes: {all_mbti_keywords}")
     else:
         all_mbti_keywords = []
 
@@ -3620,6 +3762,10 @@ def ask(driver, ai_client: OpenAI, question: str, query_id: str | None = None) -
     )
     print(f"\nA: {answer}")
 
+    # Lưu lượt hội thoại vào memory (CLI dùng key "cli", có thể mở rộng per-session)
+    _conversation_memory["cli"].append({"role": "user",      "content": question})
+    _conversation_memory["cli"].append({"role": "assistant", "content": answer})
+
     return _build_record(
         query_id, question, answer, keywords, intent,
         context_nodes, traversal_paths,
@@ -3655,6 +3801,11 @@ def _build_record(
     }
 
 
+# ── Conversation Memory ──────────────────────────────────────────────────────
+# Lưu tối đa 5 lượt hội thoại gần nhất (10 messages) theo session key
+_conversation_memory: dict[str, deque] = defaultdict(lambda: deque(maxlen=10))
+
+
 def get_driver():
     return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
 
@@ -3676,7 +3827,9 @@ def interactive_loop(driver, ai_client: OpenAI):
         if question.lower() in ("exit", "quit", "thoat", "thoát"):
             print("Tạm biệt!")
             break
-        ask(driver, ai_client, question, query_id=f"q{counter:03d}")
+        session_history = list(_conversation_memory["cli"])
+        ask(driver, ai_client, question, query_id=f"q{counter:03d}",
+            history=session_history if session_history else None)
         counter += 1
 
 
